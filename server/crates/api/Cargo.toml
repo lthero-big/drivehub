@@ -9,18 +9,28 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+argon2 = { version = "0.5", features = ["std"] }
 async-trait.workspace = true
 axum.workspace = true
 bytes = "1.12.2"
 drivehub-core.workspace = true
 drivehub-search.workspace = true
 drivehub-storage.workspace = true
+drivehub-webdav.workspace = true
+data-encoding = "2"
+hmac = "0.12"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier", "hostname"] }
+rand = "0.8"
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls"] }
+sha1 = "0.10"
+sha2 = "0.10"
 futures = "0.3.34"
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tokio-util = { version = "0.7.20", features = ["io"] }
+url = "2"
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

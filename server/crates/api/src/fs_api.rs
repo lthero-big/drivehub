@@ -1,5 +1,6 @@
 //! Core file API (DEPTAI-469): mounts, unified tree, list/stat/download(Range)/upload/
 //! mkdir/rename/move/copy/delete, tasks.
+use crate::auth::{Principal, CH_API};
 use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::tasks::TaskInfo;
 use crate::vfs::{MountConfig, Resolved};
@@ -9,8 +10,9 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    Json,
+    Extension, Json,
 };
+use drivehub_core::acl::{CREATE, DELETE, DOWNLOAD, EDIT, READ, UPLOAD};
 use drivehub_storage::{ByteRange, Entry, TransferMode};
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
@@ -82,15 +84,20 @@ pub struct ListResp {
     responses((status = 200, body = ListResp), (status = 404, body = ErrorBody)))]
 pub async fn list(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Query(q): Query<ListQuery>,
 ) -> ApiResult<Json<ListResp>> {
     let path = q.path.clone().unwrap_or_else(|| "/".into());
-    let mut items: Vec<FsItem> = match st.vfs.resolve(&path)? {
+    let real = p.map_in(&path)?;
+    if !real.is_empty() {
+        st.authorize(&p, &real, READ, CH_API, "list")?;
+    }
+    let mut items: Vec<FsItem> = match st.vfs.resolve(&real)? {
         Resolved::Root => st
             .vfs
             .mounts()
             .into_iter()
-            .filter(|m| !m.cfg.hidden)
+            .filter(|m| !m.cfg.hidden && st.can_see_mount(&p, &m.cfg.name))
             .map(|m| FsItem {
                 name: m.cfg.name.clone(),
                 path: format!("/{}", m.cfg.name),
@@ -106,7 +113,15 @@ pub async fn list(
                 .vfs
                 .list(&mount, &rel, q.refresh.unwrap_or(false))
                 .await?;
-            entries.iter().map(|e| item(&mount.cfg.name, e)).collect()
+            entries
+                .iter()
+                .map(|e| item(&mount.cfg.name, e))
+                .filter(|i| st.perms(&p, &i.path).has(READ))
+                .filter_map(|mut i| {
+                    i.path = p.map_out(&i.path)?;
+                    Some(i)
+                })
+                .collect()
         }
     };
     let root = items.iter().any(|i| i.mount_kind.is_some());
@@ -151,9 +166,15 @@ pub struct PathQuery {
     responses((status = 200, body = FsItem), (status = 404, body = ErrorBody)))]
 pub async fn stat(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Query(q): Query<PathQuery>,
 ) -> ApiResult<Json<FsItem>> {
-    match st.vfs.resolve(&q.path)? {
+    let real = p.map_in(&q.path)?;
+    if !real.is_empty() {
+        st.authorize(&p, &real, READ, CH_API, "stat")?;
+    }
+    let user_path = format!("/{}", drivehub_storage::norm(&q.path)?);
+    match st.vfs.resolve(&real)? {
         Resolved::Root => Ok(Json(FsItem {
             name: String::new(),
             path: "/".into(),
@@ -166,6 +187,7 @@ pub async fn stat(
         Resolved::InMount { mount, rel } => {
             let e = mount.driver.stat(&rel).await?;
             let mut it = item(&mount.cfg.name, &e);
+            it.path = user_path;
             if rel.is_empty() {
                 it.name = mount.cfg.name.clone();
                 it.mount_kind = Some(mount.cfg.kind.clone());
@@ -217,10 +239,13 @@ pub fn parse_range(h: &str, size: u64) -> Result<Option<(u64, u64)>, ()> {
               (status = 404, body = ErrorBody)))]
 pub async fn download(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     headers: HeaderMap,
     Query(q): Query<PathQuery>,
 ) -> ApiResult<Response> {
-    let (mount, rel) = st.vfs.resolve_in(&q.path, false)?;
+    let real = p.map_in(&q.path)?;
+    st.authorize(&p, &real, DOWNLOAD, CH_API, "download")?;
+    let (mount, rel) = st.vfs.resolve_in(&real, false)?;
     let e = mount.driver.stat(&rel).await?;
     if e.is_dir {
         return Err(ApiError::bad("is a directory"));
@@ -326,22 +351,45 @@ pub struct UploadQuery {
     responses((status = 200, body = FsItem), (status = 403, body = ErrorBody), (status = 409, body = ErrorBody)))]
 pub async fn upload(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
+    headers: HeaderMap,
     Query(q): Query<UploadQuery>,
     body: Body,
 ) -> ApiResult<Json<FsItem>> {
-    let (mount, rel) = st.vfs.resolve_in(&q.path, true)?;
-    if !q.overwrite.unwrap_or(true) && mount.driver.stat(&rel).await.is_ok() {
+    let real = p.map_in(&q.path)?;
+    let (mount, rel) = st.vfs.resolve_in(&real, true)?;
+    let exists = mount.driver.stat(&rel).await.ok();
+    if exists.as_ref().is_some_and(|e| e.is_dir) {
+        return Err(ApiError(StatusCode::CONFLICT, "is a directory".into()));
+    }
+    let need = if exists.is_some() {
+        UPLOAD | EDIT
+    } else {
+        UPLOAD
+    };
+    st.authorize(&p, &real, need, CH_API, "upload")?;
+    if exists.is_some() && !q.overwrite.unwrap_or(true) {
         return Err(ApiError(StatusCode::CONFLICT, "file exists".into()));
     }
+    let len = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    st.check_quota(&p, len.unwrap_or(0)).await?;
     let stream = body.into_data_stream().map_err(std::io::Error::other);
-    mount
+    let n = mount
         .driver
         .write_stream(&rel, Box::pin(stream), &|_| {})
         .await?;
     st.vfs.invalidate(&mount.cfg.name);
+    st.add_usage(&p, n as i64 - exists.map(|e| e.size as i64).unwrap_or(0))
+        .await;
+    st.audit(&p, CH_API, "upload", &real, true, &format!("{n} bytes"));
     let e = mount.driver.stat(&rel).await?;
     st.index_upsert(&mount.cfg.name, &e).await;
-    Ok(Json(item(&mount.cfg.name, &e)))
+    let mut it = item(&mount.cfg.name, &e);
+    it.path = p.map_out(&it.path).unwrap_or_default();
+    Ok(Json(it))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -359,9 +407,16 @@ pub struct OkResp {
 
 /// Creates a directory (parents included).
 #[utoipa::path(post, path = "/api/fs/mkdir", request_body = PathBody, responses((status = 200, body = OkResp)))]
-pub async fn mkdir(State(st): State<AppState>, Json(b): Json<PathBody>) -> ApiResult<Json<OkResp>> {
-    let (mount, rel) = st.vfs.resolve_in(&b.path, true)?;
+pub async fn mkdir(
+    State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Json(b): Json<PathBody>,
+) -> ApiResult<Json<OkResp>> {
+    let real = p.map_in(&b.path)?;
+    st.authorize(&p, &real, CREATE, CH_API, "mkdir")?;
+    let (mount, rel) = st.vfs.resolve_in(&real, true)?;
     mount.driver.mkdir(&rel).await?;
+    st.audit(&p, CH_API, "mkdir", &real, true, "");
     st.after_change(&mount.cfg.name);
     Ok(Json(OkResp {
         ok: true,
@@ -379,17 +434,28 @@ pub struct RenameBody {
 #[utoipa::path(post, path = "/api/fs/rename", request_body = RenameBody, responses((status = 200, body = OkResp)))]
 pub async fn rename(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Json(b): Json<RenameBody>,
 ) -> ApiResult<Json<OkResp>> {
     if b.new_name.is_empty() || b.new_name.contains('/') || b.new_name == ".." {
         return Err(ApiError::bad("invalid new_name"));
     }
-    let (mount, rel) = st.vfs.resolve_in(&b.path, true)?;
+    let real = p.map_in(&b.path)?;
+    st.authorize(&p, &real, EDIT, CH_API, "rename")?;
+    let (mount, rel) = st.vfs.resolve_in(&real, true)?;
     let to = match rel.rsplit_once('/') {
         Some((parent, _)) => format!("{parent}/{}", b.new_name),
         None => b.new_name.clone(),
     };
+    st.authorize(
+        &p,
+        &format!("{}/{to}", mount.cfg.name),
+        EDIT,
+        CH_API,
+        "rename",
+    )?;
     mount.driver.rename(&rel, &to).await?;
+    st.audit(&p, CH_API, "rename", &real, true, &b.new_name);
     st.after_change(&mount.cfg.name);
     Ok(Json(OkResp {
         ok: true,
@@ -405,10 +471,30 @@ pub struct SrcDst {
     pub dst: String,
 }
 
-async fn copy_or_move(st: AppState, b: SrcDst, kind: &str) -> ApiResult<Json<OkResp>> {
-    let (sm, srel) = st.vfs.resolve_in(&b.src, kind == "move")?;
-    let (dm, drel) = st.vfs.resolve_in(&b.dst, true)?;
-    sm.driver.stat(&srel).await?;
+async fn copy_or_move(
+    st: AppState,
+    p: Principal,
+    b: SrcDst,
+    kind: &str,
+) -> ApiResult<Json<OkResp>> {
+    let (src, dst) = (p.map_in(&b.src)?, p.map_in(&b.dst)?);
+    let (sm, srel) = st.vfs.resolve_in(&src, kind == "move")?;
+    let (dm, drel) = st.vfs.resolve_in(&dst, true)?;
+    let se = sm.driver.stat(&srel).await?;
+    let src_need = if kind == "move" {
+        EDIT
+    } else {
+        READ | DOWNLOAD
+    };
+    st.authorize(&p, &src, src_need, CH_API, kind)?;
+    let dst_need = if se.is_dir { CREATE } else { UPLOAD };
+    let dst_need = if kind == "move" {
+        dst_need | EDIT
+    } else {
+        dst_need
+    };
+    st.authorize(&p, &dst, dst_need, CH_API, kind)?;
+    st.audit(&p, CH_API, kind, &src, true, &format!("-> /{dst}"));
     if sm.cfg.name == dm.cfg.name {
         if drel == srel || drel.starts_with(&format!("{srel}/")) {
             return Err(ApiError::bad("destination is inside source"));
@@ -424,7 +510,10 @@ async fn copy_or_move(st: AppState, b: SrcDst, kind: &str) -> ApiResult<Json<OkR
             task_id: None,
         }));
     }
-    let id = st.tasks.enqueue(kind, &b.src, &b.dst).await?;
+    let id = st
+        .tasks
+        .enqueue(kind, &format!("/{src}"), &format!("/{dst}"))
+        .await?;
     Ok(Json(OkResp {
         ok: true,
         task_id: Some(id),
@@ -433,24 +522,46 @@ async fn copy_or_move(st: AppState, b: SrcDst, kind: &str) -> ApiResult<Json<OkR
 
 /// Copies; same storage = synchronous, cross-storage = background task (see /api/tasks).
 #[utoipa::path(post, path = "/api/fs/copy", request_body = SrcDst, responses((status = 200, body = OkResp)))]
-pub async fn copy(State(st): State<AppState>, Json(b): Json<SrcDst>) -> ApiResult<Json<OkResp>> {
-    copy_or_move(st, b, "copy").await
+pub async fn copy(
+    State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Json(b): Json<SrcDst>,
+) -> ApiResult<Json<OkResp>> {
+    copy_or_move(st, p, b, "copy").await
 }
 
 /// Moves; same storage = synchronous rename, cross-storage = background copy+delete task.
 #[utoipa::path(post, path = "/api/fs/move", request_body = SrcDst, responses((status = 200, body = OkResp)))]
-pub async fn move_(State(st): State<AppState>, Json(b): Json<SrcDst>) -> ApiResult<Json<OkResp>> {
-    copy_or_move(st, b, "move").await
+pub async fn move_(
+    State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Json(b): Json<SrcDst>,
+) -> ApiResult<Json<OkResp>> {
+    copy_or_move(st, p, b, "move").await
 }
 
 /// Deletes a file or directory (recursive).
 #[utoipa::path(post, path = "/api/fs/delete", request_body = PathBody, responses((status = 200, body = OkResp)))]
 pub async fn delete(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Json(b): Json<PathBody>,
 ) -> ApiResult<Json<OkResp>> {
-    let (mount, rel) = st.vfs.resolve_in(&b.path, true)?;
+    let real = p.map_in(&b.path)?;
+    st.authorize(&p, &real, DELETE, CH_API, "delete")?;
+    let (mount, rel) = st.vfs.resolve_in(&real, true)?;
+    let size = mount
+        .driver
+        .stat(&rel)
+        .await
+        .ok()
+        .filter(|e| !e.is_dir)
+        .map(|e| e.size as i64);
     mount.driver.delete(&rel).await?;
+    if let Some(sz) = size {
+        st.add_usage(&p, -sz).await;
+    }
+    st.audit(&p, CH_API, "delete", &real, true, "");
     st.after_change(&mount.cfg.name);
     Ok(Json(OkResp {
         ok: true,
@@ -460,8 +571,12 @@ pub async fn delete(
 
 /// All mount points (including hidden ones).
 #[utoipa::path(get, path = "/api/mounts", responses((status = 200, body = Vec<MountConfig>)))]
-pub async fn mounts(State(st): State<AppState>) -> Json<Vec<MountConfig>> {
-    Json(
+pub async fn mounts(
+    State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> ApiResult<Json<Vec<MountConfig>>> {
+    p.require_admin()?;
+    Ok(Json(
         st.vfs
             .mounts()
             .iter()
@@ -478,15 +593,17 @@ pub async fn mounts(State(st): State<AppState>) -> Json<Vec<MountConfig>> {
                 c
             })
             .collect(),
-    )
+    ))
 }
 
 /// Creates or updates a mount point, then indexes it in the background.
 #[utoipa::path(post, path = "/api/mounts", request_body = MountConfig, responses((status = 200, body = OkResp), (status = 400, body = ErrorBody)))]
 pub async fn add_mount(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Json(cfg): Json<MountConfig>,
 ) -> ApiResult<Json<OkResp>> {
+    p.require_admin()?;
     let name = cfg.name.clone();
     st.vfs.add(cfg).await?;
     st.after_change(&name);
@@ -500,8 +617,10 @@ pub async fn add_mount(
 #[utoipa::path(delete, path = "/api/mounts/{name}", params(("name" = String, Path)), responses((status = 200, body = OkResp), (status = 404, body = ErrorBody)))]
 pub async fn remove_mount(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Path(name): Path<String>,
 ) -> ApiResult<Json<OkResp>> {
+    p.require_admin()?;
     if !st.vfs.remove(&name).await? {
         return Err(ApiError::not_found("no such mount"));
     }
@@ -523,8 +642,10 @@ pub struct TasksQuery {
 #[utoipa::path(get, path = "/api/tasks", params(TasksQuery), responses((status = 200, body = Vec<TaskInfo>)))]
 pub async fn tasks(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Query(q): Query<TasksQuery>,
 ) -> ApiResult<Json<Vec<TaskInfo>>> {
+    p.require_admin()?;
     Ok(Json(
         st.tasks
             .list(q.status.as_deref(), q.limit.unwrap_or(100).clamp(1, 1000))
@@ -534,7 +655,12 @@ pub async fn tasks(
 
 /// One task.
 #[utoipa::path(get, path = "/api/tasks/{id}", params(("id" = i64, Path)), responses((status = 200, body = TaskInfo), (status = 404, body = ErrorBody)))]
-pub async fn task(State(st): State<AppState>, Path(id): Path<i64>) -> ApiResult<Json<TaskInfo>> {
+pub async fn task(
+    State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<TaskInfo>> {
+    p.require_admin()?;
     st.tasks
         .get(id)
         .await?

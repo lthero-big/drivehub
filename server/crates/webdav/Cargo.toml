@@ -4,3 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+async-trait.workspace = true
+bytes = "1.12.2"
+dav-server = { version = "0.12", default-features = false }
+drivehub-storage.workspace = true
+futures = "0.3.34"
+tokio.workspace = true
+tracing.workspace = true

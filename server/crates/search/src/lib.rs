@@ -359,15 +359,13 @@ impl SearchIndex {
         let parsed = parse_query(q);
         let query = self.build_query(&parsed);
         let searcher = self.reader.searcher();
-        let (total, top) = searcher
+        // ACL is applied before paging so hidden files neither show up nor shift pages:
+        // over-fetch a window, filter, then page. `total` counts only visible hits.
+        let window = ((offset + limit.max(1)) * 4).clamp(200, 20_000);
+        let (raw_total, top) = searcher
             .search(
                 &query,
-                &(
-                    Count,
-                    TopDocs::with_limit(limit.max(1))
-                        .and_offset(offset)
-                        .order_by_score(),
-                ),
+                &(Count, TopDocs::with_limit(window).order_by_score()),
             )
             .map_err(err)?;
         let f = self.f;
@@ -398,6 +396,13 @@ impl SearchIndex {
                 hits.push(SearchHit { score, doc });
             }
         }
+        let visible = hits.len();
+        let hits: Vec<SearchHit> = hits.into_iter().skip(offset).take(limit.max(1)).collect();
+        let total = if raw_total <= window {
+            visible
+        } else {
+            visible + (raw_total - window)
+        };
         Ok(SearchResult {
             total,
             hits,

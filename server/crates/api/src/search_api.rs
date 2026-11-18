@@ -1,9 +1,10 @@
 //! Search API + mount indexer (DEPTAI-470).
+use crate::auth::Principal;
 use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::AppState;
 use axum::{
     extract::{Query, State},
-    Json,
+    Extension, Json,
 };
 use drivehub_search::{AclFilter, FileDoc, SearchMode};
 use serde::{Deserialize, Serialize};
@@ -45,11 +46,19 @@ pub struct SearchResp {
     pub hits: Vec<SearchHitDto>,
 }
 
-/// M1 visibility: hidden mounts are excluded. M2 extends this with users/ACL.
-struct VisibleMounts(HashSet<String>);
-impl AclFilter for VisibleMounts {
-    fn allow(&self, mount: &str, _path: &str) -> bool {
-        self.0.contains(mount)
+/// Visibility = not hidden + the same ACL decision (READ) as list/stat/WebDAV.
+struct VisibleTo<'a> {
+    mounts: HashSet<String>,
+    st: &'a AppState,
+    p: &'a Principal,
+}
+impl AclFilter for VisibleTo<'_> {
+    fn allow(&self, mount: &str, path: &str) -> bool {
+        self.mounts.contains(mount)
+            && self
+                .st
+                .perms(self.p, &format!("{mount}/{path}"))
+                .has(drivehub_core::acl::READ)
     }
 }
 
@@ -57,6 +66,7 @@ impl AclFilter for VisibleMounts {
 #[utoipa::path(get, path = "/api/search", params(SearchQuery), responses((status = 200, body = SearchResp), (status = 400, body = ErrorBody)))]
 pub async fn search(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Query(q): Query<SearchQuery>,
 ) -> ApiResult<Json<SearchResp>> {
     let mode = match q.mode.as_deref() {
@@ -82,14 +92,17 @@ pub async fn search(
             hits: vec![],
         }));
     }
-    let acl = VisibleMounts(
-        st.vfs
+    let acl = VisibleTo {
+        mounts: st
+            .vfs
             .mounts()
             .iter()
             .filter(|m| !m.cfg.hidden)
             .map(|m| m.cfg.name.clone())
             .collect(),
-    );
+        st: &st,
+        p: &p,
+    };
     let limit = q.limit.unwrap_or(50).clamp(1, 500);
     let r = st.search.search(&q.q, limit, q.offset.unwrap_or(0), &acl)?;
     Ok(Json(SearchResp {
@@ -103,7 +116,9 @@ pub async fn search(
             .into_iter()
             .map(|h| SearchHitDto {
                 score: h.score,
-                path: format!("/{}/{}", h.doc.mount, h.doc.path),
+                path: p
+                    .map_out(&format!("{}/{}", h.doc.mount, h.doc.path))
+                    .unwrap_or_default(),
                 mount: h.doc.mount,
                 name: h.doc.name,
                 ext: h.doc.ext,
@@ -132,8 +147,10 @@ pub struct ReindexResp {
 #[utoipa::path(post, path = "/api/search/reindex", params(ReindexQuery), responses((status = 200, body = ReindexResp)))]
 pub async fn reindex(
     State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
     Query(q): Query<ReindexQuery>,
 ) -> ApiResult<Json<ReindexResp>> {
+    p.require_admin()?;
     let t0 = std::time::Instant::now();
     let names: Vec<String> = match q.mount {
         Some(m) => {
