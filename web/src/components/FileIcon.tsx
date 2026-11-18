@@ -16,8 +16,25 @@ const TONE: Record<string, string> = {
   other: "text-faint",
 };
 
-export function FileIcon({ name, isDir, mountKind, className }: { name: string; isDir: boolean; mountKind?: string | null; className?: string }) {
+/** Layered folder: back plate, three papers, front lid (hover = lid tips back + papers rise / fan out). */
+export function FolderIcon({ size = 20, open, className }: { size?: number; open?: boolean; className?: string }) {
+  return (
+    <span aria-hidden className={cx("fi", size < 28 && "fi-sm", size >= 44 && "fi-lg", open && "fi-open", className)} style={{ width: size, height: size * 0.82 }}>
+      <i className="fi-back" />
+      <i className="fi-paper p1" />
+      <i className="fi-paper p3" />
+      <i className="fi-paper p2" />
+      <i className="fi-front" />
+    </span>
+  );
+}
+
+export function FileIcon({ name, isDir, mountKind, className, size }: { name: string; isDir: boolean; mountKind?: string | null; className?: string; size?: number }) {
   const c = cx("shrink-0", className ?? "size-5");
+  if (isDir && !mountKind) {
+    const m = /size-(\d+(?:\.\d+)?)/.exec(className ?? "");
+    return <FolderIcon size={size ?? (m ? Number(m[1]) * 4 : 20)} />;
+  }
   if (mountKind) {
     const I = mountKind === "fs" ? HardDrive : mountKind === "s3" ? Cloud : Server;
     return <I className={cx(c, "text-accent")} aria-hidden />;

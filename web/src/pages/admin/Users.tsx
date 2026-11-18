@@ -3,7 +3,7 @@ import { LogOut, Pencil, Plus, Trash2, Users as UsersIcon } from "lucide-react";
 import { call, type Group, type Me } from "../../lib/api";
 import { useApp } from "../../lib/app";
 import { errMsg, fmtSize, fmtTime } from "../../lib/util";
-import { ask, Badge, Button, Card, confirmDlg, Field, IconButton, Input, Checkbox, Modal, PageHeader, Pager, Select, Switch, toast, usePaged } from "../../ui/ui";
+import { ConfirmButton, ask, Badge, Button, Card, Field, IconButton, Input, Checkbox, Modal, PageHeader, Pager, Select, Switch, toast, usePaged } from "../../ui/ui";
 
 type Edit = { u: Me; email: string; role: string; disabled: boolean; email_verified: boolean; root_path: string; all_mounts: boolean; visible: string[]; quota_gb: string; groups: number[]; password: string; reset_totp: boolean };
 
@@ -106,7 +106,7 @@ export function UsersPage() {
                     <IconButton label="编辑" onClick={() => open(u)}><Pencil className="size-4" /></IconButton>
                     <IconButton label="强制下线" onClick={() => act(() => call("POST", `/api/admin/users/${u.id}/logout`), "已强制下线")}><LogOut className="size-4" /></IconButton>
                     {u.id !== me?.id && (
-                      <IconButton label="删除" onClick={async () => (await confirmDlg(`删除用户「${u.username}」？`, { danger: true, confirm: "删除" })) && act(() => call("DELETE", `/api/admin/users/${u.id}`), "已删除")}><Trash2 className="size-4" /></IconButton>
+                      <ConfirmButton iconOnly icon={<Trash2 />} label={`删除用户 ${u.username}`} confirmLabel="删除用户" onConfirm={() => act(() => call("DELETE", `/api/admin/users/${u.id}`), "已删除")} />
                     )}
                   </div>
                 </td>
@@ -124,7 +124,7 @@ export function UsersPage() {
           {pg.slice.map((g) => (
             <li key={g.id} className="flex items-center gap-1 rounded-xl border border-line py-1 pr-1 pl-2.5 text-[13px]">
               {g.name} <span className="text-xs text-faint">{g.members} 人</span>
-              <IconButton label={`删除 ${g.name}`} onClick={async () => (await confirmDlg(`删除用户组「${g.name}」？`, { danger: true, confirm: "删除" })) && act(() => call("DELETE", `/api/admin/groups/${g.id}`))}><Trash2 className="size-3.5" /></IconButton>
+              <ConfirmButton iconOnly size="sm" icon={<Trash2 />} label={`删除 ${g.name}`} confirmLabel="删除" onConfirm={() => act(() => call("DELETE", `/api/admin/groups/${g.id}`))} />
             </li>
           ))}
         </ul>

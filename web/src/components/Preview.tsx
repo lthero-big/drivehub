@@ -1,10 +1,10 @@
 // File preview (lazy chunk): image gallery, video/audio (+ external players), PDF, Markdown,
 // code/text, zip listing via Range reads, DOCX, and a download fallback.
-import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, X, Music } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
+import { ChevronLeft, ChevronRight, Download, ExternalLink, Music } from "lucide-react";
 import { fileUrl, rawFetch, type FsItem } from "../lib/api";
-import { cx, ext, fmtSize, fmtTime, kindOf } from "../lib/util";
-import { Button, IconButton, Spinner } from "../ui/ui";
+import { cx, ext, fmtSize, kindOf } from "../lib/util";
+import { Button, Spinner } from "../ui/ui";
 import { FileIcon } from "./FileIcon";
 
 const TEXT_MAX = 1 << 20;
@@ -164,6 +164,128 @@ function DocxView({ item }: { item: FsItem }) {
   );
 }
 
+/**
+ * Image viewer as a card stack (after 21st "triage card stack"): drag the top card sideways — it tilts
+ * 0.065°/px (opposite when grabbed on the lower half), cards behind rise as you drag; past min(35% width, 140px)
+ * or a 500px/s flick it flies off and the next image comes up. Drag right / ← goes back. Reduced motion: fades.
+ */
+function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem[]; onPick: (i: FsItem) => void }) {
+  const imgs = useMemo(() => {
+    const l = siblings.filter((s) => !s.is_dir && kindOf(s.name) === "image");
+    return l.some((s) => s.path === item.path) ? l : [item];
+  }, [siblings, item]);
+  const idx = Math.max(0, imgs.findIndex((s) => s.path === item.path));
+  const box = useRef<HTMLDivElement>(null);
+  const d = useRef<{ x0: number; y0: number; top: boolean; hist: { x: number; t: number }[] } | null>(null);
+  const [off, setOff] = useState({ x: 0, y: 0, dragging: false });
+  const [fly, setFly] = useState<0 | 1 | -1>(0);
+  const [enter, setEnter] = useState<0 | 1 | -1>(0);
+  const rm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const prev = idx > 0 ? imgs[idx - 1] : null;
+  const next = idx < imgs.length - 1 ? imgs[idx + 1] : null;
+  const goto = (dir: 1 | -1) => {
+    const target = dir === 1 ? next : prev;
+    if (!target) return setOff({ x: 0, y: 0, dragging: false });
+    if (rm) return onPick(target);
+    if (dir === 1) {
+      setFly(-1);
+      setTimeout(() => (setFly(0), setOff({ x: 0, y: 0, dragging: false }), onPick(target)), 220);
+    } else {
+      setOff({ x: 0, y: 0, dragging: false });
+      setEnter(1);
+      onPick(target);
+      requestAnimationFrame(() => requestAnimationFrame(() => setEnter(0)));
+    }
+  };
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.closest("input,textarea,[role=dialog]")) return;
+      if (e.key === "ArrowRight") goto(1);
+      else if (e.key === "ArrowLeft") goto(-1);
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  });
+  const down = (e: RPointerEvent) => {
+    if (e.button !== 0) return;
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    d.current = { x0: e.clientX, y0: e.clientY, top: e.clientY < r.top + r.height / 2, hist: [{ x: e.clientX, t: performance.now() }] };
+    setOff({ x: 0, y: 0, dragging: true });
+  };
+  const move = (e: RPointerEvent) => {
+    const s = d.current;
+    if (!s) return;
+    let y = e.clientY - s.y0;
+    if (Math.abs(y) > 48) y = Math.sign(y) * (48 + (Math.abs(y) - 48) * 0.25); // vertical rubber band
+    s.hist = [...s.hist.slice(-4), { x: e.clientX, t: performance.now() }];
+    setOff({ x: e.clientX - s.x0, y, dragging: true });
+  };
+  const up = () => {
+    const s = d.current;
+    d.current = null;
+    if (!s) return;
+    const w = box.current?.clientWidth ?? 600;
+    const h0 = s.hist[0], h1 = s.hist[s.hist.length - 1];
+    const v = ((h1.x - h0.x) / Math.max(1, h1.t - h0.t)) * 1000;
+    const dir = off.x < 0 ? 1 : -1; // drag left → next
+    const far = Math.abs(off.x) > Math.min(w * 0.35, 140);
+    const flick = Math.abs(v) > 500 && Math.sign(v) === Math.sign(off.x) && Math.abs(off.x) > 12;
+    if (far || flick) goto(dir);
+    else setOff({ x: 0, y: 0, dragging: false });
+  };
+  const lift = Math.min(1, Math.abs(off.x) / 160) * 0.4;
+  const cards = imgs.slice(idx, idx + 4);
+  return (
+    <div ref={box} className="relative flex h-full min-h-72 flex-col select-none">
+      <div className="relative min-h-0 flex-1">
+        {cards
+          .map((c, k) => {
+            const top = k === 0;
+            const depth = top ? 0 : Math.max(0, k - lift);
+            const rot = top ? off.x * 0.065 * (d.current?.top === false ? -1 : 1) : 0;
+            const tx = top ? (fly ? fly * (w0() + 200) : enter ? (box.current?.clientWidth ?? 800) : off.x) : 0;
+            const style = {
+              transform: `translate3d(${tx}px, ${top ? off.y : depth * 14}px, 0) rotate(${fly ? fly * 18 : enter ? 12 : rot}deg) scale(${1 - depth * 0.05})`,
+              opacity: top ? (fly ? 0 : 1) : k > 2 ? 0 : 1 - depth * 0.18,
+              zIndex: 10 - k,
+            };
+            return (
+              <div
+                key={c.path}
+                className={cx("stack-card absolute inset-x-[4%] top-2 bottom-10 overflow-hidden rounded-2xl border border-line bg-panel-2 shadow-pop sm:inset-x-[8%]", top && off.dragging && "dragging", top ? "cursor-grab active:cursor-grabbing" : "pointer-events-none")}
+                style={style}
+                onPointerDown={top ? down : undefined}
+                onPointerMove={top ? move : undefined}
+                onPointerUp={top ? up : undefined}
+                onPointerCancel={top ? up : undefined}
+              >
+                <img src={fileUrl(c.path)} alt={c.name} draggable={false} className="size-full object-contain" />
+              </div>
+            );
+          })
+          .reverse()}
+        {prev && (
+          <button aria-label="上一张" onClick={() => goto(-1)} className="absolute top-1/2 left-1 z-20 -translate-y-1/2 rounded-full border border-line bg-panel p-2 shadow-pop hover:bg-hover">
+            <ChevronLeft className="size-5" />
+          </button>
+        )}
+        {next && (
+          <button aria-label="下一张" onClick={() => goto(1)} className="absolute top-1/2 right-1 z-20 -translate-y-1/2 rounded-full border border-line bg-panel p-2 shadow-pop hover:bg-hover">
+            <ChevronRight className="size-5" />
+          </button>
+        )}
+      </div>
+      <p className="absolute inset-x-0 bottom-1 truncate text-center text-xs text-muted">
+        {item.name} · {idx + 1} / {imgs.length} · 左右拖动或 ← → 切换
+      </p>
+    </div>
+  );
+  function w0() {
+    return box.current?.clientWidth ?? 800;
+  }
+}
+
 function externalPlayers(item: FsItem) {
   const abs = new URL(fileUrl(item.path), location.href).toString();
   return [
@@ -178,7 +300,7 @@ function Body({ item, siblings, onPick }: { item: FsItem; siblings: FsItem[]; on
   const url = fileUrl(item.path);
   switch (k) {
     case "image":
-      return <img src={url} alt={item.name} className="mx-auto max-h-full max-w-full object-contain" />;
+      return <ImageStack item={item} siblings={siblings} onPick={onPick} />;
     case "video": {
       const hls = ext(item.name) === "m3u8";
       const playable = !hls || document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
@@ -241,56 +363,7 @@ function Body({ item, siblings, onPick }: { item: FsItem; siblings: FsItem[]; on
   }
 }
 
-export default function Preview({ item, siblings, onClose, onChange }: { item: FsItem; siblings: FsItem[]; onClose: () => void; onChange: (i: FsItem) => void }) {
-  const files = useMemo(() => siblings.filter((s) => !s.is_dir), [siblings]);
-  const i = files.findIndex((f) => f.path === item.path);
-  const prev = i > 0 ? files[i - 1] : null;
-  const next = i >= 0 && i < files.length - 1 ? files[i + 1] : null;
-  useEffect(() => {
-    const f = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowLeft" && prev) onChange(prev);
-      else if (e.key === "ArrowRight" && next) onChange(next);
-    };
-    window.addEventListener("keydown", f);
-    const o = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", f);
-      document.body.style.overflow = o;
-    };
-  }, [prev, next, onClose, onChange]);
-  return (
-    <div role="dialog" aria-modal="true" aria-label={`预览 ${item.name}`} className="fixed inset-0 z-50 flex flex-col bg-bg/95 backdrop-blur-sm">
-      <header className="flex items-center gap-2 border-b border-line bg-panel px-3 py-2">
-        <FileIcon name={item.name} isDir={false} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{item.name}</p>
-          <p className="truncate text-xs text-muted">
-            {fmtSize(item.size)} · {fmtTime(item.modified_unix)} {files.length > 1 && i >= 0 && `· ${i + 1}/${files.length}`}
-          </p>
-        </div>
-        <a href={fileUrl(item.path, { download: true })} download={item.name} aria-label="下载" title="下载" className="inline-flex size-8 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-fg">
-          <Download className="size-4" />
-        </a>
-        <IconButton label="关闭预览" onClick={onClose}>
-          <X className="size-4" />
-        </IconButton>
-      </header>
-      <div className="relative min-h-0 flex-1 p-3 sm:p-6">
-        <Body item={item} siblings={siblings} onPick={onChange} />
-        {prev && (
-          <button aria-label="上一个" onClick={() => onChange(prev)} className="absolute top-1/2 left-2 -translate-y-1/2 rounded-full border border-line bg-panel/90 p-2 shadow-pop hover:bg-hover">
-            <ChevronLeft className="size-5" />
-          </button>
-        )}
-        {next && (
-          <button aria-label="下一个" onClick={() => onChange(next)} className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full border border-line bg-panel/90 p-2 shadow-pop hover:bg-hover">
-            <ChevronRight className="size-5" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
+/** Embedded file body for an editor tab (no chrome; the tab strip + breadcrumb live in Editor). */
+export default function FileBody({ item, siblings, onPick }: { item: FsItem; siblings: FsItem[]; onPick: (i: FsItem) => void }) {
+  return <Body item={item} siblings={siblings} onPick={onPick} />;
 }

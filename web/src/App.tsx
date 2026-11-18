@@ -6,7 +6,7 @@ import { useTheme } from "./lib/theme";
 import { Button, Overlays, Spinner } from "./ui/ui";
 import { AuthPage, TokenPage } from "./pages/Auth";
 import { Layout } from "./components/Layout";
-import { FileBrowser } from "./components/FileBrowser";
+import { FilesArea } from "./components/Editor";
 import { UploadQueue } from "./components/UploadQueue";
 import { CommandPalette } from "./components/CommandPalette";
 
@@ -142,7 +142,7 @@ export default function App() {
           </div>
         );
       default:
-        return <FileBrowser path={"/" + route.rest} />;
+        return <FilesArea path={"/" + route.rest} openParam={route.q.get("open")} />;
     }
   })();
 
@@ -152,7 +152,7 @@ export default function App() {
         {banner}
         <div className="min-h-0 flex-1">
           <Layout route={route} theme={theme} setTheme={setTheme} serverVersion={ver?.server_version}>
-            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}><div key={route.name === "admin" ? `admin/${route.rest.split("/")[0]}` : route.name} className="page-in">{page}</div></Suspense>
+            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}><div key={route.name === "admin" ? `admin/${route.rest.split("/")[0]}` : route.name} className="page-in h-full">{page}</div></Suspense>
           </Layout>
         </div>
       </div>

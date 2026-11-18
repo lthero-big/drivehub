@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Cloud, HardDrive, Pencil, Plus, RefreshCw, Server, Trash2, Terminal } from "lucide-react";
 import { call, client, ok, type MountConfig } from "../../lib/api";
 import { errMsg } from "../../lib/util";
-import { Badge, Button, Card, confirmDlg, Empty, Field, IconButton, Input, Modal, Select, Switch, toast, PageHeader, Pager, usePaged } from "../../ui/ui";
+import { ConfirmButton, Badge, Button, Card, Empty, Field, IconButton, Input, Modal, Select, Switch, toast, PageHeader, Pager, usePaged } from "../../ui/ui";
 
 type Kind = "fs" | "s3" | "webdav" | "rclone" | "openlist";
 const KINDS: { k: Kind; label: string; desc: string; icon: typeof HardDrive }[] = [
@@ -80,7 +80,7 @@ export function MountsPage() {
             actions={
               <>
                 <IconButton label="编辑" onClick={() => (setIsNew(false), setEdit({ ...m, ui: m.kind as Kind }))}><Pencil className="size-4" /></IconButton>
-                <IconButton label="删除" onClick={async () => (await confirmDlg(`删除挂载点「${m.name}」？`, { label: "只删除挂载配置，不会删除后端存储里的文件。", danger: true, confirm: "删除" })) && ok(client.DELETE("/api/mounts/{name}", { params: { path: { name: m.name } } })).then(load).catch((e) => toast.err(errMsg(e)))}><Trash2 className="size-4" /></IconButton>
+                <ConfirmButton iconOnly icon={<Trash2 />} label={`删除挂载点 ${m.name}（不删除后端文件）`} confirmLabel="删除挂载" onConfirm={() => ok(client.DELETE("/api/mounts/{name}", { params: { path: { name: m.name } } })).then(load).catch((e) => toast.err(errMsg(e)))} />
               </>
             }>
             <dl className="grid grid-cols-[7rem_1fr] gap-y-1 text-[12.5px]">

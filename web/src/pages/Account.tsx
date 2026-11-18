@@ -4,7 +4,7 @@ import { call, tokens } from "../lib/api";
 import { useApp } from "../lib/app";
 import { go } from "../lib/router";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { Badge, Button, Card, confirmDlg, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, Tabs, toast, usePaged } from "../ui/ui";
+import { ConfirmButton, Badge, Button, Card, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, Tabs, toast, usePaged } from "../ui/ui";
 
 type Tok = { id: number; name: string; prefix: string; created_at: number; last_used: number | null; expires_at: number | null };
 type App = { id: number; name: string; created_at: number; last_used: number | null };
@@ -194,9 +194,7 @@ export function AccountPage({ tab }: { tab: string }) {
               <span className="font-medium">{t.name}</span>
               <code className="text-xs text-faint">{t.prefix}…</code>
               <span className="ml-auto text-xs text-muted">{t.expires_at ? `到期 ${fmtTime(t.expires_at)}` : "永不过期"} · 最近使用 {fmtTime(t.last_used)}</span>
-              <IconButton label="删除" onClick={async () => (await confirmDlg(`删除 Token「${t.name}」？`, { danger: true, confirm: "删除" })) && act(() => call("DELETE", `/api/auth/tokens/${t.id}`))}>
-                <Trash2 className="size-4" />
-              </IconButton>
+              <ConfirmButton iconOnly icon={<Trash2 />} label={`删除 Token ${t.name}`} confirmLabel="删除" onConfirm={() => act(() => call("DELETE", `/api/auth/tokens/${t.id}`))} />
             </li>
           ))}
         </ul>

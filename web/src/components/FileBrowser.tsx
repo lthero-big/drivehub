@@ -1,18 +1,22 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as RMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as RMouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
-  ArrowDownAZ, Check, ChevronRight, Copy, Download, Eye, FileArchive, FolderInput, FolderPlus, FolderUp, Grid2x2, Images, KeyRound, List,
-  MoreHorizontal, Pencil, RefreshCw, Shield, Trash2, Upload, X, Lock,
+  ArrowDownAZ, Check, CheckSquare, ChevronRight, ClipboardCopy, Copy, Download, ExternalLink, Eye, FileArchive, FolderInput, FolderPlus, FolderUp, Grid2x2, Images, Info, KeyRound, Link2, List,
+  MoreHorizontal, Pencil, RefreshCw, Share2, Shield, Star, StarOff, Trash2, Upload, X, Lock,
 } from "lucide-react";
 import { ApiError, client, fileUrl, ok, pathPassword, rawFetch, zipUrl, type FsItem } from "../lib/api";
+import { favorites, useFavorites } from "../lib/favs";
+import { appLink, copyText } from "../lib/links";
+import { tabs } from "../lib/tabs";
+import { trash } from "../lib/trash";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
 import { fromDataTransfer, fromFileList, uploads } from "../lib/uploads";
 import { baseName, cx, errMsg, fmtSize, fmtTime, joinPath, kindOf } from "../lib/util";
-import { ask, Button, Checkbox, confirmDlg, Empty, IconButton, Input, Menu, MenuItem, Pager, Spinner, toast } from "../ui/ui";
+import { ask, Button, Checkbox, ConfirmButton, confirmDlg, ContextMenu, Empty, IconButton, Input, Menu, MenuItem, MenuSep, Pager, Spinner, toast } from "../ui/ui";
 import { DirPicker } from "./DirPicker";
-import { FileIcon } from "./FileIcon";
-
-const Preview = lazy(() => import("./Preview"));
+import { DetailsDialog, ShareDialog } from "./FileDialogs";
+import { FileIcon, FolderIcon } from "./FileIcon";
 
 type View = "list" | "grid" | "gallery";
 type Sort = { by: "name" | "size" | "modified"; desc: boolean };
@@ -75,8 +79,40 @@ function Readme({ item }: { item: FsItem }) {
   );
 }
 
-export function FileBrowser({ path }: { path: string }) {
+/** Floating action dock for the current selection: bottom-centre, genie rise, magnifying buttons. */
+function Dock({ children, label }: { children: ReactNode; label: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const magnify = (x: number | null) => {
+    const el = ref.current;
+    if (!el || window.matchMedia("(prefers-reduced-motion: reduce), (pointer: coarse)").matches) return;
+    el.querySelectorAll<HTMLElement>(".dock-btn").forEach((b) => {
+      if (x == null) return void (b.style.transform = "");
+      const r = b.getBoundingClientRect();
+      const d = Math.abs(x - (r.left + r.width / 2));
+      const s = 1 + 0.32 * Math.max(0, 1 - d / 96);
+      b.style.transform = `translateY(${-(s - 1) * 14}px) scale(${s})`;
+    });
+  };
+  return createPortal(
+    <div ref={ref} role="toolbar" aria-label={label} onMouseMove={(e) => magnify(e.clientX)} onMouseLeave={() => magnify(null)} className="dock pop-surface fixed bottom-4 z-40 flex max-w-[calc(100vw-1rem)] items-end gap-0.5 overflow-x-auto rounded-[22px] p-1.5 sm:overflow-visible">
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function DockBtn({ icon, label, onClick, danger, className }: { icon: ReactNode; label: string; onClick: () => void; danger?: boolean; className?: string }) {
+  return (
+    <button onClick={onClick} aria-label={label} className={cx(className, "dock-btn relative flex size-11 shrink-0 flex-col items-center justify-center rounded-2xl [&>svg]:size-[19px]", danger ? "text-danger hover:bg-danger/10" : "text-fg hover:bg-hover")}>
+      {icon}
+      <span className="dock-tip pointer-events-none absolute -top-8 left-1/2 hidden rounded-lg bg-fg px-2 py-1 text-[11px] whitespace-nowrap text-bg shadow-pop sm:block">{label}</span>
+    </button>
+  );
+}
+
+export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }) {
   const { fsVersion, bumpFs, isAdmin } = useApp();
+  useFavorites();
   const [items, setItems] = useState<FsItem[] | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -86,7 +122,12 @@ export function FileBrowser({ path }: { path: string }) {
   const [cols, setCols] = useStored<number>("dh_gallery_cols", 4);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const anchor = useRef<number>(-1);
-  const [preview, setPreview] = useState<FsItem | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; item: FsItem | null } | null>(null);
+  const closeCtx = useCallback(() => setCtxMenu(null), []);
+  const [share, setShare] = useState<FsItem | null>(null);
+  const [details, setDetails] = useState<FsItem | null>(null);
+  const [gone, setGone] = useState<Set<string>>(new Set());
+  const [opening, setOpening] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [picker, setPicker] = useState<null | "move" | "copy">(null);
   const [pw, setPw] = useState("");
@@ -134,13 +175,20 @@ export function FileBrowser({ path }: { path: string }) {
 
   const [q, setQ] = useState("");
   useEffect(() => setQ(""), [path]);
-  const all = items ?? [];
+  const all = useMemo(() => (items ?? []).filter((i) => !gone.has(i.path)), [items, gone]);
   const list = useMemo(() => (q.trim() ? all.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())) : all), [all, q]);
   const selected = useMemo(() => list.filter((i) => sel.has(i.path)), [list, sel]);
   const images = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "image"), [list]);
   const readme = useMemo(() => list.find((i) => !i.is_dir && /^readme\.(md|markdown)$/i.test(i.name)), [list]);
 
-  const open = (i: FsItem) => (i.is_dir ? go(filesHref(i.path)) : setPreview(i));
+  const open = (i: FsItem) => {
+    if (!i.is_dir) return tabs.open(i);
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return go(filesHref(i.path));
+    setOpening(i.path); // let the folder icon "open" before navigating
+    setTimeout(() => (setOpening(null), go(filesHref(i.path))), 170);
+  };
+  const openInNewTab = (i: FsItem) => window.open(appLink(i), "_blank", "noopener");
+  const copy = async (text: string, what: string) => ((await copyText(text)) ? toast.ok(`${what}已复制`) : toast.err("复制失败"));
 
   const click = (e: RMouseEvent, i: FsItem, idx: number) => {
     if (e.shiftKey && anchor.current >= 0) {
@@ -186,27 +234,32 @@ export function FileBrowser({ path }: { path: string }) {
     if (!name?.trim() || name === i.name) return;
     try {
       await ok(client.POST("/api/fs/rename", { body: { path: i.path, new_name: name.trim() } }));
+      tabs.forget([i.path]);
+      favorites.forget([i.path]);
       load(true);
     } catch (e) {
       toast.err(errMsg(e));
     }
   };
+  /** Delete with undo: hide now, commit after the toast's undo window (dialog → toast morph). */
+  const scheduleDelete = (its: FsItem[]) => {
+    const paths = its.map((i) => i.path);
+    setGone((g) => new Set([...g, ...paths]));
+    setSel(new Set());
+    const unhide = () => setGone((g) => new Set([...g].filter((p) => !paths.includes(p))));
+    const job = trash.schedule(paths, (failed) => {
+      failed.forEach((f) => toast.err(`${baseName(f.path)}：${f.err}`));
+      tabs.forget(paths.filter((p) => !failed.some((f) => f.path === p)));
+      favorites.forget(paths.filter((p) => !failed.some((f) => f.path === p)));
+      load(true).then(unhide);
+      bumpFs();
+    });
+    toast.undo(its.length === 1 ? `已删除「${its[0].name}」` : `已删除 ${its.length} 项`, { onUndo: () => (job.undo(), unhide()), onCommit: () => job.commit() });
+  };
   const remove = async (its: FsItem[]) => {
     if (!its.length) return;
-    const yes = await confirmDlg(its.length === 1 ? `删除「${its[0].name}」？` : `删除 ${its.length} 项？`, { label: "删除后无法恢复（文件夹会连同内容一起删除）。", confirm: "删除", danger: true });
-    if (!yes) return;
-    let n = 0;
-    for (const i of its) {
-      try {
-        await ok(client.POST("/api/fs/delete", { body: { path: i.path } }));
-        n++;
-      } catch (e) {
-        toast.err(`${i.name}：${errMsg(e)}`);
-      }
-    }
-    if (n) toast.ok(`已删除 ${n} 项`);
-    setSel(new Set());
-    load(true);
+    const yes = await confirmDlg(its.length === 1 ? `删除「${its[0].name}」？` : `删除 ${its.length} 项？`, { label: "文件夹会连同内容一起删除。5 秒内可以撤销。", confirm: "删除", danger: true });
+    if (yes) scheduleDelete(its);
   };
   const transfer = async (kind: "move" | "copy", dst: string) => {
     setPicker(null);
@@ -219,6 +272,7 @@ export function FileBrowser({ path }: { path: string }) {
         toast.err(`${i.name}：${errMsg(e)}`);
       }
     }
+    if (kind === "move") (tabs.forget(selected.map((i) => i.path)), favorites.forget(selected.map((i) => i.path)));
     toast.ok(tasks ? `已创建 ${tasks} 个后台任务（任务中心可看进度）` : kind === "move" ? "已移动" : "已复制");
     setSel(new Set());
     load(true);
@@ -244,7 +298,7 @@ export function FileBrowser({ path }: { path: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (preview || t.closest("input,textarea,select,[role=dialog]")) return;
+      if (hidden || t.closest("input,textarea,select,[role=dialog],[role=menu]")) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
         setSel(new Set(list.map((i) => i.path)));
@@ -256,7 +310,7 @@ export function FileBrowser({ path }: { path: string }) {
     };
     const onPaste = (e: ClipboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest("input,textarea")) return;
+      if (hidden || t.closest("input,textarea")) return;
       const fs = e.clipboardData?.files;
       if (fs?.length) {
         e.preventDefault();
@@ -278,6 +332,37 @@ export function FileBrowser({ path }: { path: string }) {
 
   // ---- render ---------------------------------------------------------------
   const sortLabel = { name: "名称", size: "大小", modified: "修改时间" }[sort.by];
+  /** Shared action list for the ⋯ menu and the right-click menu. */
+  const itemActions = (i: FsItem, close: () => void) => {
+    const many = selected.length > 1 && sel.has(i.path) ? selected : [i];
+    const fav = favorites.has(i.path);
+    const run = (f: () => void) => () => (close(), f());
+    return (
+      <div>
+        {many.length > 1 && <p className="px-2.5 pt-1 pb-1.5 text-[11px] font-medium text-faint">已选 {many.length} 项</p>}
+        {many.length === 1 && <MenuItem icon={<Eye />} kbd="↵" onClick={run(() => open(i))}>打开</MenuItem>}
+        {many.length === 1 && !i.mount_kind && <MenuItem icon={<ExternalLink />} onClick={run(() => openInNewTab(i))}>在新标签页打开</MenuItem>}
+        <MenuItem icon={many.length > 1 || i.is_dir ? <FileArchive /> : <Download />} onClick={run(() => download(many))}>{many.length > 1 || i.is_dir ? "打包下载" : "下载"}</MenuItem>
+        {many.length === 1 && <MenuItem icon={<Share2 />} onClick={run(() => setShare(i))}>分享…</MenuItem>}
+        <MenuSep />
+        {!isRoot && many.length === 1 && <MenuItem icon={<Pencil />} kbd="F2" onClick={run(() => rename(i))}>重命名</MenuItem>}
+        {!isRoot && <MenuItem icon={<FolderInput />} onClick={run(() => (setSel(new Set(many.map((x) => x.path))), setPicker("move")))}>移动到…</MenuItem>}
+        {!isRoot && <MenuItem icon={<Copy />} onClick={run(() => (setSel(new Set(many.map((x) => x.path))), setPicker("copy")))}>复制到…</MenuItem>}
+        {many.length === 1 && <MenuItem icon={<Link2 />} onClick={run(() => copy(appLink(i), "链接"))}>复制链接</MenuItem>}
+        {many.length === 1 && <MenuItem icon={<ClipboardCopy />} onClick={run(() => copy(i.path, "路径"))}>复制路径</MenuItem>}
+        <MenuSep />
+        {many.length === 1 && <MenuItem icon={fav ? <StarOff /> : <Star />} onClick={run(() => (favorites.toggle(i), toast.ok(fav ? "已取消收藏" : "已收藏，可在侧栏找到")))}>{fav ? "取消收藏" : "收藏"}</MenuItem>}
+        {many.length === 1 && <MenuItem icon={<Info />} onClick={run(() => setDetails(i))}>属性</MenuItem>}
+        {isAdmin && many.length === 1 && <MenuItem icon={<Shield />} onClick={run(() => go(`#/admin/acl?path=${encodeURIComponent(i.path)}`))}>权限设置</MenuItem>}
+        {!isRoot && (
+          <>
+            <MenuSep />
+            <MenuItem icon={<Trash2 />} danger kbd="Del" onClick={run(() => remove(many))}>删除{many.length > 1 ? ` ${many.length} 项` : ""}</MenuItem>
+          </>
+        )}
+      </div>
+    );
+  };
   const ItemMenu = ({ i }: { i: FsItem }) => (
     <Menu
       trigger={(t) => (
@@ -286,23 +371,24 @@ export function FileBrowser({ path }: { path: string }) {
         </IconButton>
       )}
     >
-      {(close) => (
-        <div onClick={(e) => e.stopPropagation()}>
-          <MenuItem icon={<Eye />} onClick={() => (close(), open(i))}>打开</MenuItem>
-          <MenuItem icon={i.is_dir ? <FileArchive /> : <Download />} onClick={() => (close(), download([i]))}>{i.is_dir ? "打包下载" : "下载"}</MenuItem>
-          {!isRoot && <MenuItem icon={<Pencil />} kbd="F2" onClick={() => (close(), rename(i))}>重命名</MenuItem>}
-          {!isRoot && <MenuItem icon={<FolderInput />} onClick={() => (close(), setSel(new Set([i.path])), setPicker("move"))}>移动到…</MenuItem>}
-          {!isRoot && <MenuItem icon={<Copy />} onClick={() => (close(), setSel(new Set([i.path])), setPicker("copy"))}>复制到…</MenuItem>}
-          {isAdmin && <MenuItem icon={<Shield />} onClick={() => (close(), go(`#/admin/acl?path=${encodeURIComponent(i.path)}`))}>权限设置</MenuItem>}
-          {!isRoot && <MenuItem icon={<Trash2 />} danger kbd="Del" onClick={() => (close(), remove([i]))}>删除</MenuItem>}
-        </div>
-      )}
+      {(close) => itemActions(i, close)}
     </Menu>
   );
+  const onItemContext = (e: RMouseEvent, i: FsItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!sel.has(i.path)) setSel(new Set([i.path]));
+    setCtxMenu({ x: e.clientX, y: e.clientY, item: i });
+  };
+  const onBlankContext = (e: RMouseEvent) => {
+    if ((e.target as HTMLElement).closest("input,textarea,a[href]:not([data-row-link])")) return;
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, item: null });
+  };
 
   return (
-    <div className="relative flex min-h-full flex-col" onDragOver={(e) => (e.preventDefault(), !isRoot && setDragging(true))} onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)} onDrop={onDrop}>
-      <div className="sticky top-0 z-10 -mx-3 flex flex-wrap items-center gap-2 border-b border-line bg-panel/95 px-3 py-2 backdrop-blur sm:-mx-6 sm:px-6">
+    <div className={cx("relative flex flex-1 flex-col", hidden && "hidden", selected.length > 0 && "pb-20")} onContextMenu={onBlankContext} onDragOver={(e) => (e.preventDefault(), !isRoot && setDragging(true))} onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)} onDrop={onDrop}>
+      <div className="sticky top-[var(--tabs-h,0px)] z-10 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-panel px-4 py-2 sm:-mx-8 sm:px-8">
         <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
           <Crumbs path={path} />
         </div>
@@ -349,36 +435,6 @@ export function FileBrowser({ path }: { path: string }) {
         </div>
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => (e.target.files && addFiles(fromFileList(e.target.files, path)), (e.target.value = ""))} />
         <input ref={dirInput} type="file" hidden {...({ webkitdirectory: "" } as object)} onChange={(e) => (e.target.files && addFiles(fromFileList(e.target.files, path)), (e.target.value = ""))} />
-        {selected.length > 0 && (
-          <div role="toolbar" aria-label="批量操作" className="anim-in scroll-thin absolute inset-0 z-10 flex items-center gap-1 overflow-x-auto border-b border-line bg-accent-soft px-3 text-[13px] whitespace-nowrap sm:px-6">
-            <IconButton label="取消选择" onClick={() => setSel(new Set())}>
-              <X className="size-4" />
-            </IconButton>
-            <span className="mr-2 shrink-0 font-medium">已选 {selected.length} 项 · {fmtSize(selected.reduce((a, b) => a + b.size, 0))}</span>
-            <Button size="sm" variant="ghost" onClick={() => download(selected)}>
-              <Download className="size-4" /> {selected.length === 1 && !selected[0].is_dir ? "下载" : "打包下载"}
-            </Button>
-            {!isRoot && (
-              <>
-                {selected.length === 1 && (
-                  <Button size="sm" variant="ghost" onClick={() => rename(selected[0])}>
-                    <Pencil className="size-4" /> 重命名
-                  </Button>
-                )}
-                <Button size="sm" variant="ghost" onClick={() => setPicker("move")}>
-                  <FolderInput className="size-4" /> 移动
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setPicker("copy")}>
-                  <Copy className="size-4" /> 复制
-                </Button>
-                <Button size="sm" variant="ghost" className="text-danger" onClick={() => remove(selected)}>
-                  <Trash2 className="size-4" /> 删除
-                </Button>
-              </>
-            )}
-          </div>
-        )}
-
       </div>
 
       <div className="flex-1 py-3">
@@ -425,15 +481,16 @@ export function FileBrowser({ path }: { path: string }) {
                 data-path={i.path}
                 onClick={(e) => click(e, i, idx)}
                 onDoubleClick={() => open(i)}
+                onContextMenu={(e) => onItemContext(e, i)}
                 className={cx("group grid cursor-default grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 border-b border-line px-3 py-1.5 last:border-b-0 sm:grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover")}
               >
                 <span role="gridcell" onClick={(e) => e.stopPropagation()}>
                   <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx(!sel.has(i.path) && "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100")} />
                 </span>
                 <span role="gridcell" className="flex min-w-0 items-center gap-2.5">
-                  <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} />
+                  {i.is_dir && !i.mount_kind ? <FolderIcon size={22} open={opening === i.path} /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} />}
                   <span className="min-w-0">
-                    <a href={i.is_dir ? filesHref(i.path) : undefined} onClick={(e) => { if (!i.is_dir) return; if (e.metaKey || e.ctrlKey || e.shiftKey) e.preventDefault(); }} className="block truncate text-[13.5px]">
+                    <a data-row-link href={i.is_dir ? filesHref(i.path) : undefined} onClick={(e) => { if (!i.is_dir) return; if (e.metaKey || e.ctrlKey || e.shiftKey) e.preventDefault(); }} className="block truncate text-[13.5px]">
                       {i.name}
                     </a>
                     <span className="block text-[11px] text-faint sm:hidden">{i.is_dir ? (i.mount_kind ? i.mount_kind.toUpperCase() : "文件夹") : `${fmtSize(i.size)} · ${fmtTime(i.modified_unix)}`}</span>
@@ -455,9 +512,9 @@ export function FileBrowser({ path }: { path: string }) {
             {list.map((i, idx) => {
               const img = !i.is_dir && kindOf(i.name) === "image";
               return (
-                <li key={i.path} aria-selected={sel.has(i.path)} onClick={(e) => click(e, i, idx)} onDoubleClick={() => open(i)} className={cx("group relative flex cursor-default flex-col overflow-hidden rounded-xl border bg-panel", sel.has(i.path) ? "border-accent ring-2 ring-accent/30" : "border-line hover:bg-hover")}>
+                <li key={i.path} aria-selected={sel.has(i.path)} onClick={(e) => click(e, i, idx)} onDoubleClick={() => open(i)} onContextMenu={(e) => onItemContext(e, i)} className={cx("group relative flex cursor-default flex-col overflow-hidden rounded-xl border bg-panel", sel.has(i.path) ? "border-accent ring-2 ring-accent/30" : "border-line hover:bg-hover")}>
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-panel-2">
-                    {img ? <img src={fileUrl(i.path)} alt="" loading="lazy" decoding="async" className="size-full object-cover" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} className="size-10" />}
+                    {img ? <img src={fileUrl(i.path)} alt="" loading="lazy" decoding="async" className="size-full object-cover" /> : i.is_dir && !i.mount_kind ? <FolderIcon size={60} open={opening === i.path} className="mt-3" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} className="size-10" />}
                   </div>
                   <div className="flex items-center gap-1 px-2 py-1.5">
                     <span className="min-w-0 flex-1">
@@ -466,7 +523,7 @@ export function FileBrowser({ path }: { path: string }) {
                     </span>
                     <ItemMenu i={i} />
                   </div>
-                  <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx("glass absolute top-1 left-1 !min-h-10 !min-w-10 shadow-card", !sel.has(i.path) && "opacity-0 group-hover:opacity-100")} />
+                  <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx("absolute top-1 left-1 bg-panel !min-h-10 !min-w-10 shadow-card", !sel.has(i.path) && "opacity-0 group-hover:opacity-100")} />
                 </li>
               );
             })}
@@ -488,7 +545,7 @@ export function FileBrowser({ path }: { path: string }) {
             ) : (
               <div style={{ columnCount: cols }} className="gap-2 [column-gap:0.5rem] max-sm:![column-count:2]">
                 {images.map((i) => (
-                  <button key={i.path} onClick={() => setPreview(i)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-lg border border-line bg-panel-2" aria-label={`查看 ${i.name}`}>
+                  <button key={i.path} onClick={() => tabs.open(i)} onContextMenu={(e) => onItemContext(e, i)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-lg border border-line bg-panel-2" aria-label={`查看 ${i.name}`}>
                     <img src={fileUrl(i.path)} alt={i.name} loading="lazy" decoding="async" className="w-full" />
                   </button>
                 ))}
@@ -497,7 +554,7 @@ export function FileBrowser({ path }: { path: string }) {
           </>
         )}
 
-        {items && !err && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total} size={PAGE} setPage={(n) => (setSel(new Set()), load(false, n))} />}
+        {items && !err && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total - (items ? items.length - all.length : 0)} size={PAGE} setPage={(n) => (setSel(new Set()), load(false, n))} />}
         {readme && <Readme item={readme} />}
       </div>
 
@@ -507,11 +564,46 @@ export function FileBrowser({ path }: { path: string }) {
         </div>
       )}
       <DirPicker open={!!picker} title={picker === "move" ? `移动 ${selected.length} 项到…` : `复制 ${selected.length} 项到…`} start={path} onClose={() => setPicker(null)} onPick={(d) => transfer(picker!, d)} />
-      {preview && (
-        <Suspense fallback={null}>
-          <Preview item={preview} siblings={list} onClose={() => setPreview(null)} onChange={setPreview} />
-        </Suspense>
+      {!hidden && selected.length > 0 && (
+        <Dock label="批量操作">
+          <span className="mr-1 flex h-11 shrink-0 items-center gap-1 rounded-2xl bg-accent-soft pr-1 pl-3 text-[13px] font-medium text-accent">
+            <span className="max-sm:hidden">已选&nbsp;</span>{selected.length} 项{selected.some((x) => !x.is_dir) && <span className="hidden font-normal sm:inline"> · {fmtSize(selected.reduce((a, b) => a + (b.is_dir ? 0 : b.size), 0))}</span>}
+            <button aria-label="取消选择" onClick={() => setSel(new Set())} className="ml-1 rounded-full p-1.5 hover:bg-accent/15"><X className="size-3.5" /></button>
+          </span>
+          {selected.length === 1 && <DockBtn icon={<Eye />} label="打开" onClick={() => open(selected[0])} />}
+          <DockBtn icon={selected.length === 1 && !selected[0].is_dir ? <Download /> : <FileArchive />} label={selected.length === 1 && !selected[0].is_dir ? "下载" : "打包下载"} onClick={() => download(selected)} />
+          {selected.length === 1 && <DockBtn className="max-sm:hidden" icon={<Share2 />} label="分享" onClick={() => setShare(selected[0])} />}
+          {!isRoot && selected.length === 1 && <DockBtn icon={<Pencil />} label="重命名" onClick={() => rename(selected[0])} />}
+          {!isRoot && <DockBtn icon={<FolderInput />} label="移动到…" onClick={() => setPicker("move")} />}
+          {!isRoot && <DockBtn className="max-sm:hidden" icon={<Copy />} label="复制到…" onClick={() => setPicker("copy")} />}
+          {selected.length === 1 && <DockBtn className="max-sm:hidden" icon={<Info />} label="属性" onClick={() => setDetails(selected[0])} />}
+          <DockBtn className="max-sm:hidden" icon={<CheckSquare />} label="全选" onClick={() => setSel(new Set(list.map((i) => i.path)))} />
+          {!isRoot && (
+            <span className="ml-1 flex h-11 items-center border-l border-line pl-1.5">
+              <ConfirmButton icon={<Trash2 />} label="删除" confirmLabel={`删除 ${selected.length} 项`} onConfirm={() => scheduleDelete(selected)} />
+            </span>
+          )}
+        </Dock>
       )}
+      <ContextMenu at={ctxMenu} onClose={closeCtx} label="文件操作">
+        {(close) =>
+          ctxMenu?.item ? (
+            itemActions(ctxMenu.item, close)
+          ) : (
+            <div>
+              {!isRoot && <MenuItem icon={<FolderPlus />} onClick={() => (close(), mkdir())}>新建文件夹</MenuItem>}
+              {!isRoot && <MenuItem icon={<Upload />} onClick={() => (close(), fileInput.current?.click())}>上传文件</MenuItem>}
+              {!isRoot && <MenuItem icon={<FolderUp />} onClick={() => (close(), dirInput.current?.click())}>上传文件夹</MenuItem>}
+              {!isRoot && <MenuSep />}
+              <MenuItem icon={<CheckSquare />} kbd="Ctrl A" onClick={() => (close(), setSel(new Set(list.map((i) => i.path))))}>全选</MenuItem>
+              <MenuItem icon={<RefreshCw />} onClick={() => (close(), load(true))}>刷新</MenuItem>
+              <MenuItem icon={<Link2 />} onClick={() => (close(), copy(appLink({ path, is_dir: true }), "链接"))}>复制此文件夹链接</MenuItem>
+            </div>
+          )
+        }
+      </ContextMenu>
+      <ShareDialog item={share} onClose={() => setShare(null)} />
+      <DetailsDialog item={details} onClose={() => setDetails(null)} />
     </div>
   );
 }

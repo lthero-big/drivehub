@@ -22,6 +22,11 @@
   --ok: #248a3d;
   --warn: #b25000;
   --glass: rgb(255 255 255 / 0.78);
+  --pop: #ffffff;
+  --folder-back: #e9a92c;
+  --folder-front: #f7c04f;
+  --folder-front-2: #f2b136;
+  --paper: #ffffff;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 40px rgb(0 0 0 / 0.10);
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.03), 0 2px 12px rgb(0 0 0 / 0.04);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -44,6 +49,11 @@
   --ok: #30d158;
   --warn: #ffb340;
   --glass: rgb(30 30 33 / 0.78);
+  --pop: #1f1f22;
+  --folder-back: #b07b17;
+  --folder-front: #e2a93a;
+  --folder-front-2: #c98f22;
+  --paper: #e9e9ee;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 16px 48px rgb(0 0 0 / 0.55);
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 12px rgb(0 0 0 / 0.25);
   color-scheme: dark;
@@ -143,5 +153,69 @@ body {
 .drawer-in { animation: dh-drawer 0.3s var(--ease); }
 .nav-item { transition: background-color 0.18s, color 0.18s, transform 0.12s; }
 .nav-item:active { transform: scale(0.97); }
-@media (prefers-reduced-motion: reduce) { .anim-in, .pop-in, .page-in, .backdrop-in { animation: none; } .btn-key, .card-lift { transition: none; } }
+
+/* opaque popover surface: menus, listboxes, context menus, toasts (no translucency — DEPTAI-485 #5) */
+.pop-surface { background: var(--pop); border: 1px solid var(--line); box-shadow: var(--shadow); }
+[data-theme="dark"] .pop-surface { border-color: #34343a; }
+
+[role="menuitem"]:focus-visible, [role="option"]:focus-visible { outline: none; }
+
+/* undo toast progress */
+@keyframes dh-drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.toast-bar { animation: dh-drain linear forwards; }
+.toast-undo:hover .toast-bar, .toast-undo:focus-within .toast-bar { animation-play-state: paused; }
+@keyframes dh-tick { 0% { transform: scale(0); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+.tick-pop { animation: dh-tick 0.36s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.confirm-morph { transition: width 0.4s cubic-bezier(0.34, 1.35, 0.64, 1), background-color 0.2s, box-shadow 0.2s; }
+
+/* folder icon (DEPTAI-485 #8): back plate + three papers + glass-ish front lid.
+   Hover: lid tips back around its bottom edge, papers rise on three different springs (natural stagger),
+   grid size fans the papers out (folder-fan). */
+.fi { position: relative; display: inline-block; flex-shrink: 0; perspective: 220px; }
+.fi-back { position: absolute; inset: 12% 0 0 0; border-radius: 12% / 15%; background: var(--folder-back); }
+.fi-back::before { content: ""; position: absolute; left: 0; top: -12%; width: 42%; height: 24%; border-radius: 30% 30% 0 0 / 60% 60% 0 0; background: var(--folder-back); }
+.fi-paper { position: absolute; left: 14%; right: 14%; top: 20%; bottom: 14%; border-radius: 8%; background: var(--paper); box-shadow: 0 0.5px 1.5px rgb(0 0 0 / 0.18); transform-origin: 50% 100%; transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.fi-paper::before, .fi-paper::after { content: ""; position: absolute; left: 16%; right: 16%; height: 7%; border-radius: 99px; background: color-mix(in srgb, var(--folder-back) 35%, #cfcfd8); }
+.fi-paper::before { top: 18%; } .fi-paper::after { top: 34%; right: 34%; }
+.fi-paper.p1 { transform: rotate(-4deg) translateX(-4%); transition-duration: 0.52s; }
+.fi-paper.p2 { transform: none; transition-duration: 0.42s; }
+.fi-paper.p3 { transform: rotate(5deg) translateX(5%); transition-duration: 0.48s; }
+.fi-front { position: absolute; left: -1%; right: -1%; bottom: 0; height: 66%; border-radius: 10% / 16%; background: linear-gradient(180deg, var(--folder-front), var(--folder-front-2)); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45), 0 -0.5px 0 rgb(0 0 0 / 0.05); transform-origin: 50% 100%; transition: transform 0.5s cubic-bezier(0.34, 1.4, 0.64, 1); }
+.fi-sm .fi-paper::before, .fi-sm .fi-paper::after { display: none; }
+.group:hover .fi .p1, .fi-open .p1 { transform: translate(-14%, -22%) rotate(-9deg); }
+.group:hover .fi .p2, .fi-open .p2 { transform: translateY(-30%) rotate(1deg); }
+.group:hover .fi .p3, .fi-open .p3 { transform: translate(15%, -20%) rotate(10deg); }
+.group:hover .fi .fi-front, .fi-open .fi-front { transform: rotateX(-34deg); }
+.fi-lg { perspective: 360px; }
+.group:hover .fi-lg .p1, .fi-lg.fi-open .p1 { transform: translate(-26%, -26%) rotate(-14deg); }
+.group:hover .fi-lg .p2, .fi-lg.fi-open .p2 { transform: translateY(-36%) rotate(1deg); }
+.group:hover .fi-lg .p3, .fi-lg.fi-open .p3 { transform: translate(27%, -24%) rotate(15deg); }
+@keyframes dh-folder-open { 0% { transform: none; } 45% { transform: scale(1.12); } 100% { transform: scale(1); } }
+.fi-open { animation: dh-folder-open 0.42s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* action dock (DEPTAI-485 #3): genie-style rise from the bottom edge, magnifying icons */
+@keyframes dh-genie-in { 0% { opacity: 0; transform: translate(-50%, 70%) scale(0.3, 0.15); filter: blur(6px); } 55% { opacity: 1; filter: blur(0); } 100% { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+.dock { left: 50%; transform: translate(-50%, 0); transform-origin: 50% 100%; animation: dh-genie-in 0.46s cubic-bezier(0.22, 1, 0.36, 1); }
+.dock-btn { transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.15s, color 0.15s; transform-origin: 50% 100%; }
+.dock-btn .dock-tip { opacity: 0; transform: translate(-50%, 4px); transition: opacity 0.15s, transform 0.15s; }
+.dock-btn:hover .dock-tip, .dock-btn:focus-visible .dock-tip { opacity: 1; transform: translate(-50%, 0); }
+
+/* editor tabs */
+@keyframes dh-tab-in { from { opacity: 0; max-width: 0; } to { opacity: 1; max-width: 15rem; } }
+.tab-in { animation: dh-tab-in 0.28s var(--ease); }
+.editor-tab { transition: background-color 0.15s, color 0.15s; }
+
+/* image viewer card stack (triage card stack) */
+.stack-card { transition: transform 0.42s cubic-bezier(0.34, 1.3, 0.64, 1), opacity 0.22s; will-change: transform; }
+.stack-card.dragging { transition: none; }
+
+/* sidebar collapse */
+.sidebar { transition: width 0.32s var(--ease); }
+.theme-seg-ind { transition: transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-in, .pop-in, .page-in, .backdrop-in, .dock, .tab-in, .fi-open, .tick-pop { animation: none; }
+  .btn-key, .card-lift, .fi-paper, .fi-front, .dock-btn, .stack-card, .sidebar, .confirm-morph, .theme-seg-ind { transition: none; }
+  .group:hover .fi .fi-paper, .group:hover .fi .fi-front { transform: none; }
+}
 .auth-bg { background: radial-gradient(60rem 40rem at 15% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent), radial-gradient(50rem 36rem at 100% 110%, color-mix(in srgb, var(--ok) 12%, transparent), transparent), var(--bg); }

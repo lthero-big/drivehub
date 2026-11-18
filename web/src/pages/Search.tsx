@@ -1,12 +1,12 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { FolderOpen, Search as SearchIcon, Sparkles } from "lucide-react";
 import { client, ok, type FsItem, type SearchHit } from "../lib/api";
 import { filesHref, go } from "../lib/router";
+import { tabs } from "../lib/tabs";
 import { cx, errMsg, extsOf, fmtSize, fmtTime, KIND_LABEL, parentOf, type Kind } from "../lib/util";
 import { Badge, Empty, IconButton, Input, Select, Spinner, PageHeader, Pager, usePaged } from "../ui/ui";
 import { FileIcon } from "../components/FileIcon";
 
-const Preview = lazy(() => import("../components/Preview"));
 const KINDS: Kind[] = ["image", "video", "audio", "pdf", "office", "markdown", "code", "archive"];
 const SIZES = [
   ["", "不限大小"],
@@ -26,7 +26,6 @@ export function SearchPage({ initial }: { initial: string }) {
   const [res, setRes] = useState<{ hits: SearchHit[]; total: number; took: number; msg?: string | null } | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
-  const [preview, setPreview] = useState<FsItem | null>(null);
 
   useEffect(() => {
     ok(client.GET("/api/fs/list", { params: { query: { path: "/" } } })).then((r) => setMounts(r.items.map((i) => i.name))).catch(() => {});
@@ -50,7 +49,6 @@ export function SearchPage({ initial }: { initial: string }) {
   const toggleKind = (k: Kind) => setKinds(kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k]);
   const asItem = (h: SearchHit): FsItem => ({ name: h.name, path: h.path, is_dir: h.is_dir, size: h.size, modified_unix: h.modified_unix });
   const pg = usePaged(res?.hits ?? [], 15, query);
-  const files = res?.hits.filter((h) => !h.is_dir).map(asItem) ?? [];
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 py-4">
@@ -111,7 +109,7 @@ export function SearchPage({ initial }: { initial: string }) {
               {pg.slice.map((h) => (
                 <li key={h.path} className="flex items-center gap-3 px-3 py-2 hover:bg-hover">
                   <FileIcon name={h.name} isDir={h.is_dir} />
-                  <button className="min-w-0 flex-1 text-left" onClick={() => (h.is_dir ? go(filesHref(h.path)) : setPreview(asItem(h)))}>
+                  <button className="min-w-0 flex-1 text-left" onClick={() => (h.is_dir ? go(filesHref(h.path)) : (tabs.open(asItem(h)), go(filesHref(parentOf(h.path)))))}>
                     <p className="truncate text-[13.5px]">{h.name}</p>
                     <p className="truncate text-[11px] text-faint">{parentOf(h.path)}</p>
                   </button>
@@ -129,11 +127,6 @@ export function SearchPage({ initial }: { initial: string }) {
         </>
       )}
       {!query && <Empty icon={<SearchIcon className="size-10" />} title="输入关键词或选择筛选条件">也可以随时按 Ctrl/⌘ + K 快速搜索</Empty>}
-      {preview && (
-        <Suspense fallback={null}>
-          <Preview item={preview} siblings={files} onClose={() => setPreview(null)} onChange={setPreview} />
-        </Suspense>
-      )}
     </div>
   );
 }

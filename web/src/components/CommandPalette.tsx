@@ -3,6 +3,7 @@ import { Command, FolderOpen, Moon, Search, Settings, Sun, Users, HardDrive, Lis
 import { client, ok, type FsItem, type SearchHit } from "../lib/api";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
+import { tabs } from "../lib/tabs";
 import type { ThemePref } from "../lib/theme";
 import { cx, fmtSize } from "../lib/util";
 import { FileIcon } from "./FileIcon";
@@ -63,7 +64,7 @@ export function CommandPalette({ open, onClose, setTheme }: { open: boolean; onC
       label: h.name,
       hint: `${h.path}${h.is_dir ? "" : ` · ${fmtSize(h.size)}`}`,
       icon: <FileIcon name={h.name} isDir={h.is_dir} className="size-4" />,
-      run: () => go(filesHref(h.is_dir ? h.path : h.path.slice(0, h.path.lastIndexOf("/")) || "/")),
+      run: () => (h.is_dir ? go(filesHref(h.path)) : (tabs.open({ path: h.path, name: h.name, size: h.size, modified_unix: h.modified_unix, is_dir: false }), go(filesHref(h.path.slice(0, h.path.lastIndexOf("/")) || "/")))),
     }));
     return [...files, ...filtered];
   }, [q, hits, mounts, isAdmin, me, setTheme]);

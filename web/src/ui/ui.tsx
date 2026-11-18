@@ -1,4 +1,4 @@
-import { Children, forwardRef, isValidElement, useEffect, useId, useMemo, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { Children, forwardRef, isValidElement, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import { cx } from "../lib/util";
@@ -55,11 +55,14 @@ export function Select({ value, onChange, children, className, disabled, ...rest
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const box = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const id = useId();
   const cur = opts.find((o) => o.value === (value ?? ""));
+  const anchor = useMemo(() => (open && box.current ? { el: box.current } : null), [open]);
+  const pos = usePopoverPos(open, anchor, list, { matchWidth: true });
   useEffect(() => {
     if (!open) return;
-    const f = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const f = (e: MouseEvent) => !box.current?.contains(e.target as Node) && !list.current?.contains(e.target as Node) && setOpen(false);
     document.addEventListener("mousedown", f);
     return () => document.removeEventListener("mousedown", f);
   }, [open]);
@@ -98,23 +101,25 @@ export function Select({ value, onChange, children, className, disabled, ...rest
         <span className="truncate">{cur?.label ?? "请选择"}</span>
         <ChevronDown className={cx("size-4 shrink-0 text-faint transition-transform duration-200", open && "rotate-180")} />
       </button>
-      {open && (
-        <ul id={id} role="listbox" className="pop-in glass scroll-thin absolute top-full left-0 z-50 mt-1.5 max-h-64 min-w-full overflow-auto rounded-xl border border-line p-1 shadow-pop">
-          {opts.map((o, i) => (
-            <li
-              key={o.value}
-              role="option"
-              aria-selected={o.value === value}
-              onMouseEnter={() => setHi(i)}
-              onMouseDown={(e) => (e.preventDefault(), pick(o.value))}
-              className={cx("flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm whitespace-nowrap", i === hi && "bg-hover", o.value === value && "font-medium text-accent")}
-            >
-              <span className="flex-1">{o.label}</span>
-              {o.value === value && <Check className="size-4" />}
-            </li>
-          ))}
-        </ul>
-      )}
+      {open &&
+        createPortal(
+          <ul ref={list} id={id} role="listbox" style={pos} className="pop-in pop-surface scroll-thin z-[75] max-h-64 overflow-auto rounded-xl p-1">
+            {opts.map((o, i) => (
+              <li
+                key={o.value}
+                role="option"
+                aria-selected={o.value === value}
+                onMouseEnter={() => setHi(i)}
+                onMouseDown={(e) => (e.preventDefault(), pick(o.value))}
+                className={cx("flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm whitespace-nowrap", i === hi && "bg-hover", o.value === value && "font-medium text-accent")}
+              >
+                <span className="flex-1">{o.label}</span>
+                {o.value === value && <Check className="size-4" />}
+              </li>
+            ))}
+          </ul>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -285,7 +290,7 @@ export function Empty({ icon, title, children }: { icon?: ReactNode; title: stri
   );
 }
 
-export function Modal({ open, onClose, title, children, footer, wide }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+export function Modal({ open, onClose, title, children, footer, wide, dataAttr }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean; dataAttr?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -301,7 +306,7 @@ export function Modal({ open, onClose, title, children, footer, wide }: { open: 
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-0 backdrop-blur-sm backdrop-in sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal="true" className={cx("pop-in flex max-h-[92dvh] w-full flex-col rounded-t-3xl border border-line bg-panel shadow-pop sm:rounded-3xl", wide ? "sm:max-w-3xl" : "sm:max-w-md")}>
+      <div ref={ref} role="dialog" aria-modal="true" data-ask-dialog={dataAttr ? "" : undefined} className={cx("pop-in flex max-h-[92dvh] w-full flex-col rounded-t-3xl border border-line bg-panel shadow-pop sm:rounded-3xl", wide ? "sm:max-w-3xl" : "sm:max-w-md")}>
         <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
           <h2 className="truncate text-sm font-semibold">{title}</h2>
           <IconButton label="关闭" onClick={onClose}>
@@ -319,11 +324,18 @@ export function Modal({ open, onClose, title, children, footer, wide }: { open: 
 // ---- toasts + prompt/confirm ----------------------------------------------
 
 type Toast = { id: number; text: string; tone: "ok" | "danger" | "neutral" };
+type UndoToast = { id: number; text: string; ms: number; onUndo: () => void; onCommit: () => void; from: DOMRect | null };
 let pushToast: (t: Omit<Toast, "id">) => void = () => {};
+let pushUndo: (t: Omit<UndoToast, "id" | "from">) => void = () => {};
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** Rect of the confirm dialog that was just closed — the undo toast morphs out of it (dialog → toast). */
+let lastDialog: { rect: DOMRect; t: number } | null = null;
 export const toast = {
   ok: (text: string) => pushToast({ text, tone: "ok" }),
   err: (text: string) => pushToast({ text, tone: "danger" }),
   info: (text: string) => pushToast({ text, tone: "neutral" }),
+  /** Toast with an 「撤销」 button and a draining progress bar; onCommit runs when the window elapses (hover pauses). */
+  undo: (text: string, o: { onUndo: () => void; onCommit: () => void; ms?: number }) => pushUndo({ text, ms: o.ms ?? 5000, onUndo: o.onUndo, onCommit: o.onCommit }),
 };
 
 type Ask = { title: string; label?: string; value?: string; confirm?: string; danger?: boolean; input: boolean; resolve: (v: string | null) => void };
@@ -333,8 +345,51 @@ export const ask = (title: string, opts: { label?: string; value?: string; confi
 export const confirmDlg = (title: string, opts: { label?: string; confirm?: string; danger?: boolean } = {}) =>
   new Promise<boolean>((resolve) => pushAsk({ title, ...opts, input: false, resolve: (v) => resolve(v !== null) }));
 
+function UndoToastView({ t, done }: { t: UndoToast; done: (undo: boolean) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const settled = useRef(false);
+  const finish = (undo: boolean) => {
+    if (settled.current) return;
+    settled.current = true;
+    if (undo) t.onUndo();
+    else t.onCommit();
+    const el = ref.current;
+    if (el && !reduceMotion()) el.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(12px) scale(.96)" }], { duration: 180, easing: "ease-in", fill: "forwards" }).onfinish = () => done(undo);
+    else done(undo);
+  };
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || reduceMotion()) return;
+    const to = el.getBoundingClientRect();
+    const from = t.from ?? new DOMRect(to.left, to.top + 24, to.width, to.height);
+    const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+    const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+    // FLIP: start at the dialog's box, glide + shrink into the toast slot (520ms, ease-out-expo like the reference)
+    el.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px) scale(${from.width / to.width}, ${from.height / to.height})`, borderRadius: "24px", opacity: t.from ? 1 : 0 },
+        { transform: "none", borderRadius: "16px", opacity: 1 },
+      ],
+      { duration: t.from ? 520 : 260, easing: "cubic-bezier(0.22,1,0.36,1)" },
+    );
+    el.querySelector(".toast-body")?.animate([{ opacity: 0 }, { opacity: 0, offset: 0.45 }, { opacity: 1 }], { duration: t.from ? 520 : 200 });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div ref={ref} role="status" className="toast-undo pop-surface pointer-events-auto relative w-[340px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl">
+      <div className="toast-body flex min-h-16 items-center gap-3 px-4 py-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ok/12 text-ok"><Check className="size-4 stroke-[2.5]" /></span>
+        <span className="min-w-0 flex-1 truncate text-sm">{t.text}</span>
+        <button onClick={() => finish(true)} className="btn-key h-8 shrink-0 rounded-lg px-3 text-[13px] font-semibold text-accent hover:bg-accent-soft">撤销</button>
+        <button aria-label="立即提交" onClick={() => finish(false)} className="shrink-0 rounded-md p-1 text-faint hover:bg-hover hover:text-fg"><X className="size-3.5" /></button>
+      </div>
+      <i className="toast-bar absolute inset-x-0 bottom-0 h-[3px] origin-left bg-accent" style={{ animationDuration: `${t.ms}ms` }} onAnimationEnd={() => finish(false)} />
+    </div>
+  );
+}
+
 export function Overlays() {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [undos, setUndos] = useState<UndoToast[]>([]);
   const [a, setA] = useState<Ask | null>(null);
   const [v, setV] = useState("");
   useEffect(() => {
@@ -344,12 +399,20 @@ export function Overlays() {
       setToasts((x) => [...x.slice(-3), { ...t, id }]);
       setTimeout(() => setToasts((x) => x.filter((y) => y.id !== id)), 3500);
     };
+    pushUndo = (t) => {
+      const id = ++n;
+      const from = lastDialog && performance.now() - lastDialog.t < 800 ? lastDialog.rect : null;
+      lastDialog = null;
+      setUndos((x) => [...x, { ...t, id, from }]);
+    };
     pushAsk = (x) => {
       setV(x.value ?? "");
       setA(x);
     };
   }, []);
   const close = (val: string | null) => {
+    const d = document.querySelector<HTMLElement>("[data-ask-dialog]");
+    if (d && val !== null) lastDialog = { rect: d.getBoundingClientRect(), t: performance.now() };
     a?.resolve(val);
     setA(null);
   };
@@ -357,15 +420,21 @@ export function Overlays() {
     <>
       <div aria-live="polite" className="pointer-events-none fixed inset-x-0 top-3 z-[70] flex flex-col items-center gap-2 px-3">
         {toasts.map((t) => (
-          <div key={t.id} className={cx("anim-in pointer-events-auto max-w-md rounded-lg border px-3 py-2 text-sm shadow-pop", t.tone === "danger" ? "border-danger/30 bg-panel text-danger" : t.tone === "ok" ? "border-ok/30 bg-panel text-ok" : "border-line bg-panel")}>
+          <div key={t.id} className={cx("anim-in pop-surface pointer-events-auto max-w-md rounded-xl px-3 py-2 text-sm", t.tone === "danger" ? "text-danger" : t.tone === "ok" ? "text-ok" : "")}>
             {t.text}
           </div>
+        ))}
+      </div>
+      <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-4 z-[70] flex flex-col items-center gap-2 px-3 sm:right-5 sm:left-auto sm:items-end">
+        {undos.map((t) => (
+          <UndoToastView key={t.id} t={t} done={() => setUndos((x) => x.filter((y) => y.id !== t.id))} />
         ))}
       </div>
       <Modal
         open={!!a}
         onClose={() => close(null)}
         title={a?.title ?? ""}
+        dataAttr
         footer={
           <>
             <Button onClick={() => close(null)}>取消</Button>
@@ -389,14 +458,157 @@ export function Overlays() {
   );
 }
 
-/** Small anchored menu (click outside / Esc closes). */
-export function Menu({ trigger, children, align = "right", side = "bottom" }: { trigger: (open: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: "left" | "right"; side?: "top" | "bottom" }) {
+/**
+ * Two-step destructive button (Arc UI confirm-morph): the pill widens in place into 「取消 / 确认」,
+ * faces cross-fade (old out 80ms, new in 240ms), Esc cancels, auto-disarms after 6s,
+ * then shows a spinner while onConfirm runs and a tick when it resolves.
+ */
+export function ConfirmButton({ icon, label, confirmLabel = "确认删除", onConfirm, iconOnly, size = "md", className }: { icon: ReactNode; label: string; confirmLabel?: string; onConfirm: () => unknown | Promise<unknown>; iconOnly?: boolean; size?: "sm" | "md"; className?: string }) {
+  const [st, setSt] = useState<"idle" | "armed" | "busy" | "done">("idle");
+  const inner = useRef<HTMLSpanElement>(null);
+  const [w, setW] = useState<number | undefined>(undefined);
+  const box = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    const m = () => setW(el.scrollWidth);
+    m();
+    const ro = new ResizeObserver(m);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [st]);
+  useEffect(() => {
+    if (st !== "armed") return;
+    const k = (e: KeyboardEvent) => e.key === "Escape" && setSt("idle");
+    const f = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setSt("idle");
+    const t = setTimeout(() => setSt("idle"), 6000);
+    window.addEventListener("keydown", k);
+    document.addEventListener("mousedown", f);
+    setTimeout(() => box.current?.querySelector<HTMLElement>("[data-confirm]")?.focus(), 0);
+    return () => (clearTimeout(t), window.removeEventListener("keydown", k), document.removeEventListener("mousedown", f));
+  }, [st]);
+  useEffect(() => {
+    const el = inner.current;
+    if (!el || reduceMotion()) return;
+    Array.from(el.children).forEach((c, i) => (c as HTMLElement).animate([{ opacity: 0, filter: "blur(3px)", transform: "scale(.92)" }, { opacity: 1, filter: "blur(0)", transform: "none" }], { duration: 240, delay: 80 + i * 40, easing: "cubic-bezier(0.22,1,0.36,1)", fill: "backwards" }));
+  }, [st]);
+  const go = async () => {
+    setSt("busy");
+    try {
+      await onConfirm();
+      setSt("done");
+      setTimeout(() => setSt("idle"), 1100);
+    } catch {
+      setSt("idle");
+    }
+  };
+  const h = size === "sm" ? "h-8 text-[13px]" : "h-10 text-sm";
+  return (
+    <span ref={box} data-state={st} className={cx("confirm-morph inline-flex shrink-0 overflow-hidden rounded-full align-middle", st === "armed" ? "bg-danger/10 ring-1 ring-danger/30" : st === "idle" ? "" : "bg-hover", className)} style={{ width: w }} onClick={(e) => e.stopPropagation()}>
+      <span ref={inner} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap">
+        {st === "idle" && (
+          <button type="button" aria-label={label} title={label} onClick={() => setSt("armed")} className={cx("btn-key inline-flex items-center justify-center gap-1.5 rounded-full font-medium text-danger hover:bg-danger/10 [&>svg]:size-4", h, iconOnly ? (size === "sm" ? "w-8" : "w-9") : "px-3.5")}>
+            {icon}
+            {!iconOnly && <span>{label}</span>}
+          </button>
+        )}
+        {st === "armed" && (
+          <>
+            <button type="button" onClick={() => setSt("idle")} className={cx("rounded-full px-3 font-medium text-muted hover:bg-hover hover:text-fg", h)}>取消</button>
+            <button type="button" data-confirm onClick={go} className={cx("btn-key inline-flex items-center gap-1.5 rounded-full bg-danger px-3.5 font-semibold text-white [&>svg]:size-4", h)}>
+              {icon}
+              {confirmLabel}
+            </button>
+          </>
+        )}
+        {st === "busy" && (
+          <span className={cx("inline-flex items-center gap-1.5 px-3.5 text-muted", h)}>
+            <Loader2 className="size-4 animate-spin" /> 处理中
+          </span>
+        )}
+        {st === "done" && (
+          <span className={cx("inline-flex items-center gap-1.5 px-3.5 font-medium text-ok", h)}>
+            <span className="tick-pop flex size-5 items-center justify-center rounded-full bg-ok text-white"><Check className="size-3 stroke-[3]" /></span> 完成
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+type Anchor = { el: HTMLElement } | { x: number; y: number };
+/**
+ * Position a portaled popover next to an anchor element (or a point) and keep it inside the viewport:
+ * flips to the other side when there is not enough room, shifts horizontally, and caps the height.
+ */
+export function usePopoverPos(open: boolean, anchor: Anchor | null, pop: React.RefObject<HTMLElement | null>, opts: { side?: "top" | "bottom"; align?: "left" | "right"; gap?: number; matchWidth?: boolean } = {}) {
+  const [st, setSt] = useState<React.CSSProperties>({ position: "fixed", top: -9999, left: -9999, visibility: "hidden" });
+  const { side = "bottom", align = "left", gap = 6, matchWidth } = opts;
+  useLayoutEffect(() => {
+    if (!open || !anchor) return;
+    const place = () => {
+      const el = pop.current;
+      if (!el) return;
+      const M = 8;
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const r = "el" in anchor ? anchor.el.getBoundingClientRect() : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y, width: 0, height: 0 };
+      el.style.maxHeight = "";
+      const w = Math.max(el.offsetWidth, matchWidth ? r.width : 0);
+      const h = el.scrollHeight;
+      const below = vh - r.bottom - gap - M, above = r.top - gap - M;
+      let s = side;
+      if (s === "bottom" && h > below && above > below) s = "top";
+      else if (s === "top" && h > above && below > above) s = "bottom";
+      let room = s === "bottom" ? below : above;
+      let height = Math.min(h, room);
+      let top = s === "bottom" ? r.bottom + gap : r.top - gap - height;
+      if (h > room && h <= vh - 2 * M) {
+        // fits on neither side: keep the whole menu visible and let it overlap the anchor
+        room = vh - 2 * M;
+        height = h;
+        top = s === "bottom" ? vh - M - h : M;
+      }
+      top = Math.max(M, Math.min(top, vh - M - height));
+      let left = "el" in anchor ? (align === "right" ? r.right - w : r.left) : r.left;
+      if (!("el" in anchor) && left + w > vw - M) left = r.left - w; // context menu: open to the left of the pointer
+      left = Math.max(M, Math.min(left, vw - M - w));
+      setSt({ position: "fixed", top, left, minWidth: matchWidth ? r.width : undefined, maxHeight: room < h ? room : undefined, transformOrigin: `${align === "right" ? "right" : "left"} ${s === "bottom" ? "top" : "bottom"}` });
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    if (pop.current) ro.observe(pop.current);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, anchor, side, align, gap, matchWidth, pop]);
+  return st;
+}
+
+/** Arrow-key navigation between menuitems inside a menu element. */
+function menuKeys(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") return;
+  e.preventDefault();
+  const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[role=menuitem]:not([disabled])"));
+  const i = items.indexOf(document.activeElement as HTMLElement);
+  const n = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : e.key === "ArrowDown" ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+  items[n]?.focus();
+}
+
+/** Anchored dropdown menu, portaled to <body> so it is never clipped by scroll containers; opaque surface. */
+export function Menu({ trigger, children, align = "right", side = "bottom", matchWidth, className }: { trigger: (open: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: "left" | "right"; side?: "top" | "bottom"; matchWidth?: boolean; className?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const anchor = useMemo(() => (open && ref.current ? { el: (ref.current.firstElementChild as HTMLElement) ?? ref.current } : null), [open]);
+  const style = usePopoverPos(open, anchor, pop, { side, align, matchWidth });
   useEffect(() => {
     if (!open) return;
-    const f = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const k = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const f = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !pop.current?.contains(e.target as Node) && setOpen(false);
+    const k = (e: KeyboardEvent) => e.key === "Escape" && (setOpen(false), (ref.current?.querySelector("button") as HTMLElement | null)?.focus());
     document.addEventListener("mousedown", f);
     window.addEventListener("keydown", k);
     return () => {
@@ -405,23 +617,56 @@ export function Menu({ trigger, children, align = "right", side = "bottom" }: { 
     };
   }, [open]);
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={className ?? "relative"}>
       {trigger(() => setOpen((o) => !o))}
-      {open && (
-        <div role="menu" className={cx("pop-in glass absolute z-40 min-w-48 rounded-2xl border border-line p-1.5 shadow-pop", side === "top" ? "bottom-full mb-1 origin-bottom" : "top-full mt-1", align === "right" ? "right-0" : "left-0", side === "top" && align === "left" && "right-0")}>
-          {children(() => setOpen(false))}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div ref={pop} role="menu" style={style} onKeyDown={menuKeys} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()} className="pop-in pop-surface scroll-thin z-[75] min-w-48 overflow-auto rounded-2xl p-1.5">
+            {children(() => setOpen(false))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
 
-export function MenuItem({ icon, children, onClick, danger, kbd }: { icon?: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean; kbd?: string }) {
+/** Context menu at a pointer position (right click / long press). Same opaque surface + viewport collision. */
+export function ContextMenu({ at, onClose, children, label }: { at: { x: number; y: number } | null; onClose: () => void; children: (close: () => void) => ReactNode; label?: string }) {
+  const pop = useRef<HTMLDivElement>(null);
+  const style = usePopoverPos(!!at, at, pop, { gap: 2 });
+  useEffect(() => {
+    if (!at) return;
+    const f = (e: MouseEvent) => !pop.current?.contains(e.target as Node) && onClose();
+    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("mousedown", f);
+    window.addEventListener("keydown", k);
+    window.addEventListener("blur", onClose);
+    setTimeout(() => pop.current?.querySelector<HTMLElement>("[role=menuitem]")?.focus({ preventScroll: true }), 0);
+    return () => {
+      document.removeEventListener("mousedown", f);
+      window.removeEventListener("keydown", k);
+      window.removeEventListener("blur", onClose);
+    };
+  }, [at, onClose]);
+  if (!at) return null;
+  return createPortal(
+    <div ref={pop} role="menu" aria-label={label} style={style} onKeyDown={menuKeys} onContextMenu={(e) => e.preventDefault()} className="pop-in pop-surface scroll-thin z-[75] min-w-56 overflow-auto rounded-2xl p-1.5">
+      {children(onClose)}
+    </div>,
+    document.body,
+  );
+}
+
+export function MenuSep() {
+  return <div role="separator" className="mx-2 my-1 h-px bg-line" />;
+}
+
+export function MenuItem({ icon, children, onClick, danger, kbd, disabled }: { icon?: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean; kbd?: string; disabled?: boolean }) {
   return (
-    <button role="menuitem" onClick={onClick} className={cx("flex min-h-10 w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px] transition-colors duration-150 hover:bg-hover active:scale-[0.98]", danger && "text-danger")}>
-      <span className="text-muted [&>svg]:size-4">{icon}</span>
+    <button role="menuitem" disabled={disabled} onClick={onClick} className={cx("flex min-h-9 w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px] whitespace-nowrap outline-none transition-colors duration-150 hover:bg-hover focus-visible:bg-hover active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40", danger && "text-danger hover:bg-danger/10 focus-visible:bg-danger/10")}>
+      <span className={cx("[&>svg]:size-4", danger ? "text-danger" : "text-muted")}>{icon}</span>
       <span className="flex-1">{children}</span>
-      {kbd && <kbd className="text-[11px] text-faint">{kbd}</kbd>}
+      {kbd && <kbd className="pl-4 font-sans text-[11px] text-faint">{kbd}</kbd>}
     </button>
   );
 }
