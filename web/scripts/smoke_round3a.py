@@ -290,7 +290,7 @@ with sync_playwright() as pw:
     check("5 rules appear in matrix", page.locator('[data-testid=acl-matrix] tbody tr').count() == 2)
     cell = page.locator('[data-testid=acl-matrix] tbody tr').first.locator('button[data-state]').nth(5)
     s0 = cell.get_attribute("data-state"); cell.click(); page.wait_for_timeout(800)
-    s1 = page.locator('[data-testid=acl-matrix] tbody tr').first.locator('button[data-state]').nth(5).get_attribute("data-state")
+    s1 = page.locator('[data-testid=acl-matrix] tbody tr').last.locator('button[data-state]').nth(5).get_attribute("data-state")
     check(f"5 matrix cell cycles ({s0}->{s1})", s0 != s1)
     shot(page, "05-acl-matrix")
     page.goto(BASE + "/#/admin/acl?path=/示例/文档/代码"); page.wait_for_timeout(800)
