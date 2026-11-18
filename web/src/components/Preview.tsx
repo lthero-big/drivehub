@@ -307,8 +307,8 @@ function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem
         <div className="absolute top-4 left-4 z-20">
           <FoldToolbar label="图片工具" tools={[
             { id: "zoom", label: "缩放", icon: <ZoomIn className="size-4" />, children: [
-              { id: "in", label: "放大", icon: <ZoomIn className="size-4" />, onSelect: () => zoomAt(zm.z * 1.5) },
-              { id: "out", label: "缩小", icon: <ZoomOut className="size-4" />, onSelect: () => zoomAt(zm.z / 1.5) },
+              { id: "in", label: "拉近", icon: <ZoomIn className="size-4" />, onSelect: () => zoomAt(zm.z * 1.5) },
+              { id: "out", label: "拉远", icon: <ZoomOut className="size-4" />, onSelect: () => zoomAt(zm.z / 1.5) },
               { id: "fit", label: "适应窗口", icon: <Maximize2 className="size-4" />, onSelect: () => zoomAt(1) },
             ] },
             { id: "get", label: "下载与打开", icon: <Download className="size-4" />, children: [

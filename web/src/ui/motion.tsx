@@ -214,7 +214,7 @@ export function FoldToolbar({ tools, label = "工具栏", activeId }: { tools: F
               <span className="ft-ic" data-swap={swap === t.id ? 1 : 0}>{shown.icon}</span>
             </button>
             {t.children && (
-              <div className="ft-sub" data-open={openId === t.id ? 1 : 0} role="group" aria-label={`${t.label}子工具`}>
+              <div className="ft-sub" data-open={openId === t.id ? 1 : 0} aria-hidden={openId === t.id ? undefined : true} role="group" aria-label={`${t.label}子工具`}>
                 <button type="button" className="ft-btn" style={{ ["--i" as string]: 0 }} aria-label="收起" tabIndex={openId === t.id ? 0 : -1} onClick={() => setOpenId(null)}>×</button>
                 {t.children.map((c, i) => (
                   <button key={c.id} type="button" className="ft-btn" style={{ ["--i" as string]: i + 1 }} aria-label={c.label} title={c.label} tabIndex={openId === t.id ? 0 : -1} onClick={() => pick(t, c)}>{c.icon}</button>
