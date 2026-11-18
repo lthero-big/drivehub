@@ -300,10 +300,10 @@ export function FileBrowser({ path }: { path: string }) {
   return (
     <div className="relative flex min-h-full flex-col" onDragOver={(e) => (e.preventDefault(), !isRoot && setDragging(true))} onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)} onDrop={onDrop}>
       <div className="sticky top-0 z-10 -mx-3 flex flex-wrap items-center gap-2 border-b border-line bg-panel/95 px-3 py-2 backdrop-blur sm:-mx-6 sm:px-6">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
           <Crumbs path={path} />
         </div>
-        <div className="flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1">
           {!isRoot && (
             <>
               <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()}>
@@ -345,37 +345,37 @@ export function FileBrowser({ path }: { path: string }) {
         </div>
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => (e.target.files && addFiles(fromFileList(e.target.files, path)), (e.target.value = ""))} />
         <input ref={dirInput} type="file" hidden {...({ webkitdirectory: "" } as object)} onChange={(e) => (e.target.files && addFiles(fromFileList(e.target.files, path)), (e.target.value = ""))} />
-      </div>
-
-      {selected.length > 0 && (
-        <div className="anim-in sticky top-[49px] z-10 -mx-3 flex flex-wrap items-center gap-1 border-b border-line bg-accent-soft px-3 py-1.5 text-[13px] sm:-mx-6 sm:px-6">
-          <IconButton label="取消选择" onClick={() => setSel(new Set())}>
-            <X className="size-4" />
-          </IconButton>
-          <span className="mr-2 font-medium">已选 {selected.length} 项 · {fmtSize(selected.reduce((a, b) => a + b.size, 0))}</span>
-          <Button size="sm" variant="ghost" onClick={() => download(selected)}>
-            <Download className="size-4" /> {selected.length === 1 && !selected[0].is_dir ? "下载" : "打包下载"}
-          </Button>
-          {!isRoot && (
-            <>
-              {selected.length === 1 && (
-                <Button size="sm" variant="ghost" onClick={() => rename(selected[0])}>
-                  <Pencil className="size-4" /> 重命名
+        {selected.length > 0 && (
+          <div role="toolbar" aria-label="批量操作" className="anim-in scroll-thin absolute inset-0 z-10 flex items-center gap-1 overflow-x-auto border-b border-line bg-accent-soft px-3 text-[13px] whitespace-nowrap sm:px-6">
+            <IconButton label="取消选择" onClick={() => setSel(new Set())}>
+              <X className="size-4" />
+            </IconButton>
+            <span className="mr-2 shrink-0 font-medium">已选 {selected.length} 项 · {fmtSize(selected.reduce((a, b) => a + b.size, 0))}</span>
+            <Button size="sm" variant="ghost" onClick={() => download(selected)}>
+              <Download className="size-4" /> {selected.length === 1 && !selected[0].is_dir ? "下载" : "打包下载"}
+            </Button>
+            {!isRoot && (
+              <>
+                {selected.length === 1 && (
+                  <Button size="sm" variant="ghost" onClick={() => rename(selected[0])}>
+                    <Pencil className="size-4" /> 重命名
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setPicker("move")}>
+                  <FolderInput className="size-4" /> 移动
                 </Button>
-              )}
-              <Button size="sm" variant="ghost" onClick={() => setPicker("move")}>
-                <FolderInput className="size-4" /> 移动
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setPicker("copy")}>
-                <Copy className="size-4" /> 复制
-              </Button>
-              <Button size="sm" variant="ghost" className="text-danger" onClick={() => remove(selected)}>
-                <Trash2 className="size-4" /> 删除
-              </Button>
-            </>
-          )}
-        </div>
-      )}
+                <Button size="sm" variant="ghost" onClick={() => setPicker("copy")}>
+                  <Copy className="size-4" /> 复制
+                </Button>
+                <Button size="sm" variant="ghost" className="text-danger" onClick={() => remove(selected)}>
+                  <Trash2 className="size-4" /> 删除
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+
+      </div>
 
       <div className="flex-1 py-3">
         {items === null && (
@@ -408,9 +408,9 @@ export function FileBrowser({ path }: { path: string }) {
               <span role="columnheader">
                 <input type="checkbox" aria-label="全选" checked={sel.size > 0 && sel.size === list.length} onChange={(e) => setSel(e.target.checked ? new Set(list.map((i) => i.path)) : new Set())} className="accent-[var(--accent)]" />
               </span>
-              <button role="columnheader" className="text-left hover:text-fg" onClick={() => setSort({ by: "name", desc: sort.by === "name" && !sort.desc })}>名称</button>
-              <button role="columnheader" className="text-right hover:text-fg" onClick={() => setSort({ by: "size", desc: !(sort.by === "size" && sort.desc) })}>大小</button>
-              <button role="columnheader" className="text-left hover:text-fg" onClick={() => setSort({ by: "modified", desc: !(sort.by === "modified" && sort.desc) })}>修改时间</button>
+              <span role="columnheader"><button className="text-left hover:text-fg" onClick={() => setSort({ by: "name", desc: sort.by === "name" && !sort.desc })}>名称</button></span>
+              <span role="columnheader" className="text-right"><button className="hover:text-fg" onClick={() => setSort({ by: "size", desc: !(sort.by === "size" && sort.desc) })}>大小</button></span>
+              <span role="columnheader"><button className="text-left hover:text-fg" onClick={() => setSort({ by: "modified", desc: !(sort.by === "modified" && sort.desc) })}>修改时间</button></span>
               <span />
             </div>
             {list.map((i, idx) => (

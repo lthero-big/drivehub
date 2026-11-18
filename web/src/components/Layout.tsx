@@ -73,7 +73,7 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         <Menu
           align="left"
           trigger={(t) => (
-            <button onClick={t} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-hover" aria-label="用户菜单">
+            <button onClick={t} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-hover">
               <span className="flex size-7 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent">{(me?.username ?? "访")[0].toUpperCase()}</span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] font-medium">{me?.username ?? "访客"}</span>
