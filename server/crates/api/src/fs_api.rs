@@ -629,9 +629,19 @@ pub async fn mounts(
 pub async fn add_mount(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
-    Json(cfg): Json<MountConfig>,
+    Json(mut cfg): Json<MountConfig>,
 ) -> ApiResult<Json<OkResp>> {
     p.require_admin()?;
+    // Editing from the UI echoes masked credentials back as "***": keep the stored value.
+    if let Some(old) = st.vfs.mounts().iter().find(|m| m.cfg.name == cfg.name) {
+        for (k, v) in cfg.options.iter_mut() {
+            if v == "***" {
+                if let Some(o) = old.cfg.options.get(k) {
+                    *v = o.clone();
+                }
+            }
+        }
+    }
     let name = cfg.name.clone();
     st.vfs.add(cfg).await?;
     st.after_change(&name);

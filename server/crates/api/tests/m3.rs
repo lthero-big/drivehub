@@ -8,7 +8,6 @@ use tower::ServiceExt;
 
 struct Ctx {
     app: axum::Router,
-    #[allow(dead_code)]
     state: AppState,
     _dirs: Vec<tempfile::TempDir>,
     a: String,
@@ -295,4 +294,36 @@ async fn openapi_has_m3_paths() {
     ] {
         assert!(v["paths"][p].is_object(), "{p}");
     }
+}
+
+#[tokio::test]
+async fn editing_mount_keeps_masked_secrets() {
+    let c = ctx().await;
+    let body = json!({"name": "dav", "kind": "webdav", "options": {"endpoint": "http://127.0.0.1:9", "username": "u", "password": "s3cret"}});
+    let (s, _) = req(&c, "POST", "/api/mounts", Some(body)).await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v) = req(&c, "GET", "/api/mounts", None).await;
+    let m = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["name"] == "dav")
+        .unwrap()
+        .clone();
+    assert_eq!(m["options"]["password"], "***");
+    let mut edited = m.clone();
+    edited["read_only"] = json!(true);
+    let (s, _) = req(&c, "POST", "/api/mounts", Some(edited)).await;
+    assert_eq!(s, StatusCode::OK);
+    let kept = c
+        .state
+        .vfs
+        .mounts()
+        .iter()
+        .find(|m| m.cfg.name == "dav")
+        .unwrap()
+        .cfg
+        .clone();
+    assert_eq!(kept.options["password"], "s3cret");
+    assert!(kept.read_only);
 }
