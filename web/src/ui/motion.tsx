@@ -110,7 +110,7 @@ export function SegmentedDrag<T extends string>({ options, value, onChange, labe
 
 /* ───────── 3. SendButton (ig-send-button) ───────── */
 const PCOL = ["#ff5a2c", "#3b82f6", "#f5b700", "#a855f7"];
-export function SendButton({ onSend, label = "发送", sentLabel = "已发送", className, disabled, icon }: { onSend: () => unknown | Promise<unknown>; label?: string; sentLabel?: string; className?: string; disabled?: boolean; icon?: ReactNode }) {
+export function SendButton({ onSend, onDone, label = "发送", sentLabel = "已发送", className, disabled, icon }: { onSend: () => unknown | Promise<unknown>; onDone?: () => void; label?: string; sentLabel?: string; className?: string; disabled?: boolean; icon?: ReactNode }) {
   const [st, setSt] = useState<"idle" | "sending" | "sent">("idle");
   const click = async () => {
     if (st !== "idle") return;
@@ -124,7 +124,7 @@ export function SendButton({ onSend, label = "发送", sentLabel = "已发送", 
     }
     await new Promise((r) => setTimeout(r, Math.max(0, 700 - (Date.now() - t0))));
     setSt("sent");
-    setTimeout(() => setSt("idle"), 1600);
+    setTimeout(() => (setSt("idle"), onDone?.()), onDone ? 900 : 1600);
   };
   const parts = Array.from({ length: 10 }, (_, i) => {
     const a = (i / 10) * Math.PI * 2, r = 52 + (i % 3) * 15;
@@ -264,5 +264,17 @@ export function GenieDock({ items, onRestore, popId }: { items: DockEntry[]; onR
     </div>
   );
 }
-export const dockRect = (id: string) => document.querySelector<HTMLElement>(`[data-dock-id="${CSS.escape(id)}"]`)?.getBoundingClientRect() ?? new DOMRect(window.innerWidth / 2 - 26, window.innerHeight - 66, 52, 52);
+export const dockRect = (id: string) => document.querySelector<HTMLElement>(`[data-dock-id="${CSS.escape(id)}"]`)?.getBoundingClientRect() ?? new DOMRect(window.innerWidth - 16 - 52 - 10, window.innerHeight - 14 - 52 - 8, 52, 52);
 void Children; void isValidElement;
+
+/* ───────── 7. MorphPlay (morphing-controls): play ▸ ⇄ pause ❚❚ share one pair of shapes and spring between them ───────── */
+export function MorphPlay({ playing, className = "size-5" }: { playing: boolean; className?: string }) {
+  const L = playing ? "M6 4 L10 4 L10 20 L6 20 Z" : "M6 4 L12 7.5 L12 16.5 L6 20 Z";
+  const R = playing ? "M14 4 L18 4 L18 20 L14 20 Z" : "M12 7.5 L20 12 L20 12 L12 16.5 Z";
+  return (
+    <svg viewBox="0 0 24 24" className={cx("morph-play", className)} fill="currentColor" aria-hidden>
+      <path d={L} style={{ d: `path("${L}")` }} />
+      <path d={R} style={{ d: `path("${R}")` }} />
+    </svg>
+  );
+}

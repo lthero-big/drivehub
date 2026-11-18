@@ -1,10 +1,11 @@
 // File preview (lazy chunk): image gallery, video/audio (+ external players), PDF, Markdown,
 // code/text, zip listing via Range reads, DOCX, and a download fallback.
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
-import { ChevronLeft, ChevronRight, Download, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ExternalLink, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 import { fileUrl, rawFetch, type FsItem } from "../lib/api";
 import { cx, ext, fmtSize, kindOf } from "../lib/util";
 import { Button, Spinner } from "../ui/ui";
+import { FoldToolbar } from "../ui/motion";
 import { FileIcon } from "./FileIcon";
 import { CodeViewer } from "./CodeViewer";
 import { AudioPlayer, VideoPlayer } from "./MediaPlayer";
@@ -303,6 +304,19 @@ function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem
             );
           })
           .reverse()}
+        <div className="absolute top-4 left-4 z-20">
+          <FoldToolbar label="图片工具" tools={[
+            { id: "zoom", label: "缩放", icon: <ZoomIn className="size-4" />, children: [
+              { id: "in", label: "放大", icon: <ZoomIn className="size-4" />, onSelect: () => zoomAt(zm.z * 1.5) },
+              { id: "out", label: "缩小", icon: <ZoomOut className="size-4" />, onSelect: () => zoomAt(zm.z / 1.5) },
+              { id: "fit", label: "适应窗口", icon: <Maximize2 className="size-4" />, onSelect: () => zoomAt(1) },
+            ] },
+            { id: "get", label: "下载与打开", icon: <Download className="size-4" />, children: [
+              { id: "dl", label: "下载", icon: <Download className="size-4" />, onSelect: () => void (location.href = fileUrl(item.path, { download: true })) },
+              { id: "new", label: "新窗口打开", icon: <ExternalLink className="size-4" />, onSelect: () => void window.open(fileUrl(item.path), "_blank", "noopener") },
+            ] },
+          ]} />
+        </div>
         <div role="toolbar" aria-label="缩放" className="pop-surface absolute top-4 right-4 z-20 flex items-center gap-0.5 rounded-xl p-1 text-[13px]">
           <button aria-label="缩小" onClick={() => zoomAt(zm.z / 1.25)} disabled={zm.z <= 1} className="grid size-8 place-items-center rounded-lg hover:bg-hover disabled:opacity-40"><ZoomOut className="size-4" /></button>
           <span data-testid="zoom-level" className="w-12 text-center tabular-nums text-muted">{Math.round(zm.z * 100)}%</span>

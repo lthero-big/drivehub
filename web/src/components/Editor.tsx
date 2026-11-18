@@ -1,11 +1,13 @@
 // VS Code–style file area: the folder view plus closable/switchable tabs for open files,
 // each with a path breadcrumb. The sidebar stays visible; tabs persist across reloads.
-import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { ChevronDown, ChevronRight, Download, ExternalLink, Info, Share2, X } from "lucide-react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { ChevronDown, ChevronRight, Download, ExternalLink, Info, Minus, Share2, X } from "lucide-react";
 import { client, fileUrl, ok, type FsItem } from "../lib/api";
 import { appLink, copyText } from "../lib/links";
 import { filesHref, go } from "../lib/router";
 import { parentOf, tabs, useTabs, type Tab } from "../lib/tabs";
+import { dock, useDock } from "../lib/dock";
+import { dockRect, genie, GenieDock } from "../ui/motion";
 import { cx, fmtSize, fmtTime } from "../lib/util";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSep, Spinner, toast } from "../ui/ui";
 import { FileBrowser } from "./FileBrowser";
@@ -96,6 +98,17 @@ function FileView({ tab }: { tab: Tab }) {
   const [share, setShare] = useState<FsItem | null>(null);
   const [details, setDetails] = useState<FsItem | null>(null);
   const parts = tab.path.split("/").filter(Boolean);
+  const panel = useRef<HTMLDivElement>(null);
+  const minimize = async () => {
+    if (panel.current) await genie(panel.current, dockRect(tab.path), "min");
+    dock.minimize(tab.path);
+    tabs.activate(null);
+  };
+  // restored from the dock: genie back out of the icon
+  useLayoutEffect(() => {
+    const r = dock.consumeRestore(tab.path);
+    if (r && panel.current) void genie(panel.current, r, "max");
+  }, [tab.path]);
   return (
     <section aria-label={`文件 ${tab.name}`} className="flex min-h-0 flex-1 flex-col pt-2 pb-3">
       <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1">
@@ -142,10 +155,11 @@ function FileView({ tab }: { tab: Tab }) {
           <IconButton className="max-sm:hidden" label="在新标签页打开" onClick={() => window.open(appLink(item), "_blank", "noopener")}><ExternalLink className="size-[18px]" /></IconButton>
           <IconButton className="max-sm:hidden" label="分享" onClick={() => setShare(item)}><Share2 className="size-[18px]" /></IconButton>
           <IconButton label="属性" onClick={() => setDetails(item)}><Info className="size-[18px]" /></IconButton>
+          <IconButton label="最小化到 Dock" onClick={minimize}><Minus className="size-[18px]" /></IconButton>
           <IconButton label="关闭标签" onClick={() => tabs.close(tab.path)}><X className="size-[18px]" /></IconButton>
         </span>
       </div>
-      <div key={tab.path} className="anim-in relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-panel-2/60 p-2 sm:p-4">
+      <div key={tab.path} ref={panel} className="anim-in relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-panel-2/60 p-2 sm:p-4">
         <Suspense fallback={<div className="flex h-64 items-center justify-center"><Spinner /></div>}>
           <FileBody item={item} siblings={siblings} onPick={(i) => tabs.open(i)} />
         </Suspense>
@@ -172,11 +186,16 @@ export function FilesArea({ path, openParam }: { path: string; openParam: string
     if (a && parentOf(a) !== path && !openParam) tabs.activate(null);
   }, [path]); // eslint-disable-line react-hooks/exhaustive-deps
   const tab = list.find((t) => t.path === active) ?? null;
+  const { min } = useDock();
+  useEffect(() => dock.prune(list.map((t) => t.path)), [list]);
+  useEffect(() => void (active && dock.forget(active)), [active]);
+  const entries = list.filter((t) => min.includes(t.path)).map((t) => ({ id: t.path, name: t.name, icon: <FileIcon name={t.name} isDir={false} className="size-7" /> }));
   return (
     <div className={cx("flex flex-col", tab ? "h-full" : "min-h-full")} style={{ "--tabs-h": list.length ? "40px" : "0px" } as CSSProperties}>
       {list.length > 0 && <TabStrip path={path} list={list} active={tab?.path ?? null} />}
       <FileBrowser path={path} hidden={!!tab} />
       {tab && <FileView tab={tab} />}
+      <GenieDock items={entries} onRestore={(id, rect) => (dock.restore(id, rect), tabs.activate(id), parentOf(id) !== path && go(filesHref(parentOf(id))))} />
     </div>
   );
 }

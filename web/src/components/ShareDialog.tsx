@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { Copy } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Mail, QrCode } from "lucide-react";
 import { call, type FsItem } from "../lib/api";
 import { abs, copy, PERM_NAMES, qrDataUrl, type Share } from "../lib/shares";
 import { errMsg, fmtTime } from "../lib/util";
+import { SendButton, ShareButton } from "../ui/motion";
 import { Button, Field, Input, Modal, Select, Switch, toast } from "../ui/ui";
 
 /** Create-share dialog (files / folders, multi-select). */
@@ -21,6 +22,7 @@ export function ShareDialog({ items, onClose }: { items: FsItem[]; onClose: () =
   useEffect(() => {
     if (!open) (setRes(null), setQr(""));
   }, [open]);
+  const pending = useRef<Share | null>(null);
   const create = async () => {
     setBusy(true);
     try {
@@ -34,10 +36,11 @@ export function ShareDialog({ items, onClose }: { items: FsItem[]; onClose: () =
         pin: pinMode === "custom" ? pin : undefined,
         require_login: login,
       });
-      setRes(s);
+      pending.current = s;
       setQr(await qrDataUrl(abs(s.url_with_pin ?? s.url)));
     } catch (e) {
       toast.err(errMsg(e));
+      throw e;
     } finally {
       setBusy(false);
     }
@@ -54,7 +57,7 @@ export function ShareDialog({ items, onClose }: { items: FsItem[]; onClose: () =
         ) : (
           <>
             <Button variant="ghost" onClick={onClose}>取消</Button>
-            <Button variant="primary" loading={busy} onClick={create}>创建分享</Button>
+            <SendButton label="创建分享" sentLabel="已创建" disabled={busy} onSend={create} onDone={() => setRes(pending.current)} />
           </>
         )
       }
@@ -87,14 +90,14 @@ export function ShareDialog({ items, onClose }: { items: FsItem[]; onClose: () =
         <div className="space-y-3 text-[13px]">
           <div className="flex gap-2">
             <Input readOnly value={link} aria-label="分享链接" />
-            <Button onClick={() => (copy(link), toast.ok("已复制链接"))}><Copy className="size-4" /></Button>
+            <ShareButton url={link} actions={[{ icon: <QrCode className="size-4" />, label: "二维码", onClick: () => document.querySelector("[data-share-qr]")?.scrollIntoView({ behavior: "smooth" }) }, { icon: <Mail className="size-4" />, label: "邮件分享", onClick: () => void (location.href = `mailto:?subject=${encodeURIComponent("文件分享")}&body=${encodeURIComponent(link)}`) }]} />
           </div>
           {res.pin && <p>提取码：<b className="font-mono">{res.pin}</b>　取件码：<b className="font-mono">{res.pickup_code}</b></p>}
           {res.direct_url && (
             <p className="break-all">直链：<a className="text-accent underline" href={abs(res.direct_url)}>{abs(res.direct_url)}</a></p>
           )}
           <p className="text-muted">{res.expires_at ? `有效期至 ${fmtTime(res.expires_at)}` : "永久有效"}{res.max_visits ? ` · 最多访问 ${res.max_visits} 次` : ""}{res.max_downloads ? ` · 最多下载 ${res.max_downloads} 次` : ""}</p>
-          {qr && <img src={qr} alt="分享二维码" className="mx-auto size-44" />}
+          {qr && <img data-share-qr src={qr} alt="分享二维码" className="mx-auto size-44" />}
         </div>
       )}
     </Modal>

@@ -96,7 +96,7 @@
 .ft-par { transition: width .3s var(--mo-ease), opacity .2s; }
 
 /* ---- genie minimize / dock ---- */
-.gdock { position: fixed; left: 50%; bottom: 14px; z-index: 70; transform: translateX(-50%); display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px; border-radius: 20px; background: color-mix(in srgb, var(--panel) 78%, transparent); backdrop-filter: blur(16px); border: 1px solid var(--line); box-shadow: 0 10px 30px rgb(0 0 0 / .2); animation: mo-item .3s var(--mo-ease) both; }
+.gdock { position: fixed; right: 16px; bottom: 14px; z-index: 70; display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px; border-radius: 20px; background: color-mix(in srgb, var(--panel) 78%, transparent); backdrop-filter: blur(16px); border: 1px solid var(--line); box-shadow: 0 10px 30px rgb(0 0 0 / .2); animation: mo-item .3s var(--mo-ease) both; }
 .gdock-i { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line); transition: transform .22s var(--mo-ease); cursor: pointer; }
 .gdock-i:hover { transform: translateY(-8px) scale(1.14); }
 .gdock-i::after { content: attr(data-name); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%) translateY(4px); padding: 3px 8px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 11px; white-space: nowrap; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; }
@@ -110,3 +110,6 @@
   .lb .lb-spin svg { animation: lb-rot 1.6s linear infinite !important; }
 }
 .lb[data-state]:disabled { opacity: 1 !important; }
+
+.morph-play path { transition: d .38s cubic-bezier(.34, 1.4, .64, 1); }
+@media (prefers-reduced-motion: reduce) { .morph-play path { transition: none; } }

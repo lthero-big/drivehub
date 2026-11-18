@@ -1,4 +1,5 @@
 // Roles (RBAC): a role is a named bundle of permissions; assigned to users and user groups.
+import { LoadingButton } from "../../ui/motion";
 import { useEffect, useState } from "react";
 import { BadgeCheck, Lock, Pencil, Plus, Trash2 } from "lucide-react";
 import { PERM_LABEL, PERMS, rbac, type Role } from "../../lib/api";
@@ -83,7 +84,7 @@ export function RolesPage() {
           </li>
         ))}
       </ul>
-      <Modal open={!!d} onClose={() => setD(null)} wide title={d?.id == null ? "新建角色" : `编辑角色「${d.name}」`} footer={<><Button onClick={() => setD(null)}>取消</Button><Button variant="primary" onClick={save} disabled={!d?.name.trim()}>保存</Button></>}>
+      <Modal open={!!d} onClose={() => setD(null)} wide title={d?.id == null ? "新建角色" : `编辑角色「${d.name}」`} footer={<><Button onClick={() => setD(null)}>取消</Button><LoadingButton variant="primary" onClick={save} disabled={!d?.name.trim()}>保存</LoadingButton></>}>
         {d && (
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingButton } from "../../ui/motion";
 import { LogOut, Pencil, Plus, Trash2, Users as UsersIcon } from "lucide-react";
 import { call, rbac, type Group, type Me, type Role } from "../../lib/api";
 import { useApp } from "../../lib/app";
@@ -134,7 +135,7 @@ export function UsersPage() {
         )}
       </Modal>
 
-      <Modal open={!!edit} onClose={() => setEdit(null)} wide title={`编辑用户「${edit?.u.username}」`} footer={<><Button onClick={() => setEdit(null)}>取消</Button><Button variant="primary" onClick={save}>保存</Button></>}>
+      <Modal open={!!edit} onClose={() => setEdit(null)} wide title={`编辑用户「${edit?.u.username}」`} footer={<><Button onClick={() => setEdit(null)}>取消</Button><LoadingButton variant="primary" onClick={save}>保存</LoadingButton></>}>
         {edit && (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="邮箱"><Input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>

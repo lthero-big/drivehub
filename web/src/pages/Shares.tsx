@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingButton } from "../ui/motion";
 import { BarChart3, Copy, Pencil, QrCode, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { call } from "../lib/api";
 import { useApp } from "../lib/app";
@@ -129,7 +130,7 @@ function EditShare({ s, onClose, onSaved }: { s: Share; onClose: () => void; onS
     }
   };
   return (
-    <Modal open onClose={onClose} title={`修改 · ${s.name}`} footer={<><Button variant="ghost" onClick={onClose}>取消</Button><Button variant="primary" onClick={save}>保存</Button></>}>
+    <Modal open onClose={onClose} title={`修改 · ${s.name}`} footer={<><Button variant="ghost" onClick={onClose}>取消</Button><LoadingButton variant="primary" onClick={save}>保存</LoadingButton></>}>
       <div className="space-y-3">
         <Field label="重新设置有效天数" hint={s.expires_at ? `当前到期：${fmtTime(s.expires_at)}；0 = 永久` : "当前永久；留空不修改"}><Input type="number" min={0} value={days} onChange={(e) => setDays(e.target.value)} /></Field>
         <div className="grid grid-cols-2 gap-2">

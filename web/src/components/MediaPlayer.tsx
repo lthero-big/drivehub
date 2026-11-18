@@ -3,6 +3,7 @@
 // remembered position; audio: cover from ID3, waveform, playlist, loop/shuffle modes.
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { Captions, Maximize, Minimize, Music, Pause, PictureInPicture2, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX, Gauge, ListOrdered } from "lucide-react";
+import { MorphPlay } from "../ui/motion";
 import { fileUrl, rawFetch, type FsItem } from "../lib/api";
 import { cx, ext, fmtSize, kindOf } from "../lib/util";
 import { ExternalPlayers } from "./PlayerIcons";
@@ -303,7 +304,7 @@ export function VideoPlayer({ item, siblings }: { item: FsItem; siblings: FsItem
             )}
           </div>
           <div className="mt-1 flex items-center gap-0.5">
-            <button className="mp-btn" aria-label={playing ? "暂停" : "播放"} onClick={toggle}>{playing ? <Pause className="size-5" /> : <Play className="size-5" />}</button>
+            <button className="mp-btn" aria-label={playing ? "暂停" : "播放"} onClick={toggle}><MorphPlay playing={playing} className="size-5" /></button>
             <button className="mp-btn" aria-label="后退 10 秒" onClick={() => seek(cur - 10)}><SkipBack className="size-[18px]" /></button>
             <button className="mp-btn" aria-label="前进 10 秒" onClick={() => seek(cur + 10)}><SkipForward className="size-[18px]" /></button>
             <div className="group/vol flex items-center">
@@ -583,7 +584,7 @@ export function AudioPlayer({ item, siblings, onPick }: { item: FsItem; siblings
         <div className="flex items-center justify-center gap-2">
           <button aria-label={modeInfo.label} title={modeInfo.label} onClick={() => setMode(MODES[(MODES.findIndex((m) => m.id === mode) + 1) % MODES.length].id)} className="grid size-10 place-items-center rounded-full text-muted hover:bg-hover hover:text-fg">{modeInfo.icon}</button>
           <button aria-label="上一首" onClick={() => step(-1)} className="grid size-10 place-items-center rounded-full hover:bg-hover"><SkipBack className="size-5" /></button>
-          <button aria-label={playing ? "暂停" : "播放"} onClick={toggle} className="grid size-14 place-items-center rounded-full bg-brand text-white shadow-pop transition active:scale-95 hover:brightness-110">{playing ? <Pause className="size-6" /> : <Play className="size-6 translate-x-0.5" />}</button>
+          <button aria-label={playing ? "暂停" : "播放"} onClick={toggle} className="grid size-14 place-items-center rounded-full bg-brand text-white shadow-pop transition active:scale-95 hover:brightness-110"><MorphPlay playing={playing} className="size-6" /></button>
           <button aria-label="下一首" onClick={() => step(1)} className="grid size-10 place-items-center rounded-full hover:bg-hover"><SkipForward className="size-5" /></button>
           <div className="relative">
             <button aria-label="倍速" onClick={() => setRateMenu(!rateMenu)} className="grid h-10 min-w-10 place-items-center rounded-full px-2 text-xs font-semibold text-muted hover:bg-hover hover:text-fg">{rate}×</button>

@@ -1,4 +1,5 @@
 // User groups: members + assigned roles. (Users and roles live on their own pages.)
+import { LoadingButton } from "../../ui/motion";
 import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2, Users as UsersIcon } from "lucide-react";
 import { call, rbac, type Group, type Me, type Role } from "../../lib/api";
@@ -70,7 +71,7 @@ export function GroupsPage() {
         {f.length === 0 && <p className="p-6 text-center text-sm text-muted">还没有用户组</p>}
       </div>
       <Pager {...pg} />
-      <Modal open={!!d} onClose={() => setD(null)} wide title={d?.id == null ? "新建用户组" : `编辑用户组「${d.name}」`} footer={<><Button onClick={() => setD(null)}>取消</Button><Button variant="primary" onClick={save} disabled={!d?.name.trim()}>保存</Button></>}>
+      <Modal open={!!d} onClose={() => setD(null)} wide title={d?.id == null ? "新建用户组" : `编辑用户组「${d.name}」`} footer={<><Button onClick={() => setD(null)}>取消</Button><LoadingButton variant="primary" onClick={save} disabled={!d?.name.trim()}>保存</LoadingButton></>}>
         {d && (
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-3">
