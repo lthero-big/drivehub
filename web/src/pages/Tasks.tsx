@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, ListChecks, RefreshCw } from "lucide-react";
 import { client, ok, type TaskInfo } from "../lib/api";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { Badge, Empty, IconButton, Progress, Select } from "../ui/ui";
+import { Badge, Empty, IconButton, Input, PageHeader, Pager, Progress, Select, usePaged } from "../ui/ui";
 
 const TONE: Record<string, "ok" | "danger" | "accent" | "neutral"> = { done: "ok", failed: "danger", running: "accent", pending: "neutral" };
 const LABEL: Record<string, string> = { done: "完成", failed: "失败", running: "进行中", pending: "排队" };
@@ -11,6 +11,7 @@ const LABEL: Record<string, string> = { done: "完成", failed: "失败", runnin
 export function TasksPage() {
   const [tasks, setTasks] = useState<TaskInfo[] | null>(null);
   const [status, setStatus] = useState("");
+  const [tq, setTq] = useState("");
   const [err, setErr] = useState("");
   const load = () =>
     ok(client.GET("/api/tasks", { params: { query: { status: status || undefined, limit: 200 } } }))
@@ -25,10 +26,12 @@ export function TasksPage() {
     const i = setInterval(load, 1500);
     return () => clearInterval(i);
   }, [live, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ft = (tasks ?? []).filter((t) => !tq.trim() || `${t.src} ${t.dst} ${t.id}`.toLowerCase().includes(tq.trim().toLowerCase()));
+  const pt = usePaged(ft, 10, tq + status);
   return (
-    <div className="mx-auto max-w-5xl space-y-4 py-4">
-      <div className="flex items-center gap-2">
-        <h1 className="flex-1 text-xl font-semibold">任务中心</h1>
+    <div className="mx-auto max-w-5xl space-y-4 py-6">
+      <PageHeader title="任务中心" desc={tasks ? `${tasks.filter((t) => t.status === "running" || t.status === "pending").length} 个进行中 · 共 ${tasks.length} 个任务` : undefined} actions={<>
+        <Input className="w-48" placeholder="筛选路径/编号" aria-label="筛选任务" value={tq} onChange={(e) => setTq(e.target.value)} />
         <Select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="状态筛选">
           <option value="">全部</option>
           <option value="running">进行中</option>
@@ -39,12 +42,12 @@ export function TasksPage() {
         <IconButton label="刷新" onClick={load}>
           <RefreshCw className="size-4" />
         </IconButton>
-      </div>
+      </>} />
       {err && <p className="text-sm text-danger">{err}</p>}
       {tasks?.length === 0 && <Empty icon={<ListChecks className="size-10" />} title="暂无任务">跨存储复制 / 移动会在这里显示进度，服务重启后自动续跑</Empty>}
       <ul className="space-y-2">
-        {tasks?.map((t) => (
-          <li key={t.id} className="rounded-xl border border-line bg-panel p-3">
+        {pt.slice.map((t) => (
+          <li key={t.id} className="card-lift rounded-2xl border border-line bg-panel p-4 shadow-card">
             <div className="flex flex-wrap items-center gap-2 text-[13px]">
               <Badge tone={TONE[t.status] ?? "neutral"}>{LABEL[t.status] ?? t.status}</Badge>
               <Badge>{t.kind === "move" ? "移动" : "复制"}</Badge>
@@ -63,6 +66,7 @@ export function TasksPage() {
           </li>
         ))}
       </ul>
+      <Pager {...pt} />
     </div>
   );
 }

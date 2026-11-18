@@ -8,7 +8,7 @@ import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
 import { fromDataTransfer, fromFileList, uploads } from "../lib/uploads";
 import { baseName, cx, errMsg, fmtSize, fmtTime, joinPath, kindOf } from "../lib/util";
-import { ask, Button, confirmDlg, Empty, IconButton, Input, Menu, MenuItem, Spinner, toast } from "../ui/ui";
+import { ask, Button, Checkbox, confirmDlg, Empty, IconButton, Input, Menu, MenuItem, Pager, Spinner, toast } from "../ui/ui";
 import { DirPicker } from "./DirPicker";
 import { FileIcon } from "./FileIcon";
 
@@ -16,7 +16,7 @@ const Preview = lazy(() => import("./Preview"));
 
 type View = "list" | "grid" | "gallery";
 type Sort = { by: "name" | "size" | "modified"; desc: boolean };
-const PAGE = 500;
+const PAGE = 60;
 
 function useStored<T>(key: string, init: T): [T, (v: T) => void] {
   const [v, set] = useState<T>(() => {
@@ -101,7 +101,7 @@ export function FileBrowser({ path }: { path: string }) {
         const r = await ok(client.GET("/api/fs/list", { params: { query: { path, page: pg, per_page: PAGE, sort: sort.by, order: sort.desc ? "desc" : "asc", refresh } } }));
         setTotal(r.total);
         setPage(pg);
-        setItems((old) => (pg > 1 && old ? [...old, ...r.items] : r.items));
+        setItems(r.items);
       } catch (e) {
         setErr({ msg: errMsg(e), status: e instanceof ApiError ? e.status : 0 });
         setItems([]);
@@ -132,7 +132,10 @@ export function FileBrowser({ path }: { path: string }) {
     reloadTimer.current = window.setTimeout(() => load(true), 400);
   };
 
-  const list = items ?? [];
+  const [q, setQ] = useState("");
+  useEffect(() => setQ(""), [path]);
+  const all = items ?? [];
+  const list = useMemo(() => (q.trim() ? all.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())) : all), [all, q]);
   const selected = useMemo(() => list.filter((i) => sel.has(i.path)), [list, sel]);
   const images = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "image"), [list]);
   const readme = useMemo(() => list.find((i) => !i.is_dir && /^readme\.(md|markdown)$/i.test(i.name)), [list]);
@@ -304,6 +307,7 @@ export function FileBrowser({ path }: { path: string }) {
           <Crumbs path={path} />
         </div>
         <div className="ml-auto flex items-center gap-1">
+          <Input className="hidden !h-9 w-40 sm:block" placeholder="筛选本页…" aria-label="筛选文件" value={q} onChange={(e) => setQ(e.target.value)} />
           {!isRoot && (
             <>
               <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()}>
@@ -404,9 +408,9 @@ export function FileBrowser({ path }: { path: string }) {
 
         {list.length > 0 && view === "list" && (
           <div role="grid" aria-label="文件列表" aria-multiselectable className="overflow-hidden rounded-xl border border-line bg-panel">
-            <div role="row" className="hidden grid-cols-[2rem_1fr_7rem_10rem_2.5rem] items-center gap-2 border-b border-line bg-panel-2 px-3 py-2 text-xs font-medium text-muted sm:grid">
+            <div role="row" className="hidden grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem] items-center gap-2 border-b border-line bg-panel-2 px-3 py-2 text-xs font-medium text-muted sm:grid">
               <span role="columnheader">
-                <input type="checkbox" aria-label="全选" checked={sel.size > 0 && sel.size === list.length} onChange={(e) => setSel(e.target.checked ? new Set(list.map((i) => i.path)) : new Set())} className="accent-[var(--accent)]" />
+                <Checkbox label="全选" checked={sel.size > 0 && sel.size === list.length} indeterminate={sel.size > 0 && sel.size < list.length} onChange={(v) => setSel(v ? new Set(list.map((i) => i.path)) : new Set())} />
               </span>
               <span role="columnheader"><button className="text-left hover:text-fg" onClick={() => setSort({ by: "name", desc: sort.by === "name" && !sort.desc })}>名称</button></span>
               <span role="columnheader" className="text-right"><button className="hover:text-fg" onClick={() => setSort({ by: "size", desc: !(sort.by === "size" && sort.desc) })}>大小</button></span>
@@ -421,10 +425,10 @@ export function FileBrowser({ path }: { path: string }) {
                 data-path={i.path}
                 onClick={(e) => click(e, i, idx)}
                 onDoubleClick={() => open(i)}
-                className={cx("group grid cursor-default grid-cols-[2rem_1fr_2.5rem] items-center gap-2 border-b border-line px-3 py-1.5 last:border-b-0 sm:grid-cols-[2rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover")}
+                className={cx("group grid cursor-default grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 border-b border-line px-3 py-1.5 last:border-b-0 sm:grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover")}
               >
                 <span role="gridcell" onClick={(e) => e.stopPropagation()}>
-                  <input type="checkbox" aria-label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} className={cx("accent-[var(--accent)]", !sel.has(i.path) && "sm:opacity-0 sm:group-hover:opacity-100")} />
+                  <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx(!sel.has(i.path) && "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100")} />
                 </span>
                 <span role="gridcell" className="flex min-w-0 items-center gap-2.5">
                   <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} />
@@ -462,7 +466,7 @@ export function FileBrowser({ path }: { path: string }) {
                     </span>
                     <ItemMenu i={i} />
                   </div>
-                  <input type="checkbox" aria-label={`选择 ${i.name}`} checked={sel.has(i.path)} onClick={(e) => e.stopPropagation()} onChange={() => toggle(i)} className={cx("absolute top-2 left-2 accent-[var(--accent)]", !sel.has(i.path) && "opacity-0 group-hover:opacity-100")} />
+                  <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx("glass absolute top-1 left-1 !min-h-10 !min-w-10 shadow-card", !sel.has(i.path) && "opacity-0 group-hover:opacity-100")} />
                 </li>
               );
             })}
@@ -493,11 +497,7 @@ export function FileBrowser({ path }: { path: string }) {
           </>
         )}
 
-        {items && total > list.length && (
-          <div className="mt-3 flex justify-center">
-            <Button onClick={() => load(false, page + 1)}>加载更多（{list.length}/{total}）</Button>
-          </div>
-        )}
+        {items && !err && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total} size={PAGE} setPage={(n) => (setSel(new Set()), load(false, n))} />}
         {readme && <Readme item={readme} />}
       </div>
 

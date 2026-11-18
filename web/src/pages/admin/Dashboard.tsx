@@ -2,16 +2,15 @@ import { useEffect, useState } from "react";
 import { HardDrive, ListChecks, ShieldAlert, Users } from "lucide-react";
 import { call, client, ok, type AuditRow, type TaskInfo, type VersionInfo } from "../../lib/api";
 import { fmtTime } from "../../lib/util";
-import { Badge, Card } from "../../ui/ui";
+import { Badge, Card, PageHeader } from "../../ui/ui";
 
-function Stat({ icon: I, label, value, href }: { icon: typeof HardDrive; label: string; value: number | string; href: string }) {
+function Stat({ icon: I, label, value, href, tone = "accent" }: { icon: typeof HardDrive; label: string; value: number | string; href: string; tone?: "accent" | "ok" | "warn" | "danger" }) {
+  const t = { accent: "bg-accent-soft text-accent", ok: "bg-ok/12 text-ok", warn: "bg-warn/15 text-warn", danger: "bg-danger/12 text-danger" }[tone];
   return (
-    <a href={href} className="flex items-center gap-3 rounded-xl border border-line bg-panel p-4 hover:bg-hover">
-      <span className="flex size-10 items-center justify-center rounded-lg bg-accent-soft text-accent"><I className="size-5" /></span>
-      <span>
-        <span className="block text-2xl font-semibold tabular-nums">{value}</span>
-        <span className="block text-xs text-muted">{label}</span>
-      </span>
+    <a href={href} className="card-lift block rounded-2xl border border-line bg-panel p-5 shadow-card active:scale-[0.98]">
+      <span className={`flex size-10 items-center justify-center rounded-xl ${t}`}><I className="size-5" /></span>
+      <span className="mt-4 block text-4xl font-semibold tracking-tight tabular-nums">{value}</span>
+      <span className="mt-1 block text-[13px] text-muted">{label}</span>
     </a>
   );
 }
@@ -38,12 +37,12 @@ export function DashboardPage() {
   const max = Math.max(1, ...buckets);
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">仪表盘</h1>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <PageHeader title="仪表盘" desc="存储、用户与访问概览" />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat icon={HardDrive} label="挂载点" value={d.mounts} href="#/admin/mounts" />
         <Stat icon={Users} label="用户" value={d.users} href="#/admin/users" />
-        <Stat icon={ListChecks} label="进行中的任务" value={active} href="#/tasks" />
-        <Stat icon={ShieldAlert} label="24h 拒绝访问" value={d.denied.filter((r) => r.ts >= since).length} href="#/admin/audit" />
+        <Stat icon={ListChecks} label="进行中的任务" value={active} href="#/tasks" tone="ok" />
+        <Stat icon={ShieldAlert} label="24h 拒绝访问" value={d.denied.filter((r) => r.ts >= since).length} href="#/admin/audit" tone="danger" />
       </div>
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <Card title="近 24 小时操作">
@@ -63,7 +62,7 @@ export function DashboardPage() {
           </dl>
         </Card>
       </div>
-      <Card title="最近活动" actions={<a href="#/admin/audit" className="text-xs text-accent">全部</a>}>
+      <Card title="最近活动" actions={<a href="#/admin/audit" className="btn-key inline-flex h-8 items-center rounded-lg border border-line px-3 text-xs">查看全部</a>}>
         <ul className="divide-y divide-line text-[13px]">
           {d.audit.slice(0, 12).map((r) => (
             <li key={r.id} className="flex items-center gap-2 py-1.5">

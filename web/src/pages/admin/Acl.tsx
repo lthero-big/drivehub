@@ -3,7 +3,7 @@ import { FolderSearch, Lock, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { call, PERM_LABEL, PERMS, type Effective, type Gate, type Group, type Me, type Rule } from "../../lib/api";
 import { go } from "../../lib/router";
 import { cx, errMsg } from "../../lib/util";
-import { Badge, Button, Card, Field, IconButton, Input, Select, toast } from "../../ui/ui";
+import { Badge, Button, Card, Field, IconButton, Input, Select, toast, Checkbox, PageHeader, Pager, usePaged } from "../../ui/ui";
 import { DirPicker } from "../../components/DirPicker";
 
 const SUBJ: Record<string, string> = { anonymous: "匿名访客", logged_in: "所有登录用户", group: "用户组", user: "用户" };
@@ -57,7 +57,10 @@ export function AclPage({ initialPath }: { initialPath: string }) {
   const myGate = gates.find((g) => norm(g.path) === here);
   useEffect(() => setGate({ modes: myGate?.modes ?? [], password: "" }), [here, myGate?.modes.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   const hereRules = rules.filter((r) => norm(r.path) === here);
-  const inherited = rules.filter((r) => norm(r.path) !== here && (norm(r.path) === "/" || here.startsWith(norm(r.path) + "/")));
+  const inherited0 = rules.filter((r) => norm(r.path) !== here && (norm(r.path) === "/" || here.startsWith(norm(r.path) + "/")));
+  const inherited = inherited0;
+  const ph = usePaged(hereRules, 8, here);
+  const pi = usePaged(inherited, 8, here);
   const name = useMemo(() => (r: Rule) => (r.subject === "user" ? users.find((u) => u.id === r.subject_id)?.username : r.subject === "group" ? groups.find((g) => g.id === r.subject_id)?.name : null), [users, groups]);
 
   useEffect(() => {
@@ -87,7 +90,7 @@ export function AclPage({ initialPath }: { initialPath: string }) {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">目录权限</h1>
+      <PageHeader title="目录权限" desc="按目录配置规则、访问门槛，并查看用户的有效权限" />
       <div className="flex gap-2">
         <Input value={path} onChange={(e) => setPath(e.target.value)} aria-label="目录路径" className="font-mono" />
         <Button onClick={() => setPicker(true)}>
@@ -99,7 +102,8 @@ export function AclPage({ initialPath }: { initialPath: string }) {
         <div className="space-y-4">
           <Card title="本目录规则">
             {hereRules.length === 0 && <p className="text-[13px] text-muted">没有规则，权限继承自上级目录。</p>}
-            <ul className="divide-y divide-line">{hereRules.map((r) => <RuleRow key={r.id} r={r} own />)}</ul>
+            <ul className="divide-y divide-line">{ph.slice.map((r) => <RuleRow key={r.id} r={r} own />)}</ul>
+            <Pager {...ph} />
             <form className="mt-3 space-y-2 rounded-lg border border-line bg-panel-2 p-3" onSubmit={(e) => (e.preventDefault(), act(() => call("POST", "/api/acl/rules", { path: here, subject: nr.subject, subject_id: nr.subject_id ? Number(nr.subject_id) : null, allow: nr.allow, deny: nr.deny }), "规则已添加"))}>
               <div className="flex flex-wrap gap-2">
                 <Select value={nr.subject} onChange={(e) => setNr({ ...nr, subject: e.target.value, subject_id: "" })} aria-label="对象">
@@ -118,9 +122,7 @@ export function AclPage({ initialPath }: { initialPath: string }) {
           <Card title={<span className="flex items-center gap-2"><Lock className="size-4" /> 访问方式（门槛）</span>}>
             <div className="flex flex-wrap gap-4 text-[13px]">
               {Object.entries(GATE).map(([k, v]) => (
-                <label key={k} className="flex items-center gap-2">
-                  <input type="checkbox" className="accent-[var(--accent)]" checked={gate.modes.includes(k)} onChange={(e) => setGate({ ...gate, modes: e.target.checked ? [...gate.modes, k] : gate.modes.filter((x) => x !== k) })} /> {v}
-                </label>
+                <Checkbox key={k} checked={gate.modes.includes(k)} onChange={(c) => setGate({ ...gate, modes: c ? [...gate.modes, k] : gate.modes.filter((x) => x !== k) })}>{v}</Checkbox>
               ))}
             </div>
             {gate.modes.includes("password") && (
@@ -136,7 +138,8 @@ export function AclPage({ initialPath }: { initialPath: string }) {
           </Card>
           {inherited.length > 0 && (
             <Card title="继承的上级规则">
-              <ul className="divide-y divide-line">{inherited.map((r) => <RuleRow key={r.id} r={r} own={false} />)}</ul>
+              <ul className="divide-y divide-line">{pi.slice.map((r) => <RuleRow key={r.id} r={r} own={false} />)}</ul>
+              <Pager {...pi} />
             </Card>
           )}
         </div>

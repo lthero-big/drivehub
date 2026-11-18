@@ -3,7 +3,7 @@ import { call, client, CLIENT_HEADERS, ok, tokens, type AuthStatus, type Version
 import { Ctx } from "./lib/app";
 import { useRoute } from "./lib/router";
 import { useTheme } from "./lib/theme";
-import { Overlays, Spinner } from "./ui/ui";
+import { Button, Overlays, Spinner } from "./ui/ui";
 import { AuthPage, TokenPage } from "./pages/Auth";
 import { Layout } from "./components/Layout";
 import { FileBrowser } from "./components/FileBrowser";
@@ -118,7 +118,7 @@ export default function App() {
         <AuthPage status={status} onDone={() => (setOauthTicket(null), reload())} totpTicket={oauthTicket} />
         {status.initialized && !oauthTicket && (
           <p className="-mt-6 pb-8 text-center text-[13px]">
-            <button className="text-muted underline hover:text-fg" onClick={() => (sessionStorage.setItem("dh_guest", "1"), setGuest(true))}>以访客身份浏览公开目录</button>
+            <Button variant="ghost" size="sm" onClick={() => (sessionStorage.setItem("dh_guest", "1"), setGuest(true))}>以访客身份浏览公开目录</Button>
           </p>
         )}
         <Overlays />
@@ -133,12 +133,12 @@ export default function App() {
       case "tasks":
         return <TasksPage />;
       case "account":
-        return me ? <AccountPage /> : null;
+        return me ? <AccountPage tab={route.rest} /> : null;
       case "admin":
         if (!admin) return <p className="py-10 text-center text-sm text-muted">仅管理员可用</p>;
         return (
           <div className="mx-auto max-w-6xl py-4">
-            {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest === "settings" ? <SettingsPage /> : <DashboardPage />}
+            {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest.split("/")[0] === "settings" ? <SettingsPage tab={route.rest.split("/")[1]} /> : <DashboardPage />}
           </div>
         );
       default:
@@ -152,7 +152,7 @@ export default function App() {
         {banner}
         <div className="min-h-0 flex-1">
           <Layout route={route} theme={theme} setTheme={setTheme} serverVersion={ver?.server_version}>
-            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}>{page}</Suspense>
+            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}><div key={route.name === "admin" ? `admin/${route.rest.split("/")[0]}` : route.name} className="page-in">{page}</div></Suspense>
           </Layout>
         </div>
       </div>

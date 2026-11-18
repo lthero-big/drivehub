@@ -6,7 +6,7 @@ import { Button, Field, Input } from "../ui/ui";
 
 function Shell({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
-    <main className="flex min-h-full items-center justify-center p-4">
+    <main className="auth-bg flex min-h-full items-center justify-center p-4">
       <div className="anim-in w-full max-w-sm">
         <div className="mb-6 flex items-center gap-2">
           <span className="flex size-9 items-center justify-center rounded-xl bg-accent text-accent-fg">
@@ -14,7 +14,7 @@ function Shell({ title, sub, children }: { title: string; sub?: string; children
           </span>
           <span className="text-lg font-semibold">DriveHub</span>
         </div>
-        <div className="rounded-2xl border border-line bg-panel p-6 shadow-pop">
+        <div className="glass rounded-3xl border border-line p-7 shadow-pop">
           <h1 className="text-lg font-semibold">{title}</h1>
           {sub && <p className="mt-1 text-[13px] text-muted">{sub}</p>}
           <div className="mt-5">{children}</div>
@@ -109,7 +109,7 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
               </div>
               <div className="space-y-2">
                 {status.oauth_providers.map((p) => (
-                  <a key={p} href={`/api/auth/oauth/${p}/start`} className="flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-line text-sm hover:bg-hover">
+                  <a key={p} href={`/api/auth/oauth/${p}/start`} className="btn-key btn-outline flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-line bg-panel text-sm hover:bg-panel-2">
                     <ProviderIcon p={p} /> 使用 {p === "github" ? "GitHub" : p === "google" ? "Google" : p} 登录
                   </a>
                 ))}
@@ -117,9 +117,9 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
             </>
           )}
           <div className="mt-5 flex justify-center gap-4 text-[13px] text-muted">
-            {tab !== "login" && <button onClick={() => setTab("login")} className="hover:text-fg">返回登录</button>}
-            {tab === "login" && status.open_registration && <button onClick={() => setTab("register")} className="hover:text-fg">注册账号</button>}
-            {tab === "login" && <button onClick={() => setTab("forgot")} className="hover:text-fg">忘记密码</button>}
+            {tab !== "login" && <Button variant="ghost" size="sm" onClick={() => setTab("login")}>返回登录</Button>}
+            {tab === "login" && status.open_registration && <Button variant="ghost" size="sm" onClick={() => setTab("register")}>注册账号</Button>}
+            {tab === "login" && <Button variant="ghost" size="sm" onClick={() => setTab("forgot")}>忘记密码</Button>}
           </div>
         </>
       )}
@@ -154,7 +154,7 @@ export function TokenPage({ kind, token }: { kind: "verify" | "reset"; token: st
       )}
       {msg && <p className={msg.ok ? "text-sm text-ok" : "text-sm text-danger"}>{msg.text}</p>}
       {msg?.ok && (
-        <a href="#/" className="mt-4 inline-block text-sm text-accent underline">去登录</a>
+        <a href="#/" className="btn-key btn-primary mt-4 inline-flex h-10 items-center rounded-xl bg-accent px-4 text-sm font-medium text-accent-fg">去登录</a>
       )}
     </Shell>
   );

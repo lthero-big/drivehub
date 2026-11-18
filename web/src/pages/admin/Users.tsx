@@ -3,7 +3,7 @@ import { LogOut, Pencil, Plus, Trash2, Users as UsersIcon } from "lucide-react";
 import { call, type Group, type Me } from "../../lib/api";
 import { useApp } from "../../lib/app";
 import { errMsg, fmtSize, fmtTime } from "../../lib/util";
-import { ask, Badge, Button, Card, confirmDlg, Field, IconButton, Input, Modal, Select, Switch, toast } from "../../ui/ui";
+import { ask, Badge, Button, Card, confirmDlg, Field, IconButton, Input, Checkbox, Modal, PageHeader, Pager, Select, Switch, toast, usePaged } from "../../ui/ui";
 
 type Edit = { u: Me; email: string; role: string; disabled: boolean; email_verified: boolean; root_path: string; all_mounts: boolean; visible: string[]; quota_gb: string; groups: number[]; password: string; reset_totp: boolean };
 
@@ -13,6 +13,8 @@ export function UsersPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [mounts, setMounts] = useState<string[]>([]);
   const [edit, setEdit] = useState<Edit | null>(null);
+  const [uq, setUq] = useState("");
+  const [role, setRole] = useState("");
   const [creating, setCreating] = useState<{ username: string; email: string; password: string; role: string } | null>(null);
   const load = async () => {
     try {
@@ -27,6 +29,11 @@ export function UsersPage() {
   useEffect(() => {
     load();
   }, []);
+  const fu = users.filter((u) => (!role || u.role === role) && (!uq.trim() || `${u.username} ${u.email ?? ""}`.toLowerCase().includes(uq.trim().toLowerCase())));
+  const pu = usePaged(fu, 10, uq + role);
+  const [gq, setGq] = useState("");
+  const fg = groups.filter((g) => !gq.trim() || g.name.toLowerCase().includes(gq.trim().toLowerCase()));
+  const pg = usePaged(fg, 12, gq);
   const act = async (f: () => Promise<unknown>, msg?: string) => {
     try {
       await f();
@@ -58,13 +65,16 @@ export function UsersPage() {
     }, "已保存");
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h1 className="flex-1 text-xl font-semibold">用户与用户组</h1>
-        <Button variant="primary" onClick={() => setCreating({ username: "", email: "", password: "", role: "user" })}>
-          <Plus className="size-4" /> 新建用户
-        </Button>
-      </div>
-      <div className="overflow-x-auto rounded-xl border border-line bg-panel">
+      <PageHeader title="用户与用户组" desc={`${users.length} 位用户 · ${groups.length} 个用户组`} actions={
+        <>
+          <Input className="w-48" placeholder="搜索用户名/邮箱" aria-label="搜索用户" value={uq} onChange={(e) => setUq(e.target.value)} />
+          <Select value={role} onChange={(e) => setRole(e.target.value)} aria-label="角色筛选"><option value="">全部角色</option><option value="admin">admin</option><option value="user">user</option></Select>
+          <Button variant="primary" onClick={() => setCreating({ username: "", email: "", password: "", role: "user" })}>
+            <Plus className="size-4" /> 新建用户
+          </Button>
+        </>
+      } />
+      <div className="overflow-x-auto rounded-2xl border border-line bg-panel shadow-card">
         <table className="w-full min-w-[640px] text-left text-[13px]">
           <thead className="border-b border-line bg-panel-2 text-xs text-muted">
             <tr>
@@ -78,7 +88,7 @@ export function UsersPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {users.map((u) => (
+            {pu.slice.map((u) => (
               <tr key={u.id} className="hover:bg-hover">
                 <td className="px-3 py-2">
                   <p className="font-medium">
@@ -104,18 +114,22 @@ export function UsersPage() {
             ))}
           </tbody>
         </table>
+        {fu.length === 0 && <p className="p-6 text-center text-sm text-muted">没有匹配的用户</p>}
       </div>
+      <Pager {...pu} />
 
       <Card title={<span className="flex items-center gap-2"><UsersIcon className="size-4" /> 用户组</span>} actions={<Button size="sm" onClick={async () => { const n = await ask("新建用户组", { label: "名称", confirm: "创建" }); if (n?.trim()) act(() => call("POST", "/api/admin/groups", { name: n.trim() }), "已创建"); }}><Plus className="size-4" /> 新建</Button>}>
         {groups.length === 0 && <p className="text-[13px] text-muted">还没有用户组。用户组可用于目录权限规则。</p>}
         <ul className="flex flex-wrap gap-2">
-          {groups.map((g) => (
-            <li key={g.id} className="flex items-center gap-1 rounded-lg border border-line py-1 pr-1 pl-2.5 text-[13px]">
+          {pg.slice.map((g) => (
+            <li key={g.id} className="flex items-center gap-1 rounded-xl border border-line py-1 pr-1 pl-2.5 text-[13px]">
               {g.name} <span className="text-xs text-faint">{g.members} 人</span>
               <IconButton label={`删除 ${g.name}`} onClick={async () => (await confirmDlg(`删除用户组「${g.name}」？`, { danger: true, confirm: "删除" })) && act(() => call("DELETE", `/api/admin/groups/${g.id}`))}><Trash2 className="size-3.5" /></IconButton>
             </li>
           ))}
         </ul>
+        {groups.length > 12 && <Input className="mt-3 max-w-xs" placeholder="筛选用户组" aria-label="筛选用户组" value={gq} onChange={(e) => setGq(e.target.value)} />}
+        <Pager {...pg} />
       </Card>
 
       <Modal open={!!creating} onClose={() => setCreating(null)} title="新建用户" footer={<><Button onClick={() => setCreating(null)}>取消</Button><Button variant="primary" onClick={() => creating && act(async () => { await call("POST", "/api/admin/users", { ...creating, email: creating.email || null, password: creating.password || null }); setCreating(null); }, "已创建")}>创建</Button></>}>
@@ -145,16 +159,16 @@ export function UsersPage() {
             </div>
             <fieldset className="space-y-1.5 text-[13px]">
               <legend className="mb-1 font-medium text-muted">可见挂载点</legend>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={edit.all_mounts} onChange={(e) => setEdit({ ...edit, all_mounts: e.target.checked })} className="accent-[var(--accent)]" /> 全部</label>
+              <Checkbox checked={edit.all_mounts} onChange={(v) => setEdit({ ...edit, all_mounts: v })}>全部</Checkbox>
               {!edit.all_mounts && mounts.map((m) => (
-                <label key={m} className="flex items-center gap-2 pl-5"><input type="checkbox" checked={edit.visible.includes(m)} onChange={(e) => setEdit({ ...edit, visible: e.target.checked ? [...edit.visible, m] : edit.visible.filter((x) => x !== m) })} className="accent-[var(--accent)]" /> {m}</label>
+                <Checkbox key={m} className="ml-5" checked={edit.visible.includes(m)} onChange={(v) => setEdit({ ...edit, visible: v ? [...edit.visible, m] : edit.visible.filter((x) => x !== m) })}>{m}</Checkbox>
               ))}
             </fieldset>
             <fieldset className="space-y-1.5 text-[13px]">
               <legend className="mb-1 font-medium text-muted">用户组</legend>
               {groups.length === 0 && <p className="text-faint">暂无</p>}
               {groups.map((g) => (
-                <label key={g.id} className="flex items-center gap-2"><input type="checkbox" checked={edit.groups.includes(g.id)} onChange={(e) => setEdit({ ...edit, groups: e.target.checked ? [...edit.groups, g.id] : edit.groups.filter((x) => x !== g.id) })} className="accent-[var(--accent)]" /> {g.name}</label>
+                <Checkbox key={g.id} checked={edit.groups.includes(g.id)} onChange={(v) => setEdit({ ...edit, groups: v ? [...edit.groups, g.id] : edit.groups.filter((x) => x !== g.id) })}>{g.name}</Checkbox>
               ))}
             </fieldset>
           </div>

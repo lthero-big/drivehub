@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Cloud, HardDrive, Pencil, Plus, RefreshCw, Server, Trash2, Terminal } from "lucide-react";
 import { call, client, ok, type MountConfig } from "../../lib/api";
 import { errMsg } from "../../lib/util";
-import { Badge, Button, Card, confirmDlg, Empty, Field, IconButton, Input, Modal, Select, Switch, toast } from "../../ui/ui";
+import { Badge, Button, Card, confirmDlg, Empty, Field, IconButton, Input, Modal, Select, Switch, toast, PageHeader, Pager, usePaged } from "../../ui/ui";
 
 type Kind = "fs" | "s3" | "webdav" | "rclone" | "openlist";
 const KINDS: { k: Kind; label: string; desc: string; icon: typeof HardDrive }[] = [
@@ -35,6 +35,9 @@ const blank = (): MountConfig & { ui: Kind } => ({ ui: "fs", name: "", kind: "fs
 
 export function MountsPage() {
   const [mounts, setMounts] = useState<MountConfig[] | null>(null);
+  const [mq, setMq] = useState("");
+  const fm = (mounts ?? []).filter((m) => !mq.trim() || m.name.toLowerCase().includes(mq.trim().toLowerCase()));
+  const pm = usePaged(fm, 6, mq);
   const [edit, setEdit] = useState<(MountConfig & { ui: Kind }) | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -61,18 +64,18 @@ export function MountsPage() {
   const setOpt = (k: string, v: string) => edit && setEdit({ ...edit, options: { ...opts, [k]: v } });
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h1 className="flex-1 text-xl font-semibold">挂载点</h1>
+      <PageHeader title="挂载点" desc="本地目录、S3、WebDAV 等存储后端" actions={<>
+        <Input className="w-44" placeholder="筛选挂载点" aria-label="筛选挂载点" value={mq} onChange={(e) => setMq(e.target.value)} />
         <Button onClick={() => call("POST", "/api/search/reindex").then((r) => toast.ok(`索引已重建：${r.files} 个文件`)).catch((e) => toast.err(errMsg(e)))}>
           <RefreshCw className="size-4" /> 重建索引
         </Button>
         <Button variant="primary" onClick={() => (setIsNew(true), setEdit(blank()))}>
           <Plus className="size-4" /> 添加存储
         </Button>
-      </div>
+      </>} />
       {mounts?.length === 0 && <Empty icon={<HardDrive className="size-10" />} title="还没有挂载点">添加一个本地目录、S3 或 WebDAV 存储开始使用</Empty>}
       <div className="grid gap-3 md:grid-cols-2">
-        {mounts?.map((m) => (
+        {pm.slice.map((m) => (
           <Card key={m.name} title={<span className="flex items-center gap-2">{m.name} <Badge>{m.kind}</Badge>{m.read_only && <Badge tone="warn">只读</Badge>}{m.hidden && <Badge>隐藏</Badge>}</span>}
             actions={
               <>
@@ -95,6 +98,7 @@ export function MountsPage() {
           </Card>
         ))}
       </div>
+      <Pager {...pm} />
 
       <Modal open={!!edit} onClose={() => setEdit(null)} title={isNew ? "添加存储" : `编辑「${edit?.name}」`} wide footer={<><Button onClick={() => setEdit(null)}>取消</Button><Button variant="primary" loading={busy} onClick={save}>{isNew ? "添加" : "保存"}</Button></>}>
         {edit && (

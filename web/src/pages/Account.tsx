@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
-import { Copy, KeyRound, LogOut, Monitor, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Copy, HardDrive, KeyRound, LogOut, Monitor, Plus, ShieldCheck, Trash2, User as UserIcon, Users as UsersIcon } from "lucide-react";
 import { call, tokens } from "../lib/api";
 import { useApp } from "../lib/app";
+import { go } from "../lib/router";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { Badge, Button, Card, confirmDlg, Field, IconButton, Input, Progress, Select, toast } from "../ui/ui";
+import { Badge, Button, Card, confirmDlg, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, Tabs, toast, usePaged } from "../ui/ui";
 
 type Tok = { id: number; name: string; prefix: string; created_at: number; last_used: number | null; expires_at: number | null };
 type App = { id: number; name: string; created_at: number; last_used: number | null };
@@ -23,7 +24,9 @@ function Secret({ value }: { value: string }) {
   );
 }
 
-export function AccountPage() {
+type Tab = "profile" | "security" | "tokens" | "devices";
+
+export function AccountPage({ tab }: { tab: string }) {
   const { me, status, reload } = useApp();
   const [toks, setToks] = useState<Tok[]>([]);
   const [apps, setApps] = useState<App[]>([]);
@@ -42,6 +45,9 @@ export function AccountPage() {
     setSess(c);
     setIds(d);
   }, []);
+  const pt = usePaged(toks, 6);
+  const pa = usePaged(apps, 6);
+  const ps = usePaged(sess, 6);
   useEffect(() => {
     load().catch((e) => toast.err(errMsg(e)));
   }, [load]);
@@ -71,15 +77,30 @@ export function AccountPage() {
     }
   };
   const quota = me.quota_bytes;
+  const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
+    { id: "profile", label: "概览", icon: <UserIcon /> },
+    { id: "security", label: "安全", icon: <ShieldCheck /> },
+    { id: "tokens", label: "令牌与 WebDAV", icon: <KeyRound /> },
+    { id: "devices", label: "登录设备", icon: <Monitor /> },
+  ];
+  const cur: Tab = tabs.some((t) => t.id === tab) ? (tab as Tab) : "profile";
   return (
-    <div className="mx-auto max-w-3xl space-y-4 py-4">
-      <h1 className="text-xl font-semibold">账户与安全</h1>
+    <div className="mx-auto max-w-4xl space-y-5 py-6">
+      <PageHeader title="账户设置" desc={`${me.username} · 管理资料、安全、访问令牌与登录设备`} />
+      <Tabs tabs={tabs} value={cur} onChange={(t) => go(`#/account/${t}`)} />
+      <div key={cur} className="anim-in space-y-4">
+      {cur === "profile" && (<>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard icon={<HardDrive />} label="已用空间" value={fmtSize(me.used_bytes)} hint={quota ? `配额 ${fmtSize(quota)}` : "不限额"} />
+          <StatCard icon={<UsersIcon />} label="用户组" value={me.groups.length} tone="ok" hint={me.groups.map((g) => g.name).join("、") || "未加入用户组"} />
+          <StatCard icon={<ShieldCheck />} label="两步验证" value={me.totp_enabled ? "已开启" : "未开启"} tone={me.totp_enabled ? "ok" : "warn"} hint={`${sess.length} 个登录设备`} />
+        </div>
       <Card title="基本信息">
         <dl className="grid grid-cols-[6rem_1fr] gap-y-2 text-[13px]">
           <dt className="text-muted">用户名</dt>
           <dd>{me.username} <Badge tone="accent">{me.role}</Badge></dd>
           <dt className="text-muted">邮箱</dt>
-          <dd>{me.email ?? "—"} {me.email && (me.email_verified ? <Badge tone="ok">已验证</Badge> : <button className="text-accent underline" onClick={() => act(() => call("POST", "/api/auth/email/resend"), "验证邮件已发送")}>发送验证邮件</button>)}</dd>
+          <dd>{me.email ?? "—"} {me.email && (me.email_verified ? <Badge tone="ok">已验证</Badge> : <Button size="sm" variant="ghost" onClick={() => act(() => call("POST", "/api/auth/email/resend"), "验证邮件已发送")}>发送验证邮件</Button>)}</dd>
           <dt className="text-muted">根目录</dt>
           <dd>{me.root_path}</dd>
           <dt className="text-muted">用户组</dt>
@@ -91,7 +112,8 @@ export function AccountPage() {
           </dd>
         </dl>
       </Card>
-
+      </>)}
+      {cur === "security" && (<>
       <Card title="修改密码">
         <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end" onSubmit={(e) => (e.preventDefault(), act(async () => { tokens.set(await call("POST", "/api/auth/password/change", { old_password: pw.old || null, new_password: pw.next })); setPw({ old: "", next: "" }); }, "密码已修改，其他设备已下线"))}>
           {me.has_password && (
@@ -152,7 +174,8 @@ export function AccountPage() {
           </ul>
         </Card>
       )}
-
+      </>)}
+      {cur === "tokens" && (<>
       <Card title={<span className="flex items-center gap-2"><KeyRound className="size-4" /> API Token</span>}>
         <form className="flex flex-wrap gap-2" onSubmit={(e) => (e.preventDefault(), act(async () => { const r = await call("POST", "/api/auth/tokens", { name: tokName || "token", expires_in_days: tokDays ? Number(tokDays) : null }); setSecret({ kind: "token", v: r.token }); setTokName(""); }))}>
           <Input className="max-w-48" placeholder="名称，如 rclone" value={tokName} onChange={(e) => setTokName(e.target.value)} aria-label="Token 名称" />
@@ -166,7 +189,7 @@ export function AccountPage() {
         </form>
         {secret?.kind === "token" && (<><p className="mt-3 text-xs text-warn">只显示一次，请立即保存：</p><Secret value={secret.v} /></>)}
         <ul className="mt-3 divide-y divide-line text-[13px]">
-          {toks.map((t) => (
+          {pt.slice.map((t) => (
             <li key={t.id} className="flex items-center gap-2 py-2">
               <span className="font-medium">{t.name}</span>
               <code className="text-xs text-faint">{t.prefix}…</code>
@@ -177,6 +200,7 @@ export function AccountPage() {
             </li>
           ))}
         </ul>
+        <Pager {...pt} />
       </Card>
 
       <Card title="WebDAV">
@@ -188,7 +212,7 @@ export function AccountPage() {
         </Button>
         {secret?.kind === "app" && (<><p className="mt-3 text-xs text-warn">只显示一次，请立即保存：</p><Secret value={secret.v} /></>)}
         <ul className="mt-3 divide-y divide-line text-[13px]">
-          {apps.map((a) => (
+          {pa.slice.map((a) => (
             <li key={a.id} className="flex items-center gap-2 py-2">
               <span>{a.name}</span>
               <span className="ml-auto text-xs text-muted">最近使用 {fmtTime(a.last_used)}</span>
@@ -198,11 +222,13 @@ export function AccountPage() {
             </li>
           ))}
         </ul>
+        <Pager {...pa} />
       </Card>
-
+      </>)}
+      {cur === "devices" && (<>
       <Card title="登录设备">
         <ul className="divide-y divide-line text-[13px]">
-          {sess.map((s) => (
+          {ps.slice.map((s) => (
             <li key={s.id} className="flex items-center gap-3 py-2">
               <Monitor className="size-4 text-muted" />
               <div className="min-w-0 flex-1">
@@ -217,7 +243,10 @@ export function AccountPage() {
             </li>
           ))}
         </ul>
+        <Pager {...ps} />
       </Card>
+      </>)}
+      </div>
     </div>
   );
 }

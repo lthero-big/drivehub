@@ -3,7 +3,7 @@ import { FolderOpen, Search as SearchIcon, Sparkles } from "lucide-react";
 import { client, ok, type FsItem, type SearchHit } from "../lib/api";
 import { filesHref, go } from "../lib/router";
 import { cx, errMsg, extsOf, fmtSize, fmtTime, KIND_LABEL, parentOf, type Kind } from "../lib/util";
-import { Badge, Empty, IconButton, Input, Select, Spinner } from "../ui/ui";
+import { Badge, Empty, IconButton, Input, Select, Spinner, PageHeader, Pager, usePaged } from "../ui/ui";
 import { FileIcon } from "../components/FileIcon";
 
 const Preview = lazy(() => import("../components/Preview"));
@@ -49,15 +49,16 @@ export function SearchPage({ initial }: { initial: string }) {
 
   const toggleKind = (k: Kind) => setKinds(kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k]);
   const asItem = (h: SearchHit): FsItem => ({ name: h.name, path: h.path, is_dir: h.is_dir, size: h.size, modified_unix: h.modified_unix });
+  const pg = usePaged(res?.hits ?? [], 15, query);
   const files = res?.hits.filter((h) => !h.is_dir).map(asItem) ?? [];
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 py-4">
-      <h1 className="text-xl font-semibold">搜索</h1>
-      <form onSubmit={(e) => e.preventDefault()} className="space-y-3 rounded-xl border border-line bg-panel p-3">
+      <PageHeader title="搜索" desc="按文件名、类型、存储与大小查找" />
+      <form onSubmit={(e) => e.preventDefault()} className="space-y-3 rounded-2xl border border-line bg-panel p-4 shadow-card">
         <div className="flex gap-2">
           <div className="relative flex-1">
-            <SearchIcon className="pointer-events-none absolute top-2.5 left-3 size-4 text-faint" />
+            <SearchIcon className="pointer-events-none absolute top-3 left-3 size-4 text-faint" />
             <Input autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="文件名关键词（中文分词）…" className="pl-9" aria-label="搜索关键词" />
           </div>
           <Select value={mode} onChange={(e) => setMode(e.target.value as "keyword" | "semantic")} aria-label="搜索模式">
@@ -67,18 +68,18 @@ export function SearchPage({ initial }: { initial: string }) {
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {KINDS.map((k) => (
-            <button type="button" key={k} onClick={() => toggleKind(k)} aria-pressed={kinds.includes(k)} className={cx("rounded-full border px-2.5 py-1 text-xs", kinds.includes(k) ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:bg-hover")}>
+            <button type="button" key={k} onClick={() => toggleKind(k)} aria-pressed={kinds.includes(k)} className={cx("btn-key min-h-8 rounded-full border px-3 py-1 text-xs", kinds.includes(k) ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:bg-hover")}>
               {KIND_LABEL[k]}
             </button>
           ))}
           <span className="mx-1 h-4 w-px bg-line" />
-          <Select value={mount} onChange={(e) => setMount(e.target.value)} className="h-7 text-xs" aria-label="存储">
+          <Select value={mount} onChange={(e) => setMount(e.target.value)} aria-label="存储">
             <option value="">全部存储</option>
             {mounts.map((m) => (
               <option key={m}>{m}</option>
             ))}
           </Select>
-          <Select value={size} onChange={(e) => setSize(e.target.value)} className="h-7 text-xs" aria-label="大小">
+          <Select value={size} onChange={(e) => setSize(e.target.value)} aria-label="大小">
             {SIZES.map(([v, l]) => (
               <option key={v} value={v}>
                 {l}
@@ -106,8 +107,8 @@ export function SearchPage({ initial }: { initial: string }) {
           {res.hits.length === 0 ? (
             <Empty icon={<SearchIcon className="size-10" />} title="没有找到匹配的文件" />
           ) : (
-            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-              {res.hits.map((h) => (
+            <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+              {pg.slice.map((h) => (
                 <li key={h.path} className="flex items-center gap-3 px-3 py-2 hover:bg-hover">
                   <FileIcon name={h.name} isDir={h.is_dir} />
                   <button className="min-w-0 flex-1 text-left" onClick={() => (h.is_dir ? go(filesHref(h.path)) : setPreview(asItem(h)))}>
@@ -124,6 +125,7 @@ export function SearchPage({ initial }: { initial: string }) {
               ))}
             </ul>
           )}
+          <Pager {...pg} />
         </>
       )}
       {!query && <Empty icon={<SearchIcon className="size-10" />} title="输入关键词或选择筛选条件">也可以随时按 Ctrl/⌘ + K 快速搜索</Empty>}
