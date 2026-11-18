@@ -59,6 +59,11 @@ pub fn sha256_hex(s: &str) -> String {
     HEXLOWER.encode(&Sha256::digest(s.as_bytes()))
 }
 
+/// Constant-time byte comparison.
+pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 pub fn random_token(bytes: usize) -> String {
     let mut b = vec![0u8; bytes];
     rand::thread_rng().fill_bytes(&mut b);
@@ -591,6 +596,10 @@ pub struct Principal {
     /// Password for password-gated directories (`x-drivehub-path-password`).
     pub path_password: Option<String>,
     pub ip: String,
+    /// User-Agent (truncated), for audit records.
+    pub ua: String,
+    /// web | android | webdav | api (from `x-drivehub-client`, path and UA).
+    pub client: &'static str,
 }
 
 impl Principal {
@@ -602,6 +611,8 @@ impl Principal {
             via: if setup { "setup" } else { "anonymous" },
             path_password: None,
             ip,
+            ua: String::new(),
+            client: "api",
         }
     }
     pub fn is_admin(&self) -> bool {
@@ -688,6 +699,8 @@ impl Principal {
 pub const CH_API: &str = "api";
 pub const CH_DAV: &str = "webdav";
 pub const CH_AUTH: &str = "auth";
+pub const CH_SHARE: &str = "share";
+pub const CH_ADMIN: &str = "admin";
 
 impl AppState {
     /// Effective permissions of `p` on the real normalized path. Single entry point used by
@@ -750,32 +763,14 @@ impl AppState {
         allowed: bool,
         detail: &str,
     ) {
-        let db = self.db.clone();
-        let (uid, name) = (p.uid(), p.name());
-        let (channel, action, path, detail) = (
-            channel.to_string(),
-            action.to_string(),
-            format!("/{}", path.trim_matches('/')),
-            format!("{detail} ip={}", p.ip),
-        );
-        if !allowed {
-            tracing::warn!(user = %name, %channel, %action, %path, %detail, "access denied");
-        }
-        tokio::spawn(async move {
-            let _ = sqlx::query(
-                "INSERT INTO audit_log (ts, user_id, username, channel, action, path, allowed, detail) VALUES (?,?,?,?,?,?,?,?)",
-            )
-            .bind(now())
-            .bind(uid)
-            .bind(name)
-            .bind(channel)
-            .bind(action)
-            .bind(path)
-            .bind(allowed as i64)
-            .bind(detail)
-            .execute(&db)
-            .await;
-        });
+        self.audit_log.log(crate::audit::AuditEvent::new(
+            p, channel, action, path, allowed, detail,
+        ));
+    }
+
+    /// Full-featured audit record (bytes, share id, …).
+    pub fn audit_ev(&self, e: crate::audit::AuditEvent) {
+        self.audit_log.log(e);
     }
 
     pub async fn load_user(&self, uid: i64) -> ApiResult<Option<UserCtx>> {
@@ -1030,7 +1025,16 @@ pub async fn authn(State(st): State<AppState>, mut req: Request, next: Next) -> 
     let ip = client_ip(&req);
     let q = req.uri().query().map(str::to_string);
     match st.authenticate(req.headers(), q.as_deref(), &ip).await {
-        Ok(p) => {
+        Ok(mut p) => {
+            p.ua = req
+                .headers()
+                .get(header::USER_AGENT)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .chars()
+                .take(200)
+                .collect();
+            p.client = client_kind(req.headers(), req.uri().path());
             req.extensions_mut().insert(p);
             next.run(req).await
         }
@@ -1039,6 +1043,32 @@ pub async fn authn(State(st): State<AppState>, mut req: Request, next: Next) -> 
                 return dav_challenge();
             }
             e.into_response()
+        }
+    }
+}
+
+/// Client type for audit: web | android | webdav | api.
+pub fn client_kind(h: &HeaderMap, path: &str) -> &'static str {
+    if path.starts_with("/dav") {
+        return "webdav";
+    }
+    match h
+        .get(crate::HDR_CLIENT)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split('/').next())
+    {
+        Some("web") => "web",
+        Some("app") => "android",
+        _ => {
+            let ua = h
+                .get(header::USER_AGENT)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            if ua.contains("Mozilla/") {
+                "web"
+            } else {
+                "api"
+            }
         }
     }
 }

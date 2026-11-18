@@ -15,8 +15,10 @@ import { fromDataTransfer, fromFileList, uploads, useUploads } from "../lib/uplo
 import { hasExternalFiles, INTERNAL_MIME, isInternalDrag, PhCard, PhRow, placeholdersFor, setUploadOrigin, TrashZone } from "./DragUpload";
 import { baseName, cx, errMsg, fmtSize, fmtTime, joinPath, kindOf } from "../lib/util";
 import { ask, Button, Checkbox, ConfirmButton, confirmDlg, ContextMenu, Empty, IconButton, Input, Menu, MenuItem, MenuSep, Pager, Spinner, toast } from "../ui/ui";
+import { SegmentedDrag } from "../ui/motion";
 import { DirPicker } from "./DirPicker";
-import { DetailsDialog, ShareDialog } from "./FileDialogs";
+import { DetailsDialog } from "./FileDialogs";
+import { ShareDialog } from "./ShareDialog";
 import { FileIcon, FolderIcon } from "./FileIcon";
 
 /** nearest vertically scrollable ancestor (rubber-band auto-scroll). */
@@ -134,7 +136,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   const anchor = useRef<number>(-1);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; item: FsItem | null } | null>(null);
   const closeCtx = useCallback(() => setCtxMenu(null), []);
-  const [share, setShare] = useState<FsItem | null>(null);
+  const [sharing, setSharing] = useState<FsItem[]>([]);
   const [details, setDetails] = useState<FsItem | null>(null);
   const [gone, setGone] = useState<Set<string>>(new Set());
   const [opening, setOpening] = useState<string | null>(null);
@@ -503,7 +505,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         {many.length === 1 && <MenuItem icon={<Eye />} kbd="↵" onClick={run(() => open(i))}>打开</MenuItem>}
         {many.length === 1 && !i.mount_kind && <MenuItem icon={<ExternalLink />} onClick={run(() => openInNewTab(i))}>在新标签页打开</MenuItem>}
         <MenuItem icon={many.length > 1 || i.is_dir ? <FileArchive /> : <Download />} onClick={run(() => download(many))}>{many.length > 1 || i.is_dir ? "打包下载" : "下载"}</MenuItem>
-        {many.length === 1 && <MenuItem icon={<Share2 />} onClick={run(() => setShare(i))}>分享…</MenuItem>}
+        {many.length === 1 && <MenuItem icon={<Share2 />} onClick={run(() => setSharing([i]))}>分享…</MenuItem>}
         <MenuSep />
         {!isRoot && many.length === 1 && <MenuItem icon={<Pencil />} kbd="F2" onClick={run(() => rename(i))}>重命名</MenuItem>}
         {!isRoot && <MenuItem icon={<FolderInput />} onClick={run(() => (setSel(new Set(many.map((x) => x.path))), setPicker("move")))}>移动到…</MenuItem>}
@@ -582,13 +584,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
               ))
             }
           </Menu>
-          <div className="flex rounded-lg border border-line p-0.5" role="radiogroup" aria-label="视图">
-            {([["list", List, "列表"], ["grid", Grid2x2, "网格"], ["gallery", Images, "相册"]] as const).map(([v, I, l]) => (
-              <button key={v} role="radio" aria-checked={view === v} aria-label={l} title={l} onClick={() => setView(v)} className={cx("rounded-md p-1.5", view === v ? "bg-active text-fg" : "text-muted hover:text-fg")}>
-                <I className="size-4" />
-              </button>
-            ))}
-          </div>
+          <SegmentedDrag<View> label="视图" size="sm" iconOnly value={view} onChange={setView} options={[{ value: "list", icon: <List className="size-4" />, title: "列表" }, { value: "grid", icon: <Grid2x2 className="size-4" />, title: "网格" }, { value: "gallery", icon: <Images className="size-4" />, title: "相册" }]} />
           <IconButton label="刷新" onClick={() => load(true)}>
             <RefreshCw className="size-4" />
           </IconButton>
@@ -737,7 +733,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           </span>
           {selected.length === 1 && <DockBtn icon={<Eye />} label="打开" onClick={() => open(selected[0])} />}
           <DockBtn icon={selected.length === 1 && !selected[0].is_dir ? <Download /> : <FileArchive />} label={selected.length === 1 && !selected[0].is_dir ? "下载" : "打包下载"} onClick={() => download(selected)} />
-          {selected.length === 1 && <DockBtn className="max-sm:hidden" icon={<Share2 />} label="分享" onClick={() => setShare(selected[0])} />}
+          {selected.length === 1 && <DockBtn className="max-sm:hidden" icon={<Share2 />} label="分享" onClick={() => setSharing(selected)} />}
           {!isRoot && selected.length === 1 && <DockBtn icon={<Pencil />} label="重命名" onClick={() => rename(selected[0])} />}
           {!isRoot && <DockBtn icon={<FolderInput />} label="移动到…" onClick={() => setPicker("move")} />}
           {!isRoot && <DockBtn className="max-sm:hidden" icon={<Copy />} label="复制到…" onClick={() => setPicker("copy")} />}
@@ -767,7 +763,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           )
         }
       </ContextMenu>
-      <ShareDialog item={share} onClose={() => setShare(null)} />
+      <ShareDialog items={sharing} onClose={() => setSharing([])} />
       <DetailsDialog item={details} onClose={() => setDetails(null)} />
     </div>
   );

@@ -74,6 +74,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Alert rules (admin). */
+        get: operations["list_alerts"];
+        put?: never;
+        /** Adds an alert rule (admin). */
+        post: operations["add_alert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/alerts/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fired alerts, newest first (admin). */
+        get: operations["alert_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/alerts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces an alert rule (admin). */
+        put: operations["put_alert"];
+        post?: never;
+        /** Deletes an alert rule (admin). */
+        delete: operations["delete_alert"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/alerts/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends a test alert through the rule's sink (admin). */
+        post: operations["test_alert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/audit": {
         parameters: {
             query?: never;
@@ -81,8 +151,97 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Audit log, newest first (admin). */
-        get: operations["audit"];
+        /**
+         * Audit log with filters (time range, user, action, channel, client, path prefix, ip,
+         *     share, result, text), newest first (admin).
+         */
+        get: operations["audit_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/audit/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dashboard: traffic per day, hot files, share ranking, anomalies (admin). */
+        get: operations["audit_dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Exports filtered events (up to 100 000, oldest first) as CSV or JSON (admin). */
+        get: operations["audit_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/audit/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Retention policy (admin). */
+        get: operations["audit_get_policy"];
+        /** Sets the retention policy (admin). */
+        put: operations["audit_put_policy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/audit/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Applies retention now: deletes old events and moves the chain anchor (admin). */
+        post: operations["audit_purge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/audit/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recomputes the hash chain: `{ok, checked, first_bad_id, reason}` (admin). */
+        get: operations["audit_verify"];
         put?: never;
         post?: never;
         delete?: never;
@@ -977,6 +1136,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/s/captcha": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** New captcha for PIN entry (required after a few wrong PINs). */
+        get: operations["share_captcha"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/s/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pickup-code claim from the home page (anonymous ok). */
+        post: operations["share_claim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/s/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Opens a share (`code` may carry the PIN: `abc-1234`). Counts one visit and returns a
+         *     visitor token for list / download / upload. 401 `{need_pin|need_captcha|need_login}`,
+         *     410 expired / revoked / limit reached, 429 rate limited.
+         */
+        get: operations["share_open"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/s/{code}/direct": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Signed direct link for one file of a share: `{"url": "/d/<token>/<name>"}`. */
+        get: operations["share_visit_direct"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/s/{code}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Downloads (or with `inline=true` previews) a file of a share. Supports Range; only the
+         *     first request of a ranged transfer counts toward `max_downloads`.
+         */
+        get: operations["share_visit_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/s/{code}/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists a folder inside a share. */
+        get: operations["share_visit_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/s/{code}/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Uploads a file into an upload (collect) share. Never overwrites. */
+        put: operations["share_visit_upload"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search": {
         parameters: {
             query?: never;
@@ -1005,6 +1290,64 @@ export interface paths {
         put?: never;
         /** Scans mount(s) and rebuilds the metadata table + keyword index (synchronous). */
         post: operations["reindex"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My shares (admin: `?all=true` for everyone's). */
+        get: operations["share_list"];
+        put?: never;
+        /** Creates a share (needs `share` + `read` on every item; `download` / `upload` for those modes). */
+        post: operations["share_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shares/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One share with access statistics (recent audit events for it). */
+        get: operations["share_get_one"];
+        put?: never;
+        post?: never;
+        /** Deletes a share record. */
+        delete: operations["share_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Changes limits: any of `days`, `expires_in_secs`, `expires_at` (null = never), `max_visits`,
+         *     `max_downloads` (null = unlimited), `pin` (null = remove), `random_pin`, `perm`,
+         *     `require_login`, `name`, `revoked`, `reset_counters`.
+         */
+        patch: operations["share_patch"];
+        trace?: never;
+    };
+    "/api/shares/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revokes a share immediately (links, tokens and direct links stop working). */
+        post: operations["share_revoke"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1083,6 +1426,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AlertBody: {
+            /** @description burst: comma list of actions, e.g. "download,share_download" or "delete" */
+            actions?: string;
+            enabled?: boolean | null;
+            /** @description burst | new_ip_login */
+            kind: string;
+            name: string;
+            /** @description log | webhook | email */
+            sink?: string | null;
+            /** @description webhook URL or e-mail address */
+            target?: string;
+            /** Format: int64 */
+            threshold?: number;
+            /** Format: int64 */
+            window_secs?: number | null;
+        };
         AuthStatus: {
             /** @description false until the first admin is created via POST /api/auth/init */
             initialized: boolean;
@@ -1093,9 +1452,21 @@ export interface components {
             open_registration: boolean;
             require_email_verification: boolean;
         };
+        Captcha: {
+            id: string;
+            /** @description SVG image of the question */
+            svg: string;
+        };
         ChangePwBody: {
             new_password: string;
             old_password?: string | null;
+        };
+        ClaimBody: {
+            captcha?: string | null;
+            captcha_id?: string | null;
+            /** @description Pickup code: `<code>`, `<code>-<pin>` or `<code> <pin>`; a full share URL also works. */
+            code: string;
+            pin?: string | null;
         };
         CodeBody: {
             code: string;
@@ -1189,6 +1560,32 @@ export interface components {
         NameBody: {
             name: string;
         };
+        NewShare: {
+            /**
+             * Format: int64
+             * @description Valid for N days (default: forever).
+             */
+            days?: number | null;
+            /**
+             * Format: int64
+             * @description Alternative to `days` (seconds).
+             */
+            expires_in_secs?: number | null;
+            /** Format: int64 */
+            max_downloads?: number | null;
+            /** Format: int64 */
+            max_visits?: number | null;
+            name?: string | null;
+            /** @description Virtual paths (files and/or folders) as seen by the caller. */
+            paths: string[];
+            /** @description preview | download (default) | upload (collect files into the single shared folder) */
+            perm?: string | null;
+            /** @description Fixed PIN (3–16 letters/digits). */
+            pin?: string | null;
+            /** @description Generate a random 4-character PIN. */
+            random_pin?: boolean;
+            require_login?: boolean;
+        };
         NewTokenBody: {
             /**
              * Format: int64
@@ -1255,6 +1652,13 @@ export interface components {
         };
         PathBody: {
             path: string;
+        };
+        PolicyBody: {
+            /**
+             * Format: int64
+             * @description Keep events this many days (0 = forever).
+             */
+            retention_days: number;
         };
         RefreshBody: {
             refresh_token: string;
@@ -1525,13 +1929,51 @@ export interface operations {
             };
         };
     };
-    audit: {
+    list_alerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description rules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add_alert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertBody"];
+            };
+        };
+        responses: {
+            /** @description rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    alert_events: {
         parameters: {
             query?: {
                 limit?: number | null;
-                /** @description only denied events */
-                denied?: boolean | null;
-                channel?: string | null;
+                rule_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -1540,6 +1982,270 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    put_alert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertBody"];
+            };
+        };
+        responses: {
+            /** @description rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_alert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    test_alert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description alert event id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    audit_list: {
+        parameters: {
+            query?: {
+                limit?: number | null;
+                /** @description only denied events */
+                denied?: boolean | null;
+                /** @description only allowed (true) / denied (false) events */
+                allowed?: boolean | null;
+                /** @description api | webdav | auth | share | admin */
+                channel?: string | null;
+                /** @description web | android | webdav | api */
+                client?: string | null;
+                /** @description exact action, or comma list */
+                action?: string | null;
+                /** @description username (exact) */
+                user?: string | null;
+                user_id?: number | null;
+                /** @description path prefix, e.g. `/local/team` */
+                path?: string | null;
+                storage?: string | null;
+                ip?: string | null;
+                share_id?: number | null;
+                /** @description unix seconds (inclusive) */
+                from?: number | null;
+                /** @description unix seconds (exclusive) */
+                to?: number | null;
+                /** @description free text in path / detail / username / ua */
+                q?: string | null;
+                /** @description pagination: events with id < before_id */
+                before_id?: number | null;
+                /** @description asc | desc (default desc) */
+                order?: string | null;
+                /** @description export only: csv (default) | json */
+                format?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    audit_dashboard: {
+        parameters: {
+            query?: {
+                /** @description default 7 */
+                days?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description dashboard */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    audit_export: {
+        parameters: {
+            query?: {
+                limit?: number | null;
+                /** @description only denied events */
+                denied?: boolean | null;
+                /** @description only allowed (true) / denied (false) events */
+                allowed?: boolean | null;
+                /** @description api | webdav | auth | share | admin */
+                channel?: string | null;
+                /** @description web | android | webdav | api */
+                client?: string | null;
+                /** @description exact action, or comma list */
+                action?: string | null;
+                /** @description username (exact) */
+                user?: string | null;
+                user_id?: number | null;
+                /** @description path prefix, e.g. `/local/team` */
+                path?: string | null;
+                storage?: string | null;
+                ip?: string | null;
+                share_id?: number | null;
+                /** @description unix seconds (inclusive) */
+                from?: number | null;
+                /** @description unix seconds (exclusive) */
+                to?: number | null;
+                /** @description free text in path / detail / username / ua */
+                q?: string | null;
+                /** @description pagination: events with id < before_id */
+                before_id?: number | null;
+                /** @description asc | desc (default desc) */
+                order?: string | null;
+                /** @description export only: csv (default) | json */
+                format?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    audit_get_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    audit_put_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyBody"];
+            };
+        };
+        responses: {
+            /** @description policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    audit_purge: {
+        parameters: {
+            query?: {
+                /** @description Override the policy (days). */
+                days?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    audit_verify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description report */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2549,6 +3255,8 @@ export interface operations {
             query: {
                 /** @description Virtual path `/mount/...` */
                 path: string;
+                /** @description In-browser preview (audited as `preview` instead of `download`) */
+                preview?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -3050,6 +3758,190 @@ export interface operations {
             };
         };
     };
+    share_captcha: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Captcha"];
+                };
+            };
+        };
+    };
+    share_claim: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaimBody"];
+            };
+        };
+        responses: {
+            /** @description share contents + token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_open: {
+        parameters: {
+            query?: {
+                pin?: string | null;
+                captcha_id?: string | null;
+                captcha?: string | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description share contents + token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_visit_direct: {
+        parameters: {
+            query?: {
+                /** @description Share-relative path, e.g. `/folder/sub/file.txt` ("/" = share root) */
+                path?: string | null;
+                /** @description Visitor token from `/api/s/{code}` */
+                t?: string | null;
+                /** @description In-browser preview (inline, not counted as a download) */
+                inline?: boolean | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description url */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_visit_download: {
+        parameters: {
+            query?: {
+                /** @description Share-relative path, e.g. `/folder/sub/file.txt` ("/" = share root) */
+                path?: string | null;
+                /** @description Visitor token from `/api/s/{code}` */
+                t?: string | null;
+                /** @description In-browser preview (inline, not counted as a download) */
+                inline?: boolean | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description partial */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_visit_list: {
+        parameters: {
+            query?: {
+                /** @description Share-relative path, e.g. `/folder/sub/file.txt` ("/" = share root) */
+                path?: string | null;
+                /** @description Visitor token from `/api/s/{code}` */
+                t?: string | null;
+                /** @description In-browser preview (inline, not counted as a download) */
+                inline?: boolean | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_visit_upload: {
+        parameters: {
+            query?: {
+                /** @description Share-relative path, e.g. `/folder/sub/file.txt` ("/" = share root) */
+                path?: string | null;
+                /** @description Visitor token from `/api/s/{code}` */
+                t?: string | null;
+                /** @description In-browser preview (inline, not counted as a download) */
+                inline?: boolean | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": number[];
+            };
+        };
+        responses: {
+            /** @description uploaded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     search: {
         parameters: {
             query: {
@@ -3103,6 +3995,133 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ReindexResp"];
                 };
+            };
+        };
+    };
+    share_list: {
+        parameters: {
+            query?: {
+                /** @description Admin: all users' shares. */
+                all?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description shares */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewShare"];
+            };
+        };
+        responses: {
+            /** @description share */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_get_one: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description share + stats */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": unknown;
+            };
+        };
+        responses: {
+            /** @description share */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    share_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description share */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

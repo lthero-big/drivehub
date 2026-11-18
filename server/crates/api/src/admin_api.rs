@@ -344,6 +344,7 @@ pub async fn add_group(
         .execute(&st.db)
         .await
         .map_err(|_| ApiError(StatusCode::CONFLICT, "group exists".into()))?;
+    st.audit(&p, CH_AUTH, "group_create", "", true, b.name.trim());
     Ok(Json(
         json!({"id": r.last_insert_rowid(), "name": b.name.trim()}),
     ))
@@ -366,52 +367,8 @@ pub async fn delete_group(
         sqlx::query(q).bind(id).execute(&st.db).await?;
     }
     st.auth.reload_acl(&st.db).await?;
+    st.audit(&p, CH_AUTH, "group_delete", "", true, &format!("id={id}"));
     Ok(Json(json!({"ok": true})))
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-pub struct AuditQuery {
-    pub limit: Option<i64>,
-    /// only denied events
-    pub denied: Option<bool>,
-    pub channel: Option<String>,
-}
-
-/// Audit log, newest first (admin).
-#[utoipa::path(get, path = "/api/admin/audit", params(AuditQuery), responses((status = 200, description = "events")))]
-pub async fn audit(
-    State(st): State<AppState>,
-    Extension(p): Extension<Principal>,
-    Query(q): Query<AuditQuery>,
-) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
-    let rows: Vec<(
-        i64,
-        i64,
-        Option<i64>,
-        String,
-        String,
-        String,
-        String,
-        i64,
-        String,
-    )> = sqlx::query_as(
-        "SELECT id, ts, user_id, username, channel, action, path, allowed, detail FROM audit_log
-         WHERE (? = 0 OR allowed = 0) AND (? IS NULL OR channel = ?) ORDER BY id DESC LIMIT ?",
-    )
-    .bind(q.denied.unwrap_or(false) as i64)
-    .bind(&q.channel)
-    .bind(&q.channel)
-    .bind(q.limit.unwrap_or(100).clamp(1, 1000))
-    .fetch_all(&st.db)
-    .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(|(id, ts, uid, u, ch, a, path, ok, d)| {
-                json!({"id": id, "ts": ts, "user_id": uid, "username": u, "channel": ch, "action": a, "path": path, "allowed": ok != 0, "detail": d})
-            })
-            .collect(),
-    ))
 }
 
 // ------------------------------------------------------------------ ACL
@@ -519,6 +476,14 @@ pub async fn delete_rule(
         .execute(&st.db)
         .await?;
     st.auth.reload_acl(&st.db).await?;
+    st.audit(
+        &p,
+        CH_AUTH,
+        "acl_rule_delete",
+        "",
+        true,
+        &format!("id={id}"),
+    );
     Ok(Json(json!({"ok": true})))
 }
 

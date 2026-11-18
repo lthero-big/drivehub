@@ -91,6 +91,9 @@ pub async fn list(
     let real = p.map_in(&path)?;
     if !real.is_empty() {
         st.authorize(&p, &real, READ, CH_API, "list")?;
+        if q.page.unwrap_or(1) <= 1 {
+            st.audit(&p, CH_API, "list", &real, true, "");
+        }
     }
     let mut items: Vec<FsItem> = match st.vfs.resolve(&real)? {
         Resolved::Root => st
@@ -159,6 +162,14 @@ pub async fn list(
 pub struct PathQuery {
     /// Virtual path `/mount/...`
     pub path: String,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct DownloadQuery {
+    /// Virtual path `/mount/...`
+    pub path: String,
+    /// In-browser preview (audited as `preview` instead of `download`)
+    pub preview: Option<bool>,
 }
 
 /// File / directory metadata.
@@ -233,7 +244,7 @@ pub fn parse_range(h: &str, size: u64) -> Result<Option<(u64, u64)>, ()> {
 
 /// Downloads a file. Supports `Range: bytes=a-b`; honours the mount transfer mode
 /// (direct/auto → 302 to a presigned link when the backend offers one, else proxy).
-#[utoipa::path(get, path = "/api/fs/download", params(PathQuery),
+#[utoipa::path(get, path = "/api/fs/download", params(DownloadQuery),
     responses((status = 200, description = "file bytes"), (status = 206, description = "partial content"),
               (status = 302, description = "redirect to direct link"), (status = 416, description = "bad range"),
               (status = 404, body = ErrorBody)))]
@@ -241,7 +252,7 @@ pub async fn download(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
     headers: HeaderMap,
-    Query(q): Query<PathQuery>,
+    Query(q): Query<DownloadQuery>,
 ) -> ApiResult<Response> {
     let real = p.map_in(&q.path)?;
     st.authorize(&p, &real, DOWNLOAD, CH_API, "download")?;
@@ -250,6 +261,49 @@ pub async fn download(
     if e.is_dir {
         return Err(ApiError::bad("is a directory"));
     }
+    let preview = q.preview.unwrap_or(false);
+    let r = serve_entry(&mount, &rel, &e, &headers, false).await?;
+    if counts_as_download(&headers) {
+        st.audit_ev(
+            crate::audit::AuditEvent::new(
+                &p,
+                CH_API,
+                if preview { "preview" } else { "download" },
+                &real,
+                true,
+                "",
+            )
+            .bytes(e.size as i64),
+        );
+    }
+    Ok(r)
+}
+
+/// True unless this is a Range continuation (`bytes=N-` with N > 0).
+pub fn counts_as_download(headers: &HeaderMap) -> bool {
+    let Some(r) = headers.get(header::RANGE).and_then(|v| v.to_str().ok()) else {
+        return true;
+    };
+    match r
+        .trim()
+        .strip_prefix("bytes=")
+        .and_then(|x| x.split_once('-'))
+    {
+        Some((a, _)) if !a.is_empty() => a.trim().parse::<u64>().map(|n| n == 0).unwrap_or(true),
+        Some(_) => false, // suffix range
+        None => true,
+    }
+}
+
+/// Serves one file entry (Range, mime, sandbox CSP; direct-link redirect when allowed).
+pub(crate) async fn serve_entry(
+    mount: &crate::vfs::Mount,
+    rel: &str,
+    e: &Entry,
+    headers: &HeaderMap,
+    attachment: bool,
+) -> ApiResult<Response> {
+    let rel = rel.to_string();
     if mount.cfg.mode() != TransferMode::Proxy {
         if let Some(url) = mount.driver.link(&rel, Duration::from_secs(3600)).await? {
             return Ok((
@@ -263,7 +317,11 @@ pub async fn download(
         }
     }
     let mime = mime_of(&e.name);
-    let disp = format!("inline; filename*=UTF-8''{}", pct(&e.name));
+    let disp = format!(
+        "{}; filename*=UTF-8''{}",
+        if attachment { "attachment" } else { "inline" },
+        pct(&e.name)
+    );
     let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
     let parsed = match range {
         Some(r) => match parse_range(r, e.size) {
@@ -412,7 +470,9 @@ pub async fn upload(
     st.vfs.invalidate(&mount.cfg.name);
     st.add_usage(&p, n as i64 - exists.map(|e| e.size as i64).unwrap_or(0))
         .await;
-    st.audit(&p, CH_API, "upload", &real, true, &format!("{n} bytes"));
+    st.audit_ev(
+        crate::audit::AuditEvent::new(&p, CH_API, "upload", &real, true, "").bytes(n as i64),
+    );
     let e = mount.driver.stat(&rel).await?;
     st.index_upsert(&mount.cfg.name, &e).await;
     let mut it = item(&mount.cfg.name, &e);
@@ -643,7 +703,19 @@ pub async fn add_mount(
         }
     }
     let name = cfg.name.clone();
+    let summary = format!(
+        "kind={} read_only={} mode={:?}",
+        cfg.kind, cfg.read_only, cfg.transfer_mode
+    );
     st.vfs.add(cfg).await?;
+    st.audit(
+        &p,
+        crate::auth::CH_ADMIN,
+        "mount_save",
+        &name,
+        true,
+        &summary,
+    );
     st.after_change(&name);
     Ok(Json(OkResp {
         ok: true,
@@ -663,6 +735,7 @@ pub async fn remove_mount(
         return Err(ApiError::not_found("no such mount"));
     }
     let _ = st.search.remove_mount(&name);
+    st.audit(&p, crate::auth::CH_ADMIN, "mount_remove", &name, true, "");
     Ok(Json(OkResp {
         ok: true,
         task_id: None,

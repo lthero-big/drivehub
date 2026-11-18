@@ -20,6 +20,9 @@ const GroupsPage = lazy(() => import("./pages/admin/Groups").then((m) => ({ defa
 const RolesPage = lazy(() => import("./pages/admin/Roles").then((m) => ({ default: m.RolesPage })));
 const AclPage = lazy(() => import("./pages/admin/Acl").then((m) => ({ default: m.AclPage })));
 const AuditPage = lazy(() => import("./pages/admin/Audit").then((m) => ({ default: m.AuditPage })));
+const SharesPage = lazy(() => import("./pages/Shares").then((m) => ({ default: m.SharesPage })));
+const SharePublicPage = lazy(() => import("./pages/SharePublic").then((m) => ({ default: m.SharePublicPage })));
+const PickupBox = lazy(() => import("./pages/SharePublic").then((m) => ({ default: m.PickupBox })));
 const SettingsPage = lazy(() => import("./pages/admin/Settings").then((m) => ({ default: m.SettingsPage })));
 
 type Compat = { status: string; min_version?: string; reason?: string };
@@ -99,6 +102,15 @@ export default function App() {
     </div>
   );
 
+  if (location.pathname.startsWith("/s/"))
+    return (
+      <>
+        <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}>
+          <SharePublicPage />
+        </Suspense>
+        <Overlays />
+      </>
+    );
   if ((route.name === "verify" || route.name === "reset") && route.q.get("token"))
     return (
       <>
@@ -123,6 +135,9 @@ export default function App() {
             <Button variant="ghost" size="sm" onClick={() => (sessionStorage.setItem("dh_guest", "1"), setGuest(true))}>以访客身份浏览公开目录</Button>
           </p>
         )}
+        <Suspense fallback={null}>
+          <PickupBox />
+        </Suspense>
         <Overlays />
       </Ctx.Provider>
     );
@@ -134,6 +149,8 @@ export default function App() {
         return <SearchPage initial={route.q.get("q") ?? ""} />;
       case "tasks":
         return <TasksPage />;
+      case "shares":
+        return me ? <SharesPage /> : null;
       case "account":
         return me ? <AccountPage tab={route.rest} /> : null;
       case "admin":

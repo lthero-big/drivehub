@@ -158,13 +158,172 @@
         }
       }
     },
+    "/api/admin/alerts": {
+      "get": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Alert rules (admin).",
+        "operationId": "list_alerts",
+        "responses": {
+          "200": {
+            "description": "rules"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Adds an alert rule (admin).",
+        "operationId": "add_alert",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "rule"
+          }
+        }
+      }
+    },
+    "/api/admin/alerts/events": {
+      "get": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Fired alerts, newest first (admin).",
+        "operationId": "alert_events",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "rule_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "events"
+          }
+        }
+      }
+    },
+    "/api/admin/alerts/{id}": {
+      "put": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Replaces an alert rule (admin).",
+        "operationId": "put_alert",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "rule"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Deletes an alert rule (admin).",
+        "operationId": "delete_alert",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted"
+          }
+        }
+      }
+    },
+    "/api/admin/alerts/{id}/test": {
+      "post": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Sends a test alert through the rule's sink (admin).",
+        "operationId": "test_alert",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "alert event id"
+          }
+        }
+      }
+    },
     "/api/admin/audit": {
       "get": {
         "tags": [
-          "admin_api"
+          "audit_api"
         ],
-        "summary": "Audit log, newest first (admin).",
-        "operationId": "audit",
+        "summary": "Audit log with filters (time range, user, action, channel, client, path prefix, ip,\nshare, result, text), newest first (admin).",
+        "operationId": "audit_list",
         "parameters": [
           {
             "name": "limit",
@@ -191,8 +350,190 @@
             }
           },
           {
+            "name": "allowed",
+            "in": "query",
+            "description": "only allowed (true) / denied (false) events",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
             "name": "channel",
             "in": "query",
+            "description": "api | webdav | auth | share | admin",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "client",
+            "in": "query",
+            "description": "web | android | webdav | api",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "exact action, or comma list",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user",
+            "in": "query",
+            "description": "username (exact)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "path prefix, e.g. `/local/team`",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "share_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "unix seconds (inclusive)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "unix seconds (exclusive)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "free text in path / detail / username / ua",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "description": "pagination: events with id < before_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "asc | desc (default desc)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "export only: csv (default) | json",
             "required": false,
             "schema": {
               "type": [
@@ -205,6 +546,347 @@
         "responses": {
           "200": {
             "description": "events"
+          }
+        }
+      }
+    },
+    "/api/admin/audit/dashboard": {
+      "get": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Dashboard: traffic per day, hot files, share ranking, anomalies (admin).",
+        "operationId": "audit_dashboard",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "description": "default 7",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "dashboard"
+          }
+        }
+      }
+    },
+    "/api/admin/audit/export": {
+      "get": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Exports filtered events (up to 100 000, oldest first) as CSV or JSON (admin).",
+        "operationId": "audit_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "denied",
+            "in": "query",
+            "description": "only denied events",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "allowed",
+            "in": "query",
+            "description": "only allowed (true) / denied (false) events",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "channel",
+            "in": "query",
+            "description": "api | webdav | auth | share | admin",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "client",
+            "in": "query",
+            "description": "web | android | webdav | api",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "exact action, or comma list",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user",
+            "in": "query",
+            "description": "username (exact)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "path prefix, e.g. `/local/team`",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "share_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "unix seconds (inclusive)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "unix seconds (exclusive)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "free text in path / detail / username / ua",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "description": "pagination: events with id < before_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "asc | desc (default desc)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "export only: csv (default) | json",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "file"
+          }
+        }
+      }
+    },
+    "/api/admin/audit/policy": {
+      "get": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Retention policy (admin).",
+        "operationId": "audit_get_policy",
+        "responses": {
+          "200": {
+            "description": "policy"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Sets the retention policy (admin).",
+        "operationId": "audit_put_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "policy"
+          }
+        }
+      }
+    },
+    "/api/admin/audit/purge": {
+      "post": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Applies retention now: deletes old events and moves the chain anchor (admin).",
+        "operationId": "audit_purge",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "description": "Override the policy (days).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "result"
+          }
+        }
+      }
+    },
+    "/api/admin/audit/verify": {
+      "get": {
+        "tags": [
+          "audit_api"
+        ],
+        "summary": "Recomputes the hash chain: `{ok, checked, first_bad_id, reason}` (admin).",
+        "operationId": "audit_verify",
+        "responses": {
+          "200": {
+            "description": "report"
           }
         }
       }
@@ -1309,6 +1991,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "preview",
+            "in": "query",
+            "description": "In-browser preview (audited as `preview` instead of `download`)",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2058,6 +2752,366 @@
         }
       }
     },
+    "/api/s/captcha": {
+      "get": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "New captcha for PIN entry (required after a few wrong PINs).",
+        "operationId": "share_captcha",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Captcha"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/s/claim": {
+      "post": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Pickup-code claim from the home page (anonymous ok).",
+        "operationId": "share_claim",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "share contents + token"
+          }
+        }
+      }
+    },
+    "/api/s/{code}": {
+      "get": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Opens a share (`code` may carry the PIN: `abc-1234`). Counts one visit and returns a\nvisitor token for list / download / upload. 401 `{need_pin|need_captcha|need_login}`,\n410 expired / revoked / limit reached, 429 rate limited.",
+        "operationId": "share_open",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "captcha_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "captcha",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "share contents + token"
+          }
+        }
+      }
+    },
+    "/api/s/{code}/direct": {
+      "get": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Signed direct link for one file of a share: `{\"url\": \"/d/<token>/<name>\"}`.",
+        "operationId": "share_visit_direct",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Share-relative path, e.g. `/folder/sub/file.txt` (\"/\" = share root)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "t",
+            "in": "query",
+            "description": "Visitor token from `/api/s/{code}`",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "inline",
+            "in": "query",
+            "description": "In-browser preview (inline, not counted as a download)",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "url"
+          }
+        }
+      }
+    },
+    "/api/s/{code}/download": {
+      "get": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Downloads (or with `inline=true` previews) a file of a share. Supports Range; only the\nfirst request of a ranged transfer counts toward `max_downloads`.",
+        "operationId": "share_visit_download",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Share-relative path, e.g. `/folder/sub/file.txt` (\"/\" = share root)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "t",
+            "in": "query",
+            "description": "Visitor token from `/api/s/{code}`",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "inline",
+            "in": "query",
+            "description": "In-browser preview (inline, not counted as a download)",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "file"
+          },
+          "206": {
+            "description": "partial"
+          }
+        }
+      }
+    },
+    "/api/s/{code}/list": {
+      "get": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Lists a folder inside a share.",
+        "operationId": "share_visit_list",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Share-relative path, e.g. `/folder/sub/file.txt` (\"/\" = share root)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "t",
+            "in": "query",
+            "description": "Visitor token from `/api/s/{code}`",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "inline",
+            "in": "query",
+            "description": "In-browser preview (inline, not counted as a download)",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "entries"
+          }
+        }
+      }
+    },
+    "/api/s/{code}/upload": {
+      "put": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Uploads a file into an upload (collect) share. Never overwrites.",
+        "operationId": "share_visit_upload",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Share-relative path, e.g. `/folder/sub/file.txt` (\"/\" = share root)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "t",
+            "in": "query",
+            "description": "Visitor token from `/api/s/{code}`",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "inline",
+            "in": "query",
+            "description": "In-browser preview (inline, not counted as a download)",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "uploaded"
+          }
+        }
+      }
+    },
     "/api/search": {
       "get": {
         "tags": [
@@ -2167,6 +3221,160 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/shares": {
+      "get": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "My shares (admin: `?all=true` for everyone's).",
+        "operationId": "share_list",
+        "parameters": [
+          {
+            "name": "all",
+            "in": "query",
+            "description": "Admin: all users' shares.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "shares"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Creates a share (needs `share` + `read` on every item; `download` / `upload` for those modes).",
+        "operationId": "share_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewShare"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "share"
+          }
+        }
+      }
+    },
+    "/api/shares/{id}": {
+      "get": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "One share with access statistics (recent audit events for it).",
+        "operationId": "share_get_one",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "share + stats"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Deletes a share record.",
+        "operationId": "share_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Changes limits: any of `days`, `expires_in_secs`, `expires_at` (null = never), `max_visits`,\n`max_downloads` (null = unlimited), `pin` (null = remove), `random_pin`, `perm`,\n`require_login`, `name`, `revoked`, `reset_counters`.",
+        "operationId": "share_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "share"
+          }
+        }
+      }
+    },
+    "/api/shares/{id}/revoke": {
+      "post": {
+        "tags": [
+          "share_api"
+        ],
+        "summary": "Revokes a share immediately (links, tokens and direct links stop working).",
+        "operationId": "share_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "share"
           }
         }
       }
@@ -2304,6 +3512,54 @@
   },
   "components": {
     "schemas": {
+      "AlertBody": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "actions": {
+            "type": "string",
+            "description": "burst: comma list of actions, e.g. \"download,share_download\" or \"delete\""
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "description": "burst | new_ip_login"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sink": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "log | webhook | email"
+          },
+          "target": {
+            "type": "string",
+            "description": "webhook URL or e-mail address"
+          },
+          "threshold": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "window_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "AuthStatus": {
         "type": "object",
         "required": [
@@ -2340,6 +3596,22 @@
           }
         }
       },
+      "Captcha": {
+        "type": "object",
+        "required": [
+          "id",
+          "svg"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "svg": {
+            "type": "string",
+            "description": "SVG image of the question"
+          }
+        }
+      },
       "ChangePwBody": {
         "type": "object",
         "required": [
@@ -2350,6 +3622,36 @@
             "type": "string"
           },
           "old_password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ClaimBody": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "captcha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "captcha_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "description": "Pickup code: `<code>`, `<code>-<pin>` or `<code> <pin>`; a full share URL also works."
+          },
+          "pin": {
             "type": [
               "string",
               "null"
@@ -2695,6 +3997,78 @@
           }
         }
       },
+      "NewShare": {
+        "type": "object",
+        "required": [
+          "paths"
+        ],
+        "properties": {
+          "days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Valid for N days (default: forever)."
+          },
+          "expires_in_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Alternative to `days` (seconds)."
+          },
+          "max_downloads": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "max_visits": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Virtual paths (files and/or folders) as seen by the caller."
+          },
+          "perm": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "preview | download (default) | upload (collect files into the single shared folder)"
+          },
+          "pin": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fixed PIN (3–16 letters/digits)."
+          },
+          "random_pin": {
+            "type": "boolean",
+            "description": "Generate a random 4-character PIN."
+          },
+          "require_login": {
+            "type": "boolean"
+          }
+        }
+      },
       "NewTokenBody": {
         "type": "object",
         "required": [
@@ -2925,6 +4299,19 @@
         "properties": {
           "path": {
             "type": "string"
+          }
+        }
+      },
+      "PolicyBody": {
+        "type": "object",
+        "required": [
+          "retention_days"
+        ],
+        "properties": {
+          "retention_days": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Keep events this many days (0 = forever)."
           }
         }
       },

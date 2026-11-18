@@ -75,6 +75,7 @@ impl Backend for DavSession {
         let real = self.real(path)?;
         if !real.is_empty() {
             self.authz(&real, READ, "list")?;
+            self.st.audit(&self.p, CH_DAV, "list", &real, true, "");
         }
         match self.st.vfs.resolve(&real).map_err(map_api)? {
             Resolved::Root => Ok(self
@@ -125,7 +126,16 @@ impl Backend for DavSession {
         self.authz(&real, DOWNLOAD, "download")?;
         let (m, rel) = self.in_mount(&real, false)?;
         if range.is_none_or(|r| r.start == 0) {
-            self.st.audit(&self.p, CH_DAV, "download", &real, true, "");
+            let size = m
+                .driver
+                .stat(&rel)
+                .await
+                .map(|e| e.size as i64)
+                .unwrap_or(0);
+            self.st.audit_ev(
+                crate::audit::AuditEvent::new(&self.p, CH_DAV, "download", &real, true, "")
+                    .bytes(size),
+            );
         }
         m.driver.read(&rel, range).await.map_err(map_st)
     }
@@ -167,13 +177,9 @@ impl Backend for DavSession {
         if let Ok(e) = m.driver.stat(&rel).await {
             self.st.index_upsert(&m.cfg.name, &e).await;
         }
-        self.st.audit(
-            &self.p,
-            CH_DAV,
-            "upload",
-            &real,
-            true,
-            &format!("{n} bytes"),
+        self.st.audit_ev(
+            crate::audit::AuditEvent::new(&self.p, CH_DAV, "upload", &real, true, "")
+                .bytes(n as i64),
         );
         Ok(())
     }

@@ -3,6 +3,7 @@ import { HardDrive, ListChecks, ShieldAlert, Users } from "lucide-react";
 import { call, client, ok, type AuditRow, type TaskInfo, type VersionInfo } from "../../lib/api";
 import { fmtTime } from "../../lib/util";
 import { Badge, Card, PageHeader } from "../../ui/ui";
+import { AuditDash } from "./AuditDash";
 
 function Stat({ icon: I, label, value, href, tone = "accent" }: { icon: typeof HardDrive; label: string; value: number | string; href: string; tone?: "accent" | "ok" | "warn" | "danger" }) {
   const t = { accent: "bg-accent-soft text-accent", ok: "bg-ok/12 text-ok", warn: "bg-warn/15 text-warn", danger: "bg-danger/12 text-danger" }[tone];
@@ -62,6 +63,7 @@ export function DashboardPage() {
           </dl>
         </Card>
       </div>
+      <AuditDash />
       <Card title="最近活动" actions={<a href="#/admin/audit" className="btn-key inline-flex h-8 items-center rounded-lg border border-line px-3 text-xs">查看全部</a>}>
         <ul className="divide-y divide-line text-[13px]">
           {d.audit.slice(0, 12).map((r) => (

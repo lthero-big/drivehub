@@ -29,7 +29,7 @@ futures = "0.3.34"
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
 url = "2"
 tower-http.workspace = true

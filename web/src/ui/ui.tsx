@@ -2,14 +2,38 @@ import { Children, forwardRef, isValidElement, useEffect, useId, useLayoutEffect
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import { cx } from "../lib/util";
+import { SegmentedDrag } from "./motion";
+import { LbDone, LbSpin, useMorph, type Phase } from "./morph";
 
-type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "outline" | "danger"; size?: "sm" | "md"; loading?: boolean };
-/** Key-like button: raised surface, lift on hover, press-down on :active, ring on focus. */
-export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ variant = "outline", size = "md", loading, className, children, disabled, ...rest }, ref) {
+type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: "primary" | "ghost" | "outline" | "danger";
+  size?: "sm" | "md";
+  /** async state: pill shrinks to a circle with an arc (unified loading button) */
+  loading?: boolean;
+  /** driven phase (LoadingButton): idle | run | done | error */
+  phase?: Phase;
+  doneLabel?: string;
+  errorLabel?: string;
+  /** hover floods the button with a dot + inverted label (multistate button) */
+  hoverFill?: boolean;
+};
+/** Key-like button: raised surface, lift on hover, press-down on :active, ring on focus.
+ *  Buttons that pass `loading` / `phase` use the shared morph: shrink → arc → ✓ (motion-mp-loading-button). */
+export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ variant = "outline", size = "md", loading, phase, doneLabel = "完成", errorLabel = "失败", hoverFill, className, children, disabled, ...rest }, ref) {
+  const inner = useRef<HTMLButtonElement | null>(null);
+  const ph: Phase = phase ?? (loading ? "run" : "idle");
+  useMorph(inner, ph);
+  const morph = loading !== undefined || phase !== undefined || hoverFill;
   return (
     <button
-      ref={ref}
-      disabled={disabled || loading}
+      ref={(el) => {
+        inner.current = el;
+        if (typeof ref === "function") ref(el);
+        else if (ref) ref.current = el;
+      }}
+      disabled={disabled || loading || (phase !== undefined && phase !== "idle")}
+      data-state={morph ? ph : undefined}
+      aria-busy={ph === "run" || undefined}
       className={cx(
         "btn-key inline-flex items-center justify-center gap-1.5 rounded-xl font-medium whitespace-nowrap select-none disabled:opacity-50 disabled:pointer-events-none",
         size === "sm" ? "h-8 px-3 text-[13px]" : "h-10 px-4 text-sm",
@@ -17,12 +41,22 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ 
         variant === "outline" && "btn-outline border border-line bg-panel hover:bg-panel-2",
         variant === "ghost" && "btn-ghost hover:bg-hover",
         variant === "danger" && "btn-danger bg-danger text-white",
+        morph && "lb",
+        hoverFill && "ms",
         className,
       )}
       {...rest}
     >
-      {loading && <Loader2 className="size-4 animate-spin" aria-hidden />}
-      {children}
+      {morph ? (
+        <>
+          <span className={cx("lb-label", hoverFill && "ms-a")}>{children}</span>
+          {hoverFill && <span className="ms-b" aria-hidden>{children}</span>}
+          <LbSpin />
+          <LbDone label={ph === "error" ? errorLabel : doneLabel} error={ph === "error"} />
+        </>
+      ) : (
+        children
+      )}
     </button>
   );
 });
@@ -103,7 +137,8 @@ export function Select({ value, onChange, children, className, disabled, ...rest
       </button>
       {open &&
         createPortal(
-          <ul ref={list} id={id} role="listbox" style={pos} className="pop-in pop-surface scroll-thin z-[75] max-h-64 overflow-auto rounded-xl p-1">
+          <ul ref={list} id={id} role="listbox" style={pos} className="pop-in pop-surface scroll-thin relative z-[75] max-h-64 overflow-auto rounded-xl p-1">
+            <span aria-hidden className="pop-hi" style={{ transform: `translateY(${hi * 40}px)` }} />
             {opts.map((o, i) => (
               <li
                 key={o.value}
@@ -111,7 +146,7 @@ export function Select({ value, onChange, children, className, disabled, ...rest
                 aria-selected={o.value === value}
                 onMouseEnter={() => setHi(i)}
                 onMouseDown={(e) => (e.preventDefault(), pick(o.value))}
-                className={cx("flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm whitespace-nowrap", i === hi && "bg-hover", o.value === value && "font-medium text-accent")}
+                className={cx("flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm whitespace-nowrap", "relative", o.value === value && "font-medium text-accent")}
               >
                 <span className="flex-1">{o.label}</span>
                 {o.value === value && <Check className="size-4" />}
@@ -155,23 +190,11 @@ export function RadioGroup<T extends string>({ value, onChange, options, label }
   );
 }
 
-/** Tabs (segmented underline). Controlled; renders role=tablist. */
+/** Tabs: draggable segmented control (affectUI) — the pill stretches toward the target, drag across to switch. */
 export function Tabs<T extends string>({ tabs, value, onChange, className }: { tabs: { id: T; label: ReactNode; icon?: ReactNode }[]; value: T; onChange: (v: T) => void; className?: string }) {
   return (
-    <div role="tablist" className={cx("scroll-thin -mx-1 flex gap-1 overflow-x-auto border-b border-line px-1", className)}>
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          role="tab"
-          aria-selected={t.id === value}
-          onClick={() => onChange(t.id)}
-          className={cx("tab-btn relative flex h-11 shrink-0 items-center gap-2 rounded-t-xl px-3.5 text-sm font-medium [&>svg]:size-4", t.id === value ? "text-fg" : "text-muted hover:text-fg")}
-        >
-          {t.icon}
-          {t.label}
-          <span className={cx("absolute inset-x-2 bottom-0 h-0.5 origin-center rounded-full bg-accent transition-transform duration-300", t.id === value ? "scale-x-100" : "scale-x-0")} />
-        </button>
-      ))}
+    <div className={cx("scroll-thin -mx-1 overflow-x-auto px-1 py-1", className)}>
+      <SegmentedDrag<T> role="tablist" label="标签页" value={value} onChange={onChange} options={tabs.map((t) => ({ value: t.id, label: t.label, icon: t.icon }))} />
     </div>
   );
 }

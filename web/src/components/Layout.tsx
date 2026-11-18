@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   ChevronsUpDown, FolderOpen, HardDrive, LayoutDashboard, ListChecks, LogIn, LogOut, Menu as MenuIcon, Monitor, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Search, Settings, Shield, Star, Sun, User, Users, X,
-  BadgeCheck,
+  BadgeCheck, Share2,
 } from "lucide-react";
 import { call, client, ok, tokens, WEB_VERSION, type FsItem } from "../lib/api";
 import { useApp } from "../lib/app";
@@ -97,6 +97,7 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         })}
         <NavLink mini={mini} href="#/search" icon={<Search />} active={at("search")}>搜索</NavLink>
         <NavLink mini={mini} href="#/tasks" icon={<ListChecks />} active={at("tasks")}>任务中心</NavLink>
+        {me && <NavLink mini={mini} href="#/shares" icon={<Share2 />} active={at("shares")}>我的分享</NavLink>}
         {me && <NavLink mini={mini} href="#/account" icon={<User />} active={at("account")}>账户设置</NavLink>}
       </div>
       {favs.length > 0 && (

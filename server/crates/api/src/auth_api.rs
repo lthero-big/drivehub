@@ -172,6 +172,29 @@ pub async fn create_session(
     .bind(t + st.auth.refresh_ttl)
     .execute(&st.db)
     .await?;
+    let username: String = sqlx::query_scalar("SELECT username FROM users WHERE id = ?")
+        .bind(uid)
+        .fetch_optional(&st.db)
+        .await?
+        .unwrap_or_default();
+    st.audit_ev(crate::audit::AuditEvent {
+        user_id: Some(uid),
+        username,
+        ip: ip.to_string(),
+        ua: ua.to_string(),
+        client: if ua.contains("Mozilla/") {
+            "web"
+        } else {
+            "api"
+        }
+        .into(),
+        channel: CH_AUTH.into(),
+        action: "login".into(),
+        path: "/".into(),
+        allowed: true,
+        detail: format!("method={method}"),
+        ..Default::default()
+    });
     Ok(TokenPair {
         access_token: st.auth.issue_access(uid, &sid),
         refresh_token: format!("{sid}.{secret}"),
