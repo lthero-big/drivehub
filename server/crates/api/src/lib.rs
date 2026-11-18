@@ -1,4 +1,6 @@
 pub mod admin_api;
+pub mod audit;
+pub mod audit_api;
 pub mod auth;
 pub mod auth_api;
 pub mod dav;
@@ -6,6 +8,7 @@ pub mod error;
 pub mod fs_api;
 pub mod search_api;
 pub mod settings;
+pub mod share_api;
 pub mod tasks;
 pub mod transfer_api;
 pub mod vfs;
@@ -41,6 +44,10 @@ pub struct AppState {
     pub auth: Arc<auth::Auth>,
     /// Staging area for resumable upload sessions (`<data_dir>/uploads`).
     pub upload_dir: PathBuf,
+    /// Ordered hash-chained audit writer + alert engine (DEPTAI-475).
+    pub audit_log: Arc<audit::AuditLog>,
+    /// Share PIN brute-force protection (DEPTAI-474).
+    pub share_guard: Arc<share_api::ShareGuard>,
 }
 
 impl AppState {
@@ -63,7 +70,10 @@ impl AppState {
                 rand::random::<u32>()
             ))
         });
+        let audit_log = audit::AuditLog::start(db.clone(), auth.clone()).await?;
         let st = Self {
+            audit_log,
+            share_guard: Arc::new(share_api::ShareGuard::from_env()),
             auth,
             upload_dir,
             tasks: tasks::Tasks::new(db.clone()),
@@ -82,6 +92,24 @@ impl AppState {
             tracing::info!(resumed, "resumed interrupted tasks");
         }
         st.sweep_uploads();
+        if data_dir.is_some() {
+            let db = st.db.clone();
+            tokio::spawn(async move {
+                loop {
+                    let days = audit::retention_days(&db).await;
+                    if days > 0 {
+                        match audit::purge(&db, days).await {
+                            Ok((n, a)) if n > 0 => {
+                                tracing::info!(deleted = n, anchor = a, "audit retention purge")
+                            }
+                            Err(e) => tracing::warn!(error = %e, "audit retention purge failed"),
+                            _ => {}
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
+                }
+            });
+        }
         Ok(st)
     }
 
@@ -210,7 +238,32 @@ impl AppState {
         admin_api::list_groups,
         admin_api::add_group,
         admin_api::delete_group,
-        admin_api::audit,
+        audit_api::list,
+        audit_api::export,
+        audit_api::verify,
+        audit_api::get_policy,
+        audit_api::put_policy,
+        audit_api::purge,
+        audit_api::dashboard,
+        audit_api::list_alerts,
+        audit_api::add_alert,
+        audit_api::put_alert,
+        audit_api::delete_alert,
+        audit_api::test_alert,
+        audit_api::alert_events,
+        share_api::create,
+        share_api::list,
+        share_api::get_one,
+        share_api::patch,
+        share_api::revoke,
+        share_api::delete,
+        share_api::open,
+        share_api::claim,
+        share_api::captcha,
+        share_api::visit_list,
+        share_api::visit_download,
+        share_api::visit_direct,
+        share_api::visit_upload,
         admin_api::list_rules,
         admin_api::add_rule,
         admin_api::delete_rule,
@@ -256,7 +309,12 @@ impl AppState {
         admin_api::PatchUserBody,
         admin_api::GroupBody,
         admin_api::RuleBody,
-        admin_api::GateBody
+        admin_api::GateBody,
+        audit_api::PolicyBody,
+        audit_api::AlertBody,
+        share_api::NewShare,
+        share_api::ClaimBody,
+        share_api::Captcha
     ))
 )]
 pub struct ApiDoc;
@@ -405,7 +463,44 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
             get(admin_api::list_groups).post(admin_api::add_group),
         )
         .route("/admin/groups/{id}", delete(admin_api::delete_group))
-        .route("/admin/audit", get(admin_api::audit))
+        .route("/admin/audit", get(audit_api::list))
+        .route("/admin/audit/export", get(audit_api::export))
+        .route("/admin/audit/verify", get(audit_api::verify))
+        .route(
+            "/admin/audit/policy",
+            get(audit_api::get_policy).put(audit_api::put_policy),
+        )
+        .route("/admin/audit/purge", post(audit_api::purge))
+        .route("/admin/audit/dashboard", get(audit_api::dashboard))
+        .route(
+            "/admin/alerts",
+            get(audit_api::list_alerts).post(audit_api::add_alert),
+        )
+        .route("/admin/alerts/events", get(audit_api::alert_events))
+        .route(
+            "/admin/alerts/{id}",
+            put(audit_api::put_alert).delete(audit_api::delete_alert),
+        )
+        .route("/admin/alerts/{id}/test", post(audit_api::test_alert))
+        // M3 shares (DEPTAI-474)
+        .route("/shares", get(share_api::list).post(share_api::create))
+        .route(
+            "/shares/{id}",
+            get(share_api::get_one)
+                .patch(share_api::patch)
+                .delete(share_api::delete),
+        )
+        .route("/shares/{id}/revoke", post(share_api::revoke))
+        .route("/s/captcha", get(share_api::captcha))
+        .route("/s/claim", post(share_api::claim))
+        .route("/s/{code}", get(share_api::open))
+        .route("/s/{code}/list", get(share_api::visit_list))
+        .route("/s/{code}/download", get(share_api::visit_download))
+        .route("/s/{code}/direct", get(share_api::visit_direct))
+        .route(
+            "/s/{code}/upload",
+            put(share_api::visit_upload).post(share_api::visit_upload),
+        )
         .route(
             "/acl/rules",
             get(admin_api::list_rules).post(admin_api::add_rule),
@@ -426,12 +521,31 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
         .route("/dav/{*rest}", any(dav::serve))
         .layer(DefaultBodyLimit::disable())
         .layer(middleware::from_fn_with_state(state.clone(), auth::authn));
+    // Public share entry points: short link + signed direct link (DEPTAI-474).
+    let index = web_dir.as_ref().map(|d| d.join("index.html"));
+    let public = Router::new()
+        .route(
+            "/s/{code}",
+            get(
+                move |State(st): State<AppState>,
+                      axum::Extension(p): axum::Extension<auth::Principal>,
+                      headers: HeaderMap,
+                      axum::extract::Path(code): axum::extract::Path<String>,
+                      axum::extract::Query(q): axum::extract::Query<share_api::OpenQuery>| {
+                    let index = index.clone();
+                    async move { share_api::short_link(st, p, headers, code, q, index).await }
+                },
+            ),
+        )
+        .route("/d/{token}/{name}", get(share_api::direct))
+        .layer(middleware::from_fn_with_state(state.clone(), auth::authn));
     let mut app = Router::new()
         .route("/api/version", get(version))
         .route("/api/openapi.json", get(openapi_json))
         .nest("/api/v1", v1)
         .nest("/api", m1)
         .merge(dav)
+        .merge(public)
         .with_state(state);
     if let Some(dir) = web_dir {
         let index = dir.join("index.html");
@@ -452,7 +566,7 @@ async fn static_headers(req: Request, next: Next) -> Response {
     use axum::http::{header, HeaderValue};
     let path = req.uri().path().to_string();
     let mut res = next.run(req).await;
-    if path.starts_with("/api/") || path.starts_with("/dav") {
+    if path.starts_with("/api/") || path.starts_with("/dav") || path.starts_with("/d/") {
         return res;
     }
     let h = res.headers_mut();

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as RMouseEvent } from "react";
 import {
   ArrowDownAZ, Check, ChevronRight, Copy, Download, Eye, FileArchive, FolderInput, FolderPlus, FolderUp, Grid2x2, Images, KeyRound, List,
-  MoreHorizontal, Pencil, RefreshCw, Shield, Trash2, Upload, X, Lock,
+  MoreHorizontal, Pencil, RefreshCw, Shield, Trash2, Upload, X, Lock, Share2,
 } from "lucide-react";
 import { ApiError, client, fileUrl, ok, pathPassword, rawFetch, zipUrl, type FsItem } from "../lib/api";
 import { useApp } from "../lib/app";
@@ -10,6 +10,7 @@ import { fromDataTransfer, fromFileList, uploads } from "../lib/uploads";
 import { baseName, cx, errMsg, fmtSize, fmtTime, joinPath, kindOf } from "../lib/util";
 import { ask, Button, confirmDlg, Empty, IconButton, Input, Menu, MenuItem, Spinner, toast } from "../ui/ui";
 import { DirPicker } from "./DirPicker";
+import { ShareDialog } from "./ShareDialog";
 import { FileIcon } from "./FileIcon";
 
 const Preview = lazy(() => import("./Preview"));
@@ -77,6 +78,7 @@ function Readme({ item }: { item: FsItem }) {
 
 export function FileBrowser({ path }: { path: string }) {
   const { fsVersion, bumpFs, isAdmin } = useApp();
+  const [sharing, setSharing] = useState<FsItem[]>([]);
   const [items, setItems] = useState<FsItem[] | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -287,6 +289,7 @@ export function FileBrowser({ path }: { path: string }) {
         <div onClick={(e) => e.stopPropagation()}>
           <MenuItem icon={<Eye />} onClick={() => (close(), open(i))}>打开</MenuItem>
           <MenuItem icon={i.is_dir ? <FileArchive /> : <Download />} onClick={() => (close(), download([i]))}>{i.is_dir ? "打包下载" : "下载"}</MenuItem>
+          {!isRoot && <MenuItem icon={<Share2 />} onClick={() => (close(), setSharing([i]))}>分享</MenuItem>}
           {!isRoot && <MenuItem icon={<Pencil />} kbd="F2" onClick={() => (close(), rename(i))}>重命名</MenuItem>}
           {!isRoot && <MenuItem icon={<FolderInput />} onClick={() => (close(), setSel(new Set([i.path])), setPicker("move"))}>移动到…</MenuItem>}
           {!isRoot && <MenuItem icon={<Copy />} onClick={() => (close(), setSel(new Set([i.path])), setPicker("copy"))}>复制到…</MenuItem>}
@@ -356,6 +359,9 @@ export function FileBrowser({ path }: { path: string }) {
             </Button>
             {!isRoot && (
               <>
+                <Button size="sm" variant="ghost" onClick={() => setSharing(selected)}>
+                  <Share2 className="size-4" /> 分享
+                </Button>
                 {selected.length === 1 && (
                   <Button size="sm" variant="ghost" onClick={() => rename(selected[0])}>
                     <Pencil className="size-4" /> 重命名
@@ -506,6 +512,7 @@ export function FileBrowser({ path }: { path: string }) {
           <p className="text-sm font-medium text-accent">松开即可上传到 {path}</p>
         </div>
       )}
+      <ShareDialog items={sharing} onClose={() => setSharing([])} />
       <DirPicker open={!!picker} title={picker === "move" ? `移动 ${selected.length} 项到…` : `复制 ${selected.length} 项到…`} start={path} onClose={() => setPicker(null)} onPick={(d) => transfer(picker!, d)} />
       {preview && (
         <Suspense fallback={null}>

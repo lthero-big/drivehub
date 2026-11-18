@@ -137,6 +137,7 @@ export function fileUrl(path: string, opts: { download?: boolean } = {}): string
   const pw = pathPassword.get();
   if (pw) q.set("path_password", pw);
   if (opts.download) q.set("dl", "1");
+  else q.set("preview", "true");
   return `/api/fs/download?${q}`;
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  FolderOpen, HardDrive, LayoutDashboard, ListChecks, LogIn, LogOut, Menu as MenuIcon, Monitor, Moon, ScrollText, Search, Settings, Shield, Sun, User, Users, X,
+  FolderOpen, HardDrive, LayoutDashboard, ListChecks, LogIn, LogOut, Menu as MenuIcon, Monitor, Moon, ScrollText, Search, Settings, Shield, Sun, User, Users, X, Share2,
 } from "lucide-react";
 import { call, client, ok, tokens, WEB_VERSION, type FsItem } from "../lib/api";
 import { useApp } from "../lib/app";
@@ -57,6 +57,7 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         ))}
         <NavLink href="#/search" icon={<Search />} active={at("search")}>搜索</NavLink>
         <NavLink href="#/tasks" icon={<ListChecks />} active={at("tasks")}>任务中心</NavLink>
+        {me && <NavLink href="#/shares" icon={<Share2 />} active={at("shares")}>我的分享</NavLink>}
       </div>
       {isAdmin && (
         <div className="space-y-0.5">
