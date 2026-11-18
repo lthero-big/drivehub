@@ -1,0 +1,6 @@
+[package]
+name = "drivehub-webdav"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

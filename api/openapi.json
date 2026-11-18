@@ -1,0 +1,174 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DriveHub API",
+    "description": "DriveHub multi-cloud-drive manager",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": [],
+        "summary": "Liveness plus database check.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/version": {
+      "get": {
+        "tags": [],
+        "summary": "Server / API versions and minimum client versions for negotiation.",
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Compat": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Client is older than the server's minimum: the client must upgrade.",
+            "required": [
+              "min_version",
+              "status"
+            ],
+            "properties": {
+              "min_version": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "client_too_old"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Client speaks a newer API major than this server: the server must upgrade.",
+            "required": [
+              "server_api_version",
+              "status"
+            ],
+            "properties": {
+              "server_api_version": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "server_too_old"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Client sent an unparsable version.",
+            "required": [
+              "reason",
+              "status"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "invalid"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Outcome of negotiating a client against this server."
+      },
+      "Health": {
+        "type": "object",
+        "required": [
+          "status",
+          "db"
+        ],
+        "properties": {
+          "db": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "VersionInfo": {
+        "type": "object",
+        "description": "Response of GET /api/version.",
+        "required": [
+          "server_version",
+          "api_version",
+          "min_app_version",
+          "min_web_version"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_app_version": {
+            "type": "string"
+          },
+          "min_web_version": {
+            "type": "string"
+          },
+          "server_version": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

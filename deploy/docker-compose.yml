@@ -1,0 +1,17 @@
+services:
+  drivehub:
+    image: drivehub:latest
+    ports: ["8470:8470"]
+    volumes:
+      - ./data:/data
+      - ./config:/config
+    restart: unless-stopped
+  # Optional, enable with: docker compose --profile pg up
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["pg"]
+    environment:
+      POSTGRES_USER: drivehub
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: drivehub
+    volumes: ["./pg:/var/lib/postgresql/data"]
