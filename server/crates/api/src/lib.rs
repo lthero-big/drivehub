@@ -7,6 +7,7 @@ pub mod fs_api;
 pub mod search_api;
 pub mod settings;
 pub mod tasks;
+pub mod transfer_api;
 pub mod vfs;
 
 use axum::{
@@ -38,6 +39,8 @@ pub struct AppState {
     pub embedder: Arc<dyn Embedder>,
     pub index_lock: Arc<tokio::sync::Mutex<()>>,
     pub auth: Arc<auth::Auth>,
+    /// Staging area for resumable upload sessions (`<data_dir>/uploads`).
+    pub upload_dir: PathBuf,
 }
 
 impl AppState {
@@ -53,8 +56,16 @@ impl AppState {
             data_dir.map(|d| d.join("index")).as_deref(),
         )?);
         let auth = Arc::new(auth::Auth::load(&db).await?);
+        let upload_dir = data_dir.map(|d| d.join("uploads")).unwrap_or_else(|| {
+            std::env::temp_dir().join(format!(
+                "drivehub-uploads-{}-{:x}",
+                std::process::id(),
+                rand::random::<u32>()
+            ))
+        });
         let st = Self {
             auth,
+            upload_dir,
             tasks: tasks::Tasks::new(db.clone()),
             db,
             vfs: vfs.clone(),
@@ -70,6 +81,7 @@ impl AppState {
         if resumed > 0 {
             tracing::info!(resumed, "resumed interrupted tasks");
         }
+        st.sweep_uploads();
         Ok(st)
     }
 
@@ -146,6 +158,12 @@ impl AppState {
         fs_api::copy,
         fs_api::move_,
         fs_api::delete,
+        transfer_api::create,
+        transfer_api::get_session,
+        transfer_api::put_chunk,
+        transfer_api::complete,
+        transfer_api::cancel,
+        transfer_api::zip,
         fs_api::mounts,
         fs_api::add_mount,
         fs_api::remove_mount,
@@ -206,6 +224,8 @@ impl AppState {
         Compat,
         error::ErrorBody,
         fs_api::FsItem,
+        transfer_api::NewUpload,
+        transfer_api::UploadSession,
         fs_api::ListResp,
         fs_api::PathBody,
         fs_api::OkResp,
@@ -309,6 +329,15 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
         .route("/fs/copy", post(fs_api::copy))
         .route("/fs/move", post(fs_api::move_))
         .route("/fs/delete", post(fs_api::delete))
+        .route("/fs/uploads", post(transfer_api::create))
+        .route(
+            "/fs/uploads/{id}",
+            get(transfer_api::get_session)
+                .put(transfer_api::put_chunk)
+                .delete(transfer_api::cancel),
+        )
+        .route("/fs/uploads/{id}/complete", post(transfer_api::complete))
+        .route("/fs/zip", get(transfer_api::zip))
         .route("/mounts", get(fs_api::mounts).post(fs_api::add_mount))
         .route("/mounts/{name}", delete(fs_api::remove_mount))
         .route("/tasks", get(fs_api::tasks))
@@ -406,9 +435,46 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
         .with_state(state);
     if let Some(dir) = web_dir {
         let index = dir.join("index.html");
-        app = app.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)));
+        app = app.fallback_service(
+            ServeDir::new(dir)
+                .precompressed_br()
+                .precompressed_gzip()
+                .fallback(ServeFile::new(index)),
+        );
+        app = app.layer(middleware::from_fn(static_headers));
     }
     app.layer(tower_http::trace::TraceLayer::new_for_http())
+}
+
+/// Long-lived caching for hashed build assets, no-cache for the SPA shell, and baseline
+/// security headers on every web response.
+async fn static_headers(req: Request, next: Next) -> Response {
+    use axum::http::{header, HeaderValue};
+    let path = req.uri().path().to_string();
+    let mut res = next.run(req).await;
+    if path.starts_with("/api/") || path.starts_with("/dav") {
+        return res;
+    }
+    let h = res.headers_mut();
+    let cc = if path.starts_with("/assets/") {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static(cc));
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("same-origin"),
+    );
+    h.insert(
+        header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("SAMEORIGIN"),
+    );
+    res
 }
 
 pub async fn connect(url: &str) -> anyhow::Result<SqlitePool> {

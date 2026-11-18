@@ -733,6 +733,7 @@ dependencies = [
  "async-trait",
  "axum",
  "bytes",
+ "crc32fast",
  "data-encoding",
  "drivehub-core",
  "drivehub-search",

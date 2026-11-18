@@ -42,7 +42,7 @@ fn vjoin(mount: &str, rel: &str) -> String {
     }
 }
 
-fn item(mount: &str, e: &Entry) -> FsItem {
+pub(crate) fn item(mount: &str, e: &Entry) -> FsItem {
     FsItem {
         name: e.name.clone(),
         path: vjoin(mount, &e.path),
@@ -296,14 +296,26 @@ pub async fn download(
         .header(header::CONTENT_LENGTH, len)
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CONTENT_DISPOSITION, disp)
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header("x-drivehub-transfer", "proxy");
+    // Active content (html/svg/…) from user storage must not run with this origin's rights.
+    if !(mime.starts_with("image/") && mime != "image/svg+xml"
+        || mime.starts_with("video/")
+        || mime.starts_with("audio/")
+        || mime == "application/pdf")
+    {
+        resp = resp.header(
+            header::CONTENT_SECURITY_POLICY,
+            "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+        );
+    }
     if let Some((s, en)) = parsed {
         resp = resp.header(header::CONTENT_RANGE, format!("bytes {s}-{en}/{}", e.size));
     }
     Ok(resp.body(Body::from_stream(stream)).unwrap())
 }
 
-fn pct(s: &str) -> String {
+pub(crate) fn pct(s: &str) -> String {
     s.bytes()
         .map(|b| {
             if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
@@ -315,7 +327,7 @@ fn pct(s: &str) -> String {
         .collect()
 }
 
-fn mime_of(name: &str) -> &'static str {
+pub(crate) fn mime_of(name: &str) -> &'static str {
     match name
         .rsplit('.')
         .next()
@@ -323,7 +335,10 @@ fn mime_of(name: &str) -> &'static str {
         .to_lowercase()
         .as_str()
     {
-        "txt" | "log" | "md" => "text/plain; charset=utf-8",
+        "txt" | "log" | "md" | "markdown" | "csv" | "tsv" | "ini" | "conf" | "toml" | "yaml"
+        | "yml" | "rs" | "go" | "py" | "js" | "ts" | "tsx" | "jsx" | "java" | "kt" | "c" | "h"
+        | "cpp" | "hpp" | "cs" | "sh" | "sql" | "xml" | "css" | "vue" | "rb" | "php" | "swift"
+        | "lua" | "srt" | "vtt" => "text/plain; charset=utf-8",
         "html" | "htm" => "text/html; charset=utf-8",
         "json" => "application/json",
         "pdf" => "application/pdf",
@@ -331,8 +346,21 @@ fn mime_of(name: &str) -> &'static str {
         "png" => "image/png",
         "gif" => "image/gif",
         "webp" => "image/webp",
-        "mp4" => "video/mp4",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "svg" => "image/svg+xml",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "mkv" => "video/x-matroska",
+        "m3u8" => "application/vnd.apple.mpegurl",
         "mp3" => "audio/mpeg",
+        "m4a" | "aac" => "audio/aac",
+        "wav" => "audio/wav",
+        "ogg" | "oga" => "audio/ogg",
+        "opus" => "audio/opus",
+        "flac" => "audio/flac",
         "zip" => "application/zip",
         _ => "application/octet-stream",
     }
