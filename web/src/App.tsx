@@ -16,6 +16,8 @@ const AccountPage = lazy(() => import("./pages/Account").then((m) => ({ default:
 const DashboardPage = lazy(() => import("./pages/admin/Dashboard").then((m) => ({ default: m.DashboardPage })));
 const MountsPage = lazy(() => import("./pages/admin/Mounts").then((m) => ({ default: m.MountsPage })));
 const UsersPage = lazy(() => import("./pages/admin/Users").then((m) => ({ default: m.UsersPage })));
+const GroupsPage = lazy(() => import("./pages/admin/Groups").then((m) => ({ default: m.GroupsPage })));
+const RolesPage = lazy(() => import("./pages/admin/Roles").then((m) => ({ default: m.RolesPage })));
 const AclPage = lazy(() => import("./pages/admin/Acl").then((m) => ({ default: m.AclPage })));
 const AuditPage = lazy(() => import("./pages/admin/Audit").then((m) => ({ default: m.AuditPage })));
 const SettingsPage = lazy(() => import("./pages/admin/Settings").then((m) => ({ default: m.SettingsPage })));
@@ -138,7 +140,7 @@ export default function App() {
         if (!admin) return <p className="py-10 text-center text-sm text-muted">仅管理员可用</p>;
         return (
           <div className="mx-auto max-w-6xl py-4">
-            {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest.split("/")[0] === "settings" ? <SettingsPage tab={route.rest.split("/")[1]} /> : <DashboardPage />}
+            {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "groups" ? <GroupsPage /> : route.rest === "roles" ? <RolesPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest.split("/")[0] === "settings" ? <SettingsPage tab={route.rest.split("/")[1]} /> : <DashboardPage />}
           </div>
         );
       default:

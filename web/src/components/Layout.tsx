@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   ChevronsUpDown, FolderOpen, HardDrive, LayoutDashboard, ListChecks, LogIn, LogOut, Menu as MenuIcon, Monitor, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Search, Settings, Shield, Star, Sun, User, Users, X,
+  BadgeCheck,
 } from "lucide-react";
 import { call, client, ok, tokens, WEB_VERSION, type FsItem } from "../lib/api";
 import { useApp } from "../lib/app";
@@ -120,7 +121,9 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
           {!mini ? <p className="px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-faint uppercase">管理后台</p> : <div className="mx-3 h-px bg-line" />}
           <NavLink mini={mini} href="#/admin/dashboard" icon={<LayoutDashboard />} active={at("admin", "dashboard")}>仪表盘</NavLink>
           <NavLink mini={mini} href="#/admin/mounts" icon={<HardDrive />} active={at("admin", "mounts")}>挂载点</NavLink>
-          <NavLink mini={mini} href="#/admin/users" icon={<Users />} active={at("admin", "users")}>用户与用户组</NavLink>
+          <NavLink mini={mini} href="#/admin/users" icon={<User />} active={at("admin", "users")}>用户</NavLink>
+          <NavLink mini={mini} href="#/admin/groups" icon={<Users />} active={at("admin", "groups")}>用户组</NavLink>
+          <NavLink mini={mini} href="#/admin/roles" icon={<BadgeCheck />} active={at("admin", "roles")}>角色</NavLink>
           <NavLink mini={mini} href="#/admin/acl" icon={<Shield />} active={at("admin", "acl")}>目录权限</NavLink>
           <NavLink mini={mini} href="#/admin/audit" icon={<ScrollText />} active={at("admin", "audit")}>审计日志</NavLink>
           <NavLink mini={mini} href="#/admin/settings" icon={<Settings />} active={route.name === "admin" && route.rest.startsWith("settings")}>后台设置</NavLink>

@@ -1,11 +1,14 @@
 // File preview (lazy chunk): image gallery, video/audio (+ external players), PDF, Markdown,
 // code/text, zip listing via Range reads, DOCX, and a download fallback.
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, Music } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 import { fileUrl, rawFetch, type FsItem } from "../lib/api";
 import { cx, ext, fmtSize, kindOf } from "../lib/util";
 import { Button, Spinner } from "../ui/ui";
 import { FileIcon } from "./FileIcon";
+import { CodeViewer } from "./CodeViewer";
+import { AudioPlayer, VideoPlayer } from "./MediaPlayer";
+import { ExternalPlayers } from "./PlayerIcons";
 
 const TEXT_MAX = 1 << 20;
 
@@ -66,22 +69,7 @@ function CodeView({ item }: { item: FsItem }) {
   const s = useAsync(() => readText(item.path), [item.path]);
   if (s.loading) return <Loading />;
   if (s.e) return <Fallback item={item} why={`读取失败：${s.e}`} />;
-  const lines = s.v!.text.split("\n");
-  return (
-    <div className="h-full overflow-auto scroll-thin rounded-lg border border-line bg-panel-2 font-mono text-[12.5px] leading-5">
-      <table className="w-full border-collapse">
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={i}>
-              <td className="w-12 select-none border-r border-line pr-2 text-right align-top text-faint">{i + 1}</td>
-              <td className="whitespace-pre-wrap break-all pl-3 pr-4">{l || " "}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {s.v!.truncated && <p className="p-3 text-xs text-warn">文件较大，只显示前 1 MB。</p>}
-    </div>
-  );
+  return <CodeViewer name={item.name} text={s.v!.text} truncated={s.v!.truncated} />;
 }
 
 function MarkdownView({ item }: { item: FsItem }) {
@@ -181,6 +169,40 @@ function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem
   const [fly, setFly] = useState<0 | 1 | -1>(0);
   const [enter, setEnter] = useState<0 | 1 | -1>(0);
   const rm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // zoom / pan (r3 #2): wheel, +/- buttons, double-click, drag to pan when zoomed, reset
+  const [zm, setZm] = useState({ z: 1, x: 0, y: 0 });
+  const pan = useRef<{ x0: number; y0: number; tx: number; ty: number } | null>(null);
+  const [panning, setPanning] = useState(false);
+  useEffect(() => setZm({ z: 1, x: 0, y: 0 }), [item.path]);
+  const clampPan = (z: number, x: number, y: number) => {
+    const c = box.current?.querySelector<HTMLElement>("[data-top-card]");
+    const w = c?.clientWidth ?? 600, h = c?.clientHeight ?? 400;
+    const mx = Math.max(0, (w * z - w) / 2 + 40), my = Math.max(0, (h * z - h) / 2 + 40);
+    return { x: Math.max(-mx, Math.min(mx, x)), y: Math.max(-my, Math.min(my, y)) };
+  };
+  const zoomAt = (nz: number, cx?: number, cy?: number) =>
+    setZm((o) => {
+      nz = Math.max(1, Math.min(8, +nz.toFixed(3)));
+      if (nz === 1) return { z: 1, x: 0, y: 0 };
+      const c = box.current?.querySelector<HTMLElement>("[data-top-card]")?.getBoundingClientRect();
+      const px = cx != null && c ? cx - (c.left + c.width / 2) : 0;
+      const py = cy != null && c ? cy - (c.top + c.height / 2) : 0;
+      const k = nz / o.z;
+      return { z: nz, ...clampPan(nz, px - (px - o.x) * k, py - (py - o.y) * k) };
+    });
+  const zref = useRef(zm);
+  zref.current = zm;
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      if (!(e.target as HTMLElement).closest("[data-top-card]")) return;
+      e.preventDefault();
+      zoomAt(zref.current.z * Math.exp(-e.deltaY * 0.0018), e.clientX, e.clientY);
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const prev = idx > 0 ? imgs[idx - 1] : null;
   const next = idx < imgs.length - 1 ? imgs[idx + 1] : null;
   const goto = (dir: 1 | -1) => {
@@ -202,18 +224,31 @@ function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem
       if ((e.target as HTMLElement)?.closest("input,textarea,[role=dialog]")) return;
       if (e.key === "ArrowRight") goto(1);
       else if (e.key === "ArrowLeft") goto(-1);
+      else if (e.key === "+" || e.key === "=") zoomAt(zref.current.z * 1.25);
+      else if (e.key === "-") zoomAt(zref.current.z / 1.25);
+      else if (e.key === "0") zoomAt(1);
     };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   });
   const down = (e: RPointerEvent) => {
     if (e.button !== 0) return;
+    if (zref.current.z > 1) {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      pan.current = { x0: e.clientX, y0: e.clientY, tx: zref.current.x, ty: zref.current.y };
+      setPanning(true);
+      return;
+    }
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     d.current = { x0: e.clientX, y0: e.clientY, top: e.clientY < r.top + r.height / 2, hist: [{ x: e.clientX, t: performance.now() }] };
     setOff({ x: 0, y: 0, dragging: true });
   };
   const move = (e: RPointerEvent) => {
+    if (pan.current) {
+      const p = pan.current;
+      return setZm((o) => ({ z: o.z, ...clampPan(o.z, p.tx + e.clientX - p.x0, p.ty + e.clientY - p.y0) }));
+    }
     const s = d.current;
     if (!s) return;
     let y = e.clientY - s.y0;
@@ -222,6 +257,7 @@ function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem
     setOff({ x: e.clientX - s.x0, y, dragging: true });
   };
   const up = () => {
+    if (pan.current) return void ((pan.current = null), setPanning(false));
     const s = d.current;
     d.current = null;
     if (!s) return;
@@ -253,18 +289,26 @@ function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem
             return (
               <div
                 key={c.path}
-                className={cx("stack-card absolute inset-x-[4%] top-2 bottom-10 overflow-hidden rounded-2xl border border-line bg-panel-2 shadow-pop sm:inset-x-[8%]", top && off.dragging && "dragging", top ? "cursor-grab active:cursor-grabbing" : "pointer-events-none")}
+                data-top-card={top ? "" : undefined}
+                onDoubleClick={top ? (e) => zoomAt(zref.current.z > 1 ? 1 : 2.5, e.clientX, e.clientY) : undefined}
+                className={cx("zoomable", top && zm.z > 1 && "zoomed", top && panning && "panning", "stack-card absolute inset-x-[4%] top-2 bottom-10 overflow-hidden rounded-2xl border border-line bg-panel-2 shadow-pop sm:inset-x-[8%]", top && off.dragging && "dragging", top ? "cursor-grab active:cursor-grabbing" : "pointer-events-none")}
                 style={style}
                 onPointerDown={top ? down : undefined}
                 onPointerMove={top ? move : undefined}
                 onPointerUp={top ? up : undefined}
                 onPointerCancel={top ? up : undefined}
               >
-                <img src={fileUrl(c.path)} alt={c.name} draggable={false} className="size-full object-contain" />
+                <img src={fileUrl(c.path)} alt={c.name} draggable={false} data-zoom={top ? zm.z : undefined} className="size-full object-contain" style={top ? { transform: `translate(${zm.x}px, ${zm.y}px) scale(${zm.z})`, transition: panning ? "none" : "transform 0.18s ease-out" } : undefined} />
               </div>
             );
           })
           .reverse()}
+        <div role="toolbar" aria-label="缩放" className="pop-surface absolute top-4 right-4 z-20 flex items-center gap-0.5 rounded-xl p-1 text-[13px]">
+          <button aria-label="缩小" onClick={() => zoomAt(zm.z / 1.25)} disabled={zm.z <= 1} className="grid size-8 place-items-center rounded-lg hover:bg-hover disabled:opacity-40"><ZoomOut className="size-4" /></button>
+          <span data-testid="zoom-level" className="w-12 text-center tabular-nums text-muted">{Math.round(zm.z * 100)}%</span>
+          <button aria-label="放大" onClick={() => zoomAt(zm.z * 1.25)} className="grid size-8 place-items-center rounded-lg hover:bg-hover"><ZoomIn className="size-4" /></button>
+          <button aria-label="重置缩放" onClick={() => zoomAt(1)} className="grid size-8 place-items-center rounded-lg hover:bg-hover"><Maximize2 className="size-4" /></button>
+        </div>
         {prev && (
           <button aria-label="上一张" onClick={() => goto(-1)} className="absolute top-1/2 left-1 z-20 -translate-y-1/2 rounded-full border border-line bg-panel p-2 shadow-pop hover:bg-hover">
             <ChevronLeft className="size-5" />
@@ -277,22 +321,13 @@ function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem
         )}
       </div>
       <p className="absolute inset-x-0 bottom-1 truncate text-center text-xs text-muted">
-        {item.name} · {idx + 1} / {imgs.length} · 左右拖动或 ← → 切换
+        {item.name} · {idx + 1} / {imgs.length} · 左右拖动或 ← → 切换 · 滚轮/双击缩放
       </p>
     </div>
   );
   function w0() {
     return box.current?.clientWidth ?? 800;
   }
-}
-
-function externalPlayers(item: FsItem) {
-  const abs = new URL(fileUrl(item.path), location.href).toString();
-  return [
-    { name: "PotPlayer", href: `potplayer://${abs}` },
-    { name: "IINA", href: `iina://weblink?url=${encodeURIComponent(abs)}` },
-    { name: "VLC", href: `vlc://${abs}` },
-  ];
 }
 
 function Body({ item, siblings, onPick }: { item: FsItem; siblings: FsItem[]; onPick: (i: FsItem) => void }) {
@@ -304,49 +339,15 @@ function Body({ item, siblings, onPick }: { item: FsItem; siblings: FsItem[]; on
     case "video": {
       const hls = ext(item.name) === "m3u8";
       const playable = !hls || document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
-      return (
+      return playable ? <VideoPlayer item={item} siblings={siblings} /> : (
         <div className="flex h-full flex-col gap-3">
-          {playable ? (
-            <video key={item.path} src={url} controls autoPlay className="min-h-0 w-full flex-1 rounded-lg bg-black" />
-          ) : (
-            <Fallback item={item} why="此浏览器不能直接播放 HLS，可用下面的外部播放器打开" />
-          )}
-          <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted">
-            外部播放器：
-            {externalPlayers(item).map((p) => (
-              <a key={p.name} href={p.href} className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-hover">
-                <ExternalLink className="size-3.5" /> {p.name}
-              </a>
-            ))}
-          </div>
+          <Fallback item={item} why="此浏览器不能直接播放 HLS，可用下面的外部播放器打开" />
+          <ExternalPlayers url={url} />
         </div>
       );
     }
-    case "audio": {
-      const list = siblings.filter((s) => kindOf(s.name) === "audio");
-      const idx = list.findIndex((s) => s.path === item.path);
-      return (
-        <div className="mx-auto flex h-full max-w-xl flex-col gap-4">
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-panel-2 p-6">
-            <Music className="size-10 text-accent" />
-            <p className="text-center text-sm font-medium">{item.name}</p>
-            <audio key={item.path} src={url} controls autoPlay className="w-full" onEnded={() => idx >= 0 && idx < list.length - 1 && onPick(list[idx + 1])} />
-          </div>
-          {list.length > 1 && (
-            <ol className="min-h-0 flex-1 overflow-auto scroll-thin rounded-xl border border-line text-[13px]">
-              {list.map((a, i) => (
-                <li key={a.path}>
-                  <button onClick={() => onPick(a)} className={cx("flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-hover", a.path === item.path && "bg-accent-soft text-accent")}>
-                    <span className="w-6 text-right text-faint">{i + 1}</span>
-                    <span className="truncate">{a.name}</span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      );
-    }
+    case "audio":
+      return <AudioPlayer item={item} siblings={siblings} onPick={onPick} />;
     case "pdf":
       return <iframe title={item.name} src={url} className="h-full w-full rounded-lg border border-line bg-white" />;
     case "markdown":

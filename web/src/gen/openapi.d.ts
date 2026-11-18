@@ -123,7 +123,47 @@ export interface paths {
         delete: operations["delete_group"];
         options?: never;
         head?: never;
+        /** Renames a group / replaces its members / roles (admin). */
+        patch: operations["patch_group"];
+        trace?: never;
+    };
+    "/api/admin/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Roles (admin). */
+        get: operations["list_roles"];
+        put?: never;
+        /** Creates a role (admin). */
+        post: operations["add_role"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/admin/roles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a role and its assignments (admin). */
+        delete: operations["delete_role"];
+        options?: never;
+        head?: never;
+        /**
+         * Updates a role's name / description / permissions (admin). Built-in roles can change
+         *     permissions but not name.
+         */
+        patch: operations["patch_role"];
         trace?: never;
     };
     "/api/admin/settings": {
@@ -1183,6 +1223,13 @@ export interface components {
              */
             task_id?: number | null;
         };
+        PatchGroupBody: {
+            /** @description Member user ids (replaces membership). */
+            members?: number[] | null;
+            name?: string | null;
+            /** @description Role ids (replaces assignment). */
+            roles?: number[] | null;
+        };
         PatchUserBody: {
             clear_visible_mounts?: boolean | null;
             disabled?: boolean | null;
@@ -1199,6 +1246,8 @@ export interface components {
             /** @description Disable TOTP (lost device recovery). */
             reset_totp?: boolean | null;
             role?: string | null;
+            /** @description Role ids (replaces assignment). */
+            roles?: number[] | null;
             /** @description Jail root, e.g. "/local/home/alice" ("/" = whole tree). */
             root_path?: string | null;
             /** @description Mount names; `[]`… or null via `clear_visible_mounts` for all. */
@@ -1228,6 +1277,12 @@ export interface components {
         ResetBody: {
             new_password: string;
             token: string;
+        };
+        RoleBody: {
+            description?: string | null;
+            name: string;
+            /** @description read | download | upload | create | edit | delete | share */
+            permissions?: string[];
         };
         RuleBody: {
             /** @description read | download | upload | create | edit | delete | share */
@@ -1545,6 +1600,114 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    patch_group: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchGroupBody"];
+            };
+        };
+        responses: {
+            /** @description group */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_roles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description roles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleBody"];
+            };
+        };
+        responses: {
+            /** @description role */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    patch_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleBody"];
+            };
+        };
+        responses: {
+            /** @description role */
             200: {
                 headers: {
                     [name: string]: unknown;

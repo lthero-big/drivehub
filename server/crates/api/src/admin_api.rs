@@ -104,6 +104,8 @@ pub struct PatchUserBody {
     pub email_verified: Option<bool>,
     /// Group ids (replaces membership).
     pub groups: Option<Vec<i64>>,
+    /// Role ids (replaces assignment).
+    pub roles: Option<Vec<i64>>,
     /// Jail root, e.g. "/local/home/alice" ("/" = whole tree).
     pub root_path: Option<String>,
     /// Mount names; `[]`… or null via `clear_visible_mounts` for all.
@@ -196,6 +198,20 @@ pub async fn patch_user(
                 .await?;
         }
     }
+    if let Some(rs) = &b.roles {
+        sqlx::query("DELETE FROM user_roles WHERE user_id = ?")
+            .bind(id)
+            .execute(&st.db)
+            .await?;
+        for r in rs {
+            sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE id = ?")
+                .bind(id)
+                .bind(r)
+                .execute(&st.db)
+                .await?;
+        }
+        st.auth.reload_acl(&st.db).await?;
+    }
     if let Some(r) = &b.root_path {
         let r = drivehub_storage::norm(r)?;
         sqlx::query("UPDATE users SET root_path = ? WHERE id = ?")
@@ -251,6 +267,7 @@ pub async fn delete_user(
         "DELETE FROM app_passwords WHERE user_id = ?",
         "DELETE FROM identities WHERE user_id = ?",
         "DELETE FROM user_groups WHERE user_id = ?",
+        "DELETE FROM user_roles WHERE user_id = ?",
         "DELETE FROM email_tokens WHERE user_id = ?",
         "DELETE FROM acl_rules WHERE subject_type = 'user' AND subject_id = ?",
         "DELETE FROM users WHERE id = ?",
@@ -298,16 +315,14 @@ pub async fn list_groups(
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Vec<Value>>> {
     p.require_admin()?;
-    let rows: Vec<(i64, String, i64)> = sqlx::query_as(
-        "SELECT g.id, g.name, (SELECT COUNT(*) FROM user_groups ug WHERE ug.group_id = g.id) FROM groups g ORDER BY g.name",
-    )
-    .fetch_all(&st.db)
-    .await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(|(id, n, c)| json!({"id": id, "name": n, "members": c}))
-            .collect(),
-    ))
+    let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM groups ORDER BY name")
+        .fetch_all(&st.db)
+        .await?;
+    let mut out = vec![];
+    for id in ids {
+        out.push(crate::roles_api::group_json(&st, id).await?);
+    }
+    Ok(Json(out))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -344,6 +359,7 @@ pub async fn delete_group(
     p.require_admin()?;
     for q in [
         "DELETE FROM user_groups WHERE group_id = ?",
+        "DELETE FROM group_roles WHERE group_id = ?",
         "DELETE FROM acl_rules WHERE subject_type = 'group' AND subject_id = ?",
         "DELETE FROM groups WHERE id = ?",
     ] {
@@ -424,7 +440,7 @@ pub async fn list_rules(
     Ok(Json(
         a.rules
             .iter()
-            .filter(|r| want.as_ref().is_none_or(|w| &r.path == w))
+            .filter(|r| r.id > 0 && want.as_ref().is_none_or(|w| &r.path == w))
             .map(rule_json)
             .collect(),
     ))

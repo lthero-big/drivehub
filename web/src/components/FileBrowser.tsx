@@ -11,12 +11,22 @@ import { tabs } from "../lib/tabs";
 import { trash } from "../lib/trash";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
-import { fromDataTransfer, fromFileList, uploads } from "../lib/uploads";
+import { fromDataTransfer, fromFileList, uploads, useUploads } from "../lib/uploads";
+import { hasExternalFiles, INTERNAL_MIME, isInternalDrag, PhCard, PhRow, placeholdersFor, setUploadOrigin, TrashZone } from "./DragUpload";
 import { baseName, cx, errMsg, fmtSize, fmtTime, joinPath, kindOf } from "../lib/util";
 import { ask, Button, Checkbox, ConfirmButton, confirmDlg, ContextMenu, Empty, IconButton, Input, Menu, MenuItem, MenuSep, Pager, Spinner, toast } from "../ui/ui";
 import { DirPicker } from "./DirPicker";
 import { DetailsDialog, ShareDialog } from "./FileDialogs";
 import { FileIcon, FolderIcon } from "./FileIcon";
+
+/** nearest vertically scrollable ancestor (rubber-band auto-scroll). */
+function scroller(el: HTMLElement | null): HTMLElement {
+  for (let n = el?.parentElement; n; n = n.parentElement) {
+    const o = getComputedStyle(n).overflowY;
+    if ((o === "auto" || o === "scroll") && n.scrollHeight > n.clientHeight) return n;
+  }
+  return (document.scrollingElement as HTMLElement) ?? document.documentElement;
+}
 
 type View = "list" | "grid" | "gallery";
 type Sort = { by: "name" | "size" | "modified"; desc: boolean };
@@ -131,6 +141,13 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   const [dragging, setDragging] = useState(false);
   const [picker, setPicker] = useState<null | "move" | "copy">(null);
   const [pw, setPw] = useState("");
+  const [dragPaths, setDragPaths] = useState<string[] | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [band, setBand] = useState<{ l: number; t: number; w: number; h: number } | null>(null);
+  const bandRef = useRef<{ x0: number; y0: number; lx: number; ly: number; base: Set<string>; mode: "new" | "add" | "toggle"; moved: boolean; sc: HTMLElement } | null>(null);
+  const areaRef = useRef<HTMLDivElement>(null);
+  const ups = useUploads();
+  const [tick, setTick] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const dirInput = useRef<HTMLInputElement>(null);
   const isRoot = path === "/";
@@ -179,6 +196,13 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   const list = useMemo(() => (q.trim() ? all.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())) : all), [all, q]);
   const selected = useMemo(() => list.filter((i) => sel.has(i.path)), [list, sel]);
   const images = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "image"), [list]);
+  const phs = useMemo(() => placeholdersFor(ups, path, new Set((items ?? []).map((i) => i.name)), Date.now()), [ups, path, items, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const last = Math.max(0, ...ups.filter((u) => u.status === "done").map((u) => u.doneAt ?? 0));
+    if (!last || Date.now() - last > 6000) return;
+    const t = setTimeout(() => setTick((x) => x + 1), 6100 - (Date.now() - last));
+    return () => clearTimeout(t);
+  }, [ups]);
   const readme = useMemo(() => list.find((i) => !i.is_dir && /^readme\.(md|markdown)$/i.test(i.name)), [list]);
 
   const open = (i: FsItem) => {
@@ -289,7 +313,8 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
     const name = its.length === 1 ? its[0].name : `${baseName(path) || "drivehub"}-${its.length}项`;
     location.href = zipUrl(its.map((i) => i.path), name);
   };
-  const addFiles = (files: { file: File; path: string }[]) => {
+  const addFiles = (files: { file: File; path: string }[], from?: { x: number; y: number }) => {
+    if (from) setUploadOrigin(from.x, from.y);
     if (isRoot) return toast.err("请先进入一个存储再上传");
     if (files.length) uploads.add(files);
   };
@@ -314,7 +339,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
       const fs = e.clipboardData?.files;
       if (fs?.length) {
         e.preventDefault();
-        addFiles(fromFileList(fs, path));
+        addFiles(fromFileList(fs, path), { x: window.innerWidth / 2, y: 120 });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -325,9 +350,144 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
     };
   });
   const onDrop = async (e: DragEvent) => {
-    e.preventDefault();
     setDragging(false);
-    addFiles(await fromDataTransfer(e.dataTransfer, path));
+    // dragging one of our own rows/cards (even an image) must never be treated as an upload
+    if (isInternalDrag(e.dataTransfer)) return;
+    if (!hasExternalFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    const from = { x: e.clientX, y: e.clientY };
+    addFiles(await fromDataTransfer(e.dataTransfer, path), from);
+  };
+
+  // ---- internal drag (move into folder / drag to bin) ---------------------------
+  const onItemDragStart = (e: DragEvent, i: FsItem) => {
+    const paths = sel.has(i.path) ? selected.map((x) => x.path) : [i.path];
+    if (!sel.has(i.path)) setSel(new Set([i.path]));
+    e.dataTransfer.setData(INTERNAL_MIME, JSON.stringify(paths));
+    e.dataTransfer.setData("text/plain", paths.map(baseName).join("\n"));
+    e.dataTransfer.effectAllowed = "copyMove";
+    const chip = document.createElement("div");
+    chip.className = "fly-chip";
+    chip.style.cssText += ";left:-999px;top:-999px";
+    chip.textContent = paths.length > 1 ? `${paths.length} 项` : i.name;
+    document.body.appendChild(chip);
+    e.dataTransfer.setDragImage(chip, 12, 12);
+    setTimeout(() => chip.remove(), 0);
+    setTimeout(() => setDragPaths(paths), 0); // changing the DOM inside dragstart can cancel the drag
+  };
+  const onItemDragEnd = () => (setDragPaths(null), setDropTarget(null));
+  const moveInto = async (paths: string[], dst: string) => {
+    const todo = paths.filter((p) => p !== dst && p.slice(0, p.lastIndexOf("/")) !== dst && !dst.startsWith(p + "/"));
+    if (!todo.length) return;
+    let tasks = 0;
+    for (const p of todo) {
+      try {
+        const r = await ok(client.POST("/api/fs/move", { body: { src: p, dst: joinPath(dst, baseName(p)) } }));
+        if (r.task_id) tasks++;
+      } catch (e) {
+        toast.err(`${baseName(p)}：${errMsg(e)}`);
+      }
+    }
+    tabs.forget(todo);
+    favorites.forget(todo);
+    toast.ok(tasks ? `已创建 ${tasks} 个后台任务` : `已移动 ${todo.length} 项到 ${baseName(dst)}`);
+    setSel(new Set());
+    load(true);
+    bumpFs();
+  };
+  const dragProps = (i: FsItem) => ({
+    "data-sel-path": i.path,
+    draggable: !isRoot,
+    onDragStart: (e: DragEvent) => onItemDragStart(e, i),
+    onDragEnd: onItemDragEnd,
+    ...(i.is_dir && !isRoot
+      ? {
+          onDragOver: (e: DragEvent) => {
+            if (!isInternalDrag(e.dataTransfer) || dragPaths?.includes(i.path)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+            if (dropTarget !== i.path) setDropTarget(i.path);
+          },
+          onDragLeave: () => setDropTarget((t) => (t === i.path ? null : t)),
+          onDrop: (e: DragEvent) => {
+            if (!isInternalDrag(e.dataTransfer)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDropTarget(null);
+            try {
+              moveInto(JSON.parse(e.dataTransfer.getData(INTERNAL_MIME)), i.path);
+            } catch {
+              /* ignore */
+            }
+          },
+        }
+      : {}),
+  });
+  const dragCls = (i: FsItem) => cx(dragPaths?.includes(i.path) && "drag-ghost-src", dropTarget === i.path && "drop-folder");
+
+  // ---- rubber-band selection (desktop-style marquee) ------------------------------
+  const updateBand = () => {
+    const b = bandRef.current;
+    if (!b) return;
+    const sy = b.sc.scrollTop;
+    const y0 = b.y0 - sy;
+    const l = Math.min(b.x0, b.lx), r = Math.max(b.x0, b.lx), t = Math.min(y0, b.ly), bt = Math.max(y0, b.ly);
+    setBand({ l, t, w: r - l, h: bt - t });
+    const hit = new Set<string>();
+    areaRef.current?.querySelectorAll<HTMLElement>("[data-sel-path]").forEach((el) => {
+      const rc = el.getBoundingClientRect();
+      if (rc.right >= l && rc.left <= r && rc.bottom >= t && rc.top <= bt) hit.add(el.dataset.selPath!);
+    });
+    let out: Set<string>;
+    if (b.mode === "new") out = hit;
+    else if (b.mode === "add") out = new Set([...b.base, ...hit]);
+    else {
+      out = new Set(b.base);
+      hit.forEach((p) => (out.has(p) ? out.delete(p) : out.add(p)));
+    }
+    setSel(out);
+  };
+  const onAreaDown = (e: RMouseEvent) => {
+    if (e.button !== 0 || window.matchMedia("(pointer: coarse)").matches) return;
+    if ((e.target as HTMLElement).closest("[data-sel-path],[data-up-placeholder],button,a,input,label,[role=toolbar],[role=columnheader],[role=dialog]")) return;
+    e.preventDefault();
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    const sc = scroller(areaRef.current);
+    const mode = e.shiftKey ? "add" : e.metaKey || e.ctrlKey ? "toggle" : "new";
+    bandRef.current = { x0: e.clientX, y0: e.clientY + sc.scrollTop, lx: e.clientX, ly: e.clientY, base: new Set(sel), mode, moved: false, sc };
+    let raf = 0;
+    const loop = () => {
+      const b = bandRef.current;
+      if (!b) return;
+      if (b.moved) {
+        const rc = b.sc === document.scrollingElement ? { top: 0, bottom: window.innerHeight } : b.sc.getBoundingClientRect();
+        const dy = b.ly < rc.top + 36 ? -14 : b.ly > rc.bottom - 36 ? 14 : 0;
+        if (dy) (b.sc.scrollTop += dy, updateBand());
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    const move = (ev: MouseEvent) => {
+      const b = bandRef.current;
+      if (!b) return;
+      b.lx = ev.clientX;
+      b.ly = ev.clientY;
+      if (!b.moved && Math.hypot(ev.clientX - b.x0, ev.clientY - (b.y0 - b.sc.scrollTop)) < 4) return;
+      b.moved = true;
+      updateBand();
+    };
+    const up = () => {
+      const b = bandRef.current;
+      bandRef.current = null;
+      cancelAnimationFrame(raf);
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      setBand(null);
+      if (b && !b.moved && b.mode === "new") setSel(new Set());
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
   };
 
   // ---- render ---------------------------------------------------------------
@@ -387,7 +547,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   };
 
   return (
-    <div className={cx("relative flex flex-1 flex-col", hidden && "hidden", selected.length > 0 && "pb-20")} onContextMenu={onBlankContext} onDragOver={(e) => (e.preventDefault(), !isRoot && setDragging(true))} onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)} onDrop={onDrop}>
+    <div className={cx("relative flex flex-1 flex-col", hidden && "hidden", selected.length > 0 && "pb-20")} onContextMenu={onBlankContext} onDragOver={(e) => hasExternalFiles(e.dataTransfer) && (e.preventDefault(), !isRoot && setDragging(true))} onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)} onDrop={onDrop}>
       <div className="sticky top-[var(--tabs-h,0px)] z-10 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-panel px-4 py-2 sm:-mx-8 sm:px-8">
         <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
           <Crumbs path={path} />
@@ -396,7 +556,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           <Input className="hidden !h-9 w-40 sm:block" placeholder="筛选本页…" aria-label="筛选文件" value={q} onChange={(e) => setQ(e.target.value)} />
           {!isRoot && (
             <>
-              <Button size="sm" variant="primary" onClick={() => fileInput.current?.click()}>
+              <Button size="sm" variant="primary" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setUploadOrigin(r.left + r.width / 2, r.top + r.height / 2); fileInput.current?.click(); }}>
                 <Upload className="size-4" /> <span className="hidden sm:inline">上传</span>
               </Button>
               <IconButton label="上传文件夹" onClick={() => dirInput.current?.click()}>
@@ -437,7 +597,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         <input ref={dirInput} type="file" hidden {...({ webkitdirectory: "" } as object)} onChange={(e) => (e.target.files && addFiles(fromFileList(e.target.files, path)), (e.target.value = ""))} />
       </div>
 
-      <div className="flex-1 py-3">
+      <div ref={areaRef} onMouseDown={onAreaDown} data-testid="file-area" className={cx("min-h-[55vh] flex-1 py-3", band && "sel-none")}>
         {items === null && (
           <div className="flex justify-center py-20">
             <Spinner />
@@ -456,13 +616,13 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
             )}
           </Empty>
         )}
-        {items && !err && list.length === 0 && (
+        {items && !err && list.length === 0 && phs.length === 0 && (
           <Empty icon={<Upload className="size-10" />} title={isRoot ? "还没有存储" : "这个文件夹是空的"}>
             {isRoot ? (isAdmin ? <a className="text-accent underline" href="#/admin/mounts">去添加挂载点</a> : "请联系管理员添加存储") : "拖拽文件或文件夹到这里，或按 Ctrl+V 粘贴上传"}
           </Empty>
         )}
 
-        {list.length > 0 && view === "list" && (
+        {(list.length > 0 || phs.length > 0) && view === "list" && (
           <div role="grid" aria-label="文件列表" aria-multiselectable className="overflow-hidden rounded-xl border border-line bg-panel">
             <div role="row" className="hidden grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem] items-center gap-2 border-b border-line bg-panel-2 px-3 py-2 text-xs font-medium text-muted sm:grid">
               <span role="columnheader">
@@ -473,16 +633,18 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
               <span role="columnheader"><button className="text-left hover:text-fg" onClick={() => setSort({ by: "modified", desc: !(sort.by === "modified" && sort.desc) })}>修改时间</button></span>
               <span />
             </div>
+            {phs.map((p) => <PhRow key={"ph:" + p.key} p={p} />)}
             {list.map((i, idx) => (
               <div
                 role="row"
+                {...dragProps(i)}
                 aria-selected={sel.has(i.path)}
                 key={i.path}
                 data-path={i.path}
                 onClick={(e) => click(e, i, idx)}
                 onDoubleClick={() => open(i)}
                 onContextMenu={(e) => onItemContext(e, i)}
-                className={cx("group grid cursor-default grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 border-b border-line px-3 py-1.5 last:border-b-0 sm:grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover")}
+                className={cx("group grid cursor-default grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 border-b border-line px-3 py-1.5 last:border-b-0 sm:grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover", dragCls(i))}
               >
                 <span role="gridcell" onClick={(e) => e.stopPropagation()}>
                   <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx(!sel.has(i.path) && "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100")} />
@@ -507,14 +669,15 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           </div>
         )}
 
-        {list.length > 0 && view === "grid" && (
+        {(list.length > 0 || phs.length > 0) && view === "grid" && (
           <ul aria-label="文件网格" className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
+            {phs.map((p) => <PhCard key={"ph:" + p.key} p={p} />)}
             {list.map((i, idx) => {
               const img = !i.is_dir && kindOf(i.name) === "image";
               return (
-                <li key={i.path} aria-selected={sel.has(i.path)} onClick={(e) => click(e, i, idx)} onDoubleClick={() => open(i)} onContextMenu={(e) => onItemContext(e, i)} className={cx("group relative flex cursor-default flex-col overflow-hidden rounded-xl border bg-panel", sel.has(i.path) ? "border-accent ring-2 ring-accent/30" : "border-line hover:bg-hover")}>
+                <li key={i.path} {...dragProps(i)} aria-selected={sel.has(i.path)} onClick={(e) => click(e, i, idx)} onDoubleClick={() => open(i)} onContextMenu={(e) => onItemContext(e, i)} className={cx("group relative flex cursor-default flex-col overflow-hidden rounded-xl border bg-panel", sel.has(i.path) ? "border-accent ring-2 ring-accent/30" : "border-line hover:bg-hover", dragCls(i))}>
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-panel-2">
-                    {img ? <img src={fileUrl(i.path)} alt="" loading="lazy" decoding="async" className="size-full object-cover" /> : i.is_dir && !i.mount_kind ? <FolderIcon size={60} open={opening === i.path} className="mt-3" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} className="size-10" />}
+                    {img ? <img src={fileUrl(i.path)} alt="" loading="lazy" decoding="async" draggable={false} className="size-full object-cover" /> : i.is_dir && !i.mount_kind ? <FolderIcon size={60} open={opening === i.path} className="mt-3" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} className="size-10" />}
                   </div>
                   <div className="flex items-center gap-1 px-2 py-1.5">
                     <span className="min-w-0 flex-1">
@@ -545,8 +708,8 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
             ) : (
               <div style={{ columnCount: cols }} className="gap-2 [column-gap:0.5rem] max-sm:![column-count:2]">
                 {images.map((i) => (
-                  <button key={i.path} onClick={() => tabs.open(i)} onContextMenu={(e) => onItemContext(e, i)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-lg border border-line bg-panel-2" aria-label={`查看 ${i.name}`}>
-                    <img src={fileUrl(i.path)} alt={i.name} loading="lazy" decoding="async" className="w-full" />
+                  <button key={i.path} {...dragProps(i)} onClick={() => tabs.open(i)} onContextMenu={(e) => onItemContext(e, i)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-lg border border-line bg-panel-2" aria-label={`查看 ${i.name}`}>
+                    <img src={fileUrl(i.path)} alt={i.name} loading="lazy" decoding="async" draggable={false} className="w-full" />
                   </button>
                 ))}
               </div>
@@ -563,6 +726,8 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           <p className="text-sm font-medium text-accent">松开即可上传到 {path}</p>
         </div>
       )}
+      {band && band.w + band.h > 0 && <div className="band" data-testid="band" style={{ left: band.l, top: band.t, width: band.w, height: band.h }} />}
+      <TrashZone active={!!dragPaths && !isRoot} count={dragPaths?.length ?? 0} onDelete={() => { const ps = dragPaths ?? []; setDragPaths(null); const its = all.filter((i) => ps.includes(i.path)); if (its.length) scheduleDelete(its); }} />
       <DirPicker open={!!picker} title={picker === "move" ? `移动 ${selected.length} 项到…` : `复制 ${selected.length} 项到…`} start={path} onClose={() => setPicker(null)} onPick={(d) => transfer(picker!, d)} />
       {!hidden && selected.length > 0 && (
         <Dock label="批量操作">

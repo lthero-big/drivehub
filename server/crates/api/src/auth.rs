@@ -472,7 +472,7 @@ impl Auth {
         )
         .fetch_all(db)
         .await?;
-        let rules = rows
+        let mut rules: Vec<acl::Rule> = rows
             .into_iter()
             .filter_map(|(id, path, st, sid, a, d)| {
                 Some(acl::Rule {
@@ -484,6 +484,25 @@ impl Auth {
                 })
             })
             .collect();
+        // RBAC (DEPTAI-485 r3): every role assignment becomes a synthetic root-level allow
+        // rule (negative id, hidden from the rules API). Deeper explicit rules still win.
+        let role_rows: Vec<(String, i64, i64)> = sqlx::query_as(
+            "SELECT 'user', ur.user_id, r.permissions FROM user_roles ur JOIN roles r ON r.id = ur.role_id \
+             UNION ALL SELECT 'group', gr.group_id, r.permissions FROM group_roles gr JOIN roles r ON r.id = gr.role_id",
+        )
+        .fetch_all(db)
+        .await?;
+        for (i, (kind, sid, bits)) in role_rows.into_iter().enumerate() {
+            if let Some(subject) = acl::Subject::parse(&kind, Some(sid)) {
+                rules.push(acl::Rule {
+                    id: -(i as i64) - 1,
+                    path: String::new(),
+                    subject,
+                    allow: bits as u32,
+                    deny: 0,
+                });
+            }
+        }
         let gates: Vec<(String, i64, Option<String>)> =
             sqlx::query_as("SELECT path, modes, password_hash FROM acl_gates")
                 .fetch_all(db)

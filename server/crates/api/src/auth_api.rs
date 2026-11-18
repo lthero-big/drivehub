@@ -79,6 +79,12 @@ pub async fn user_json(st: &AppState, uid: i64) -> ApiResult<Value> {
     .bind(uid)
     .fetch_all(&st.db)
     .await?;
+    let roles: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT r.id, r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ? ORDER BY r.name",
+    )
+    .bind(uid)
+    .fetch_all(&st.db)
+    .await?;
     let ids: Vec<String> =
         sqlx::query_scalar("SELECT provider FROM identities WHERE user_id = ? ORDER BY provider")
             .bind(uid)
@@ -93,6 +99,7 @@ pub async fn user_json(st: &AppState, uid: i64) -> ApiResult<Value> {
         "has_password": r.12.is_some(),
         "groups": groups.into_iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
         "identities": ids,
+        "roles": roles.into_iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
     }))
 }
 

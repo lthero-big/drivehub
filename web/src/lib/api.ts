@@ -176,10 +176,25 @@ export type Me = {
   created_at: number;
   has_password: boolean;
   groups: { id: number; name: string }[];
+  roles?: { id: number; name: string }[];
   identities: string[];
 };
 export type AuthStatus = Omit<Schemas["AuthStatus"], "me"> & { me: Me | null };
-export type Group = { id: number; name: string; members: number };
+export type Role = { id: number; name: string; description: string; permissions: string[]; builtin: boolean; created_at: number; users: number; groups: number };
+export type Group = { id: number; name: string; members: number; member_list?: { id: number; username: string }[]; roles?: { id: number; name: string }[] };
+export type RoleBody = Schemas["RoleBody"];
+export type PatchGroupBody = Schemas["PatchGroupBody"];
+/** RBAC (roles / groups) — typed against api/openapi.json request bodies. */
+export const rbac = {
+  roles: () => call<Role[]>("GET", "/api/admin/roles"),
+  createRole: (b: RoleBody) => call<Role>("POST", "/api/admin/roles", b),
+  updateRole: (id: number, b: RoleBody) => call<Role>("PATCH", `/api/admin/roles/${id}`, b),
+  deleteRole: (id: number) => call("DELETE", `/api/admin/roles/${id}`),
+  groups: () => call<Group[]>("GET", "/api/admin/groups"),
+  createGroup: (name: string) => call<Group>("POST", "/api/admin/groups", { name }),
+  updateGroup: (id: number, b: PatchGroupBody) => call<Group>("PATCH", `/api/admin/groups/${id}`, b),
+  deleteGroup: (id: number) => call("DELETE", `/api/admin/groups/${id}`),
+};
 export type Rule = { id: number; path: string; subject: string; subject_id: number | null; allow: string[]; deny: string[] };
 export type Gate = { path: string; modes: string[]; has_password: boolean };
 export type AuditRow = { id: number; ts: number; user_id: number | null; username: string; channel: string; action: string; path: string; allowed: boolean; detail: string };

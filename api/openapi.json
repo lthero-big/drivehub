@@ -268,6 +268,133 @@
             "description": "deleted"
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "roles_api"
+        ],
+        "summary": "Renames a group / replaces its members / roles (admin).",
+        "operationId": "patch_group",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchGroupBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "group"
+          }
+        }
+      }
+    },
+    "/api/admin/roles": {
+      "get": {
+        "tags": [
+          "roles_api"
+        ],
+        "summary": "Roles (admin).",
+        "operationId": "list_roles",
+        "responses": {
+          "200": {
+            "description": "roles"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "roles_api"
+        ],
+        "summary": "Creates a role (admin).",
+        "operationId": "add_role",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "role"
+          }
+        }
+      }
+    },
+    "/api/admin/roles/{id}": {
+      "delete": {
+        "tags": [
+          "roles_api"
+        ],
+        "summary": "Deletes a role and its assignments (admin).",
+        "operationId": "delete_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "roles_api"
+        ],
+        "summary": "Updates a role's name / description / permissions (admin). Built-in roles can change\npermissions but not name.",
+        "operationId": "patch_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "role"
+          }
+        }
       }
     },
     "/api/admin/settings": {
@@ -2662,6 +2789,39 @@
           }
         }
       },
+      "PatchGroupBody": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Member user ids (replaces membership)."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roles": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Role ids (replaces assignment)."
+          }
+        }
+      },
       "PatchUserBody": {
         "type": "object",
         "properties": {
@@ -2726,6 +2886,17 @@
               "string",
               "null"
             ]
+          },
+          "roles": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Role ids (replaces assignment)."
           },
           "root_path": {
             "type": [
@@ -2840,6 +3011,30 @@
           },
           "token": {
             "type": "string"
+          }
+        }
+      },
+      "RoleBody": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "read | download | upload | create | edit | delete | share"
           }
         }
       },

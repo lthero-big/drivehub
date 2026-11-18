@@ -1,4 +1,5 @@
 pub mod admin_api;
+pub mod roles_api;
 pub mod auth;
 pub mod auth_api;
 pub mod dav;
@@ -210,6 +211,11 @@ impl AppState {
         admin_api::list_groups,
         admin_api::add_group,
         admin_api::delete_group,
+        roles_api::list_roles,
+        roles_api::add_role,
+        roles_api::patch_role,
+        roles_api::delete_role,
+        roles_api::patch_group,
         admin_api::audit,
         admin_api::list_rules,
         admin_api::add_rule,
@@ -255,6 +261,8 @@ impl AppState {
         admin_api::NewUserBody,
         admin_api::PatchUserBody,
         admin_api::GroupBody,
+        roles_api::RoleBody,
+        roles_api::PatchGroupBody,
         admin_api::RuleBody,
         admin_api::GateBody
     ))
@@ -404,7 +412,9 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
             "/admin/groups",
             get(admin_api::list_groups).post(admin_api::add_group),
         )
-        .route("/admin/groups/{id}", delete(admin_api::delete_group))
+        .route("/admin/groups/{id}", delete(admin_api::delete_group).patch(roles_api::patch_group))
+        .route("/admin/roles", get(roles_api::list_roles).post(roles_api::add_role))
+        .route("/admin/roles/{id}", delete(roles_api::delete_role).patch(roles_api::patch_role))
         .route("/admin/audit", get(admin_api::audit))
         .route(
             "/acl/rules",

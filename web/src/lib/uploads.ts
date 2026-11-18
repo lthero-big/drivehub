@@ -13,6 +13,7 @@ export type UpJob = {
   status: UpStatus;
   error?: string;
   resumed?: boolean;
+  doneAt?: number;
   xhr?: XMLHttpRequest;
   session?: string;
 };
@@ -92,7 +93,7 @@ function pump() {
     patch(j, { status: "uploading", loaded: 0 });
     run(j)
       .then(() => {
-        patch(j, { status: "done", loaded: j.size, xhr: undefined });
+        patch(j, { status: "done", loaded: j.size, xhr: undefined, doneAt: Date.now() });
         doneSubs.forEach((f) => f(j.path));
       })
       .catch((e: unknown) => {
