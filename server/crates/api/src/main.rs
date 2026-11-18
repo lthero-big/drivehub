@@ -20,7 +20,8 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::load(cfg_path.as_deref())?;
     std::fs::create_dir_all(&cfg.data_dir)?;
     let db = connect(&cfg.database_url()).await?;
-    let app = router(AppState { db }, cfg.web_dir.clone());
+    let state = AppState::new(db, Some(&cfg.data_dir)).await?;
+    let app = router(state, cfg.web_dir.clone());
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
     tracing::info!(bind = %cfg.bind, "drivehub listening");
     axum::serve(listener, app)

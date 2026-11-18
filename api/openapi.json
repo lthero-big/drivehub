@@ -9,6 +9,742 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/fs/copy": {
+      "post": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Copies; same storage = synchronous, cross-storage = background task (see /api/tasks).",
+        "operationId": "copy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SrcDst"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResp"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fs/delete": {
+      "post": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Deletes a file or directory (recursive).",
+        "operationId": "delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PathBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResp"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fs/download": {
+      "get": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Downloads a file. Supports `Range: bytes=a-b`; honours the mount transfer mode\n(direct/auto → 302 to a presigned link when the backend offers one, else proxy).",
+        "operationId": "download",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Virtual path `/mount/...`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "file bytes"
+          },
+          "206": {
+            "description": "partial content"
+          },
+          "302": {
+            "description": "redirect to direct link"
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "bad range"
+          }
+        }
+      }
+    },
+    "/api/fs/list": {
+      "get": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Lists a virtual directory (\"/\" lists visible mount points).",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Virtual directory path, default \"/\"",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "1-based page, default 1",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "default 100, max 1000",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "name | size | modified (dirs always first)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "description": "asc | desc",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "bypass the TTL listing cache",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListResp"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fs/mkdir": {
+      "post": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Creates a directory (parents included).",
+        "operationId": "mkdir",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PathBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResp"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fs/move": {
+      "post": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Moves; same storage = synchronous rename, cross-storage = background copy+delete task.",
+        "operationId": "move_",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SrcDst"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResp"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fs/rename": {
+      "post": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Renames a file or directory in place.",
+        "operationId": "rename",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResp"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fs/stat": {
+      "get": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "File / directory metadata.",
+        "operationId": "stat",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Virtual path `/mount/...`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FsItem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fs/upload": {
+      "put": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Uploads a file; the request body is the raw file content (streamed).",
+        "operationId": "upload",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Target virtual file path `/mount/dir/name.ext`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "overwrite",
+            "in": "query",
+            "description": "Overwrite an existing file (default true)",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FsItem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mounts": {
+      "get": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "All mount points (including hidden ones).",
+        "operationId": "mounts",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MountConfig"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Creates or updates a mount point, then indexes it in the background.",
+        "operationId": "add_mount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MountConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResp"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mounts/{name}": {
+      "delete": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Removes a mount point (files on the backend are untouched).",
+        "operationId": "remove_mount",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResp"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "tags": [
+          "search_api"
+        ],
+        "summary": "Searches indexed file metadata.",
+        "operationId": "search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Keywords plus filters: `ext:pdf,docx size:>10m size:<1g size:1m..5m mount:name`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "description": "keyword | semantic | hybrid (semantic/hybrid not enabled in M1)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResp"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search/reindex": {
+      "post": {
+        "tags": [
+          "search_api"
+        ],
+        "summary": "Scans mount(s) and rebuilds the metadata table + keyword index (synchronous).",
+        "operationId": "reindex",
+        "parameters": [
+          {
+            "name": "mount",
+            "in": "query",
+            "description": "Mount name; omit to reindex all mounts",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReindexResp"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks": {
+      "get": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "Background tasks with progress.",
+        "operationId": "tasks",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "pending | running | done | failed",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{id}": {
+      "get": {
+        "tags": [
+          "fs_api"
+        ],
+        "summary": "One task.",
+        "operationId": "task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [],
@@ -128,6 +864,63 @@
         ],
         "description": "Outcome of negotiating a client against this server."
       },
+      "ErrorBody": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "FsItem": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "is_dir",
+          "size"
+        ],
+        "properties": {
+          "is_dir": {
+            "type": "boolean"
+          },
+          "modified_unix": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "mount_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set on virtual-root entries (mount points)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Virtual path `/mount/...`"
+          },
+          "read_only": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -140,6 +933,308 @@
           },
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "ListResp": {
+        "type": "object",
+        "required": [
+          "path",
+          "total",
+          "page",
+          "per_page",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FsItem"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "MountConfig": {
+        "type": "object",
+        "description": "Mount point definition (stored in SQLite `mounts`).",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "hidden": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Driver kind: fs | s3 | webdav (rclone / OpenList bridge via webdav)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Top-level folder name in the virtual tree (no '/')."
+          },
+          "options": {
+            "type": "object",
+            "description": "Driver options, e.g. {\"root\": \"/srv/files\"} for fs.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "sort_order": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "transfer_mode": {
+            "type": "string",
+            "description": "direct | proxy | auto"
+          }
+        }
+      },
+      "OkResp": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "task_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Present when the operation runs as a background task (cross-storage copy/move)."
+          }
+        }
+      },
+      "PathBody": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "ReindexResp": {
+        "type": "object",
+        "required": [
+          "mounts",
+          "files",
+          "took_ms"
+        ],
+        "properties": {
+          "files": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "took_ms": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "RenameBody": {
+        "type": "object",
+        "required": [
+          "path",
+          "new_name"
+        ],
+        "properties": {
+          "new_name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchHitDto": {
+        "type": "object",
+        "required": [
+          "score",
+          "mount",
+          "path",
+          "name",
+          "ext",
+          "size",
+          "is_dir"
+        ],
+        "properties": {
+          "ext": {
+            "type": "string"
+          },
+          "is_dir": {
+            "type": "boolean"
+          },
+          "modified_unix": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "mount": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Virtual path `/mount/...`"
+          },
+          "score": {
+            "type": "number",
+            "format": "float"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "SearchResp": {
+        "type": "object",
+        "required": [
+          "mode",
+          "enabled",
+          "total",
+          "took_ms",
+          "hits"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "false when the requested mode is unavailable (semantic/hybrid in M1)"
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchHitDto"
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": "string"
+          },
+          "took_ms": {
+            "type": "number",
+            "format": "double"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "SrcDst": {
+        "type": "object",
+        "required": [
+          "src",
+          "dst"
+        ],
+        "properties": {
+          "dst": {
+            "type": "string",
+            "description": "Full destination virtual path (including the new name)"
+          },
+          "src": {
+            "type": "string",
+            "description": "Source virtual path"
+          }
+        }
+      },
+      "TaskInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "src",
+          "dst",
+          "status",
+          "done_bytes",
+          "total_bytes",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "done_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "dst": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string",
+            "description": "copy | move"
+          },
+          "src": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "pending | running | done | failed"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

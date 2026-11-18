@@ -6,7 +6,7 @@ use tower::ServiceExt;
 
 async fn app() -> axum::Router {
     let db = connect("sqlite::memory:").await.unwrap();
-    router(AppState { db }, None)
+    router(AppState::new(db, None).await.unwrap(), None)
 }
 
 async fn call(req: Request<Body>) -> (StatusCode, serde_json::Value) {
