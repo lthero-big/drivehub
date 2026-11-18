@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  FolderOpen, HardDrive, LayoutDashboard, ListChecks, LogIn, LogOut, Menu as MenuIcon, Monitor, Moon, ScrollText, Search, Settings, Shield, Sun, User, Users, X,
+  ChevronsUpDown, FolderOpen, HardDrive, LayoutDashboard, ListChecks, LogIn, LogOut, Menu as MenuIcon, Monitor, Moon, ScrollText, Search, Settings, Shield, Sun, User, Users, X,
 } from "lucide-react";
 import { call, client, ok, tokens, WEB_VERSION, type FsItem } from "../lib/api";
 import { useApp } from "../lib/app";
@@ -44,9 +44,6 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         <span className="flex-1 text-[17px] font-semibold tracking-tight">DriveHub</span>
         <button className="rounded-md p-1 text-muted hover:bg-hover lg:hidden" aria-label="关闭菜单" onClick={() => setDrawer(false)}><X className="size-4" /></button>
       </div>
-      <button onClick={openPalette} className="btn-key flex h-10 items-center gap-2 rounded-xl border border-line bg-panel px-3 text-[13px] text-faint hover:text-muted">
-        <Search className="size-4" /> <span className="flex-1 text-left">搜索…</span> <kbd className="text-[11px]">⌘K</kbd>
-      </button>
       <div className="space-y-0.5">
         <NavLink href="#/files" icon={<FolderOpen />} active={at("files", "")}>全部文件</NavLink>
         {mounts.map((m) => (
@@ -73,6 +70,7 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
       <div className="mt-auto space-y-2">
         <Menu
           align="left"
+          side="top"
           trigger={(t) => (
             <button onClick={t} className="btn-key flex min-h-12 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-hover">
               <span className="flex size-7 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent">{(me?.username ?? "访")[0].toUpperCase()}</span>
@@ -80,16 +78,13 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
                 <span className="block truncate text-[13px] font-medium">{me?.username ?? "访客"}</span>
                 <span className="block text-[11px] text-faint">{me ? me.role : "未登录"}</span>
               </span>
-              <ThemeIcon className="size-4 text-faint" />
+              <ChevronsUpDown className="size-4 text-faint" />
             </button>
           )}
         >
           {(close) => (
-            <div className="bottom-full">
+            <div>
               {me && <MenuItem icon={<User />} onClick={() => (close(), (location.hash = "#/account"))}>账户设置</MenuItem>}
-              <MenuItem icon={<Sun />} onClick={() => (close(), setTheme("light"))}>浅色{theme === "light" && " ✓"}</MenuItem>
-              <MenuItem icon={<Moon />} onClick={() => (close(), setTheme("dark"))}>深色{theme === "dark" && " ✓"}</MenuItem>
-              <MenuItem icon={<Monitor />} onClick={() => (close(), setTheme("system"))}>跟随系统{theme === "system" && " ✓"}</MenuItem>
               {me ? <MenuItem icon={<LogOut />} onClick={() => (close(), logout())}>退出登录</MenuItem> : <MenuItem icon={<LogIn />} onClick={() => (close(), sessionStorage.removeItem("dh_guest"), reload())}>登录</MenuItem>}
             </div>
           )}
@@ -115,10 +110,7 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         <header className="glass sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 lg:h-16 lg:border-0 lg:bg-transparent lg:px-2 lg:backdrop-blur-none">
           <IconButton label="打开菜单" className="lg:hidden" onClick={() => setDrawer(true)}><MenuIcon className="size-5" /></IconButton>
           <h2 className="min-w-0 flex-1 truncate text-[17px] font-semibold tracking-tight lg:text-lg">{crumb}</h2>
-          <button onClick={openPalette} className="btn-key hidden h-10 w-72 items-center gap-2 rounded-xl border border-line bg-panel px-3 text-[13px] text-faint hover:text-muted md:flex">
-            <Search className="size-4" /> <span className="flex-1 text-left">搜索文件、页面…</span> <kbd className="rounded-md border border-line px-1.5 text-[11px]">⌘K</kbd>
-          </button>
-          <IconButton label="搜索" className="md:hidden" onClick={openPalette}><Search className="size-5" /></IconButton>
+          <IconButton label="搜索（⌘K）" onClick={openPalette}><Search className="size-[18px]" /></IconButton>
           <IconButton label={`主题：${theme === "light" ? "浅色" : theme === "dark" ? "深色" : "跟随系统"}（点击切换）`} onClick={() => setTheme(nextTheme)}><ThemeIcon className="size-[18px]" /></IconButton>
         </header>
         <main id="main" className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-panel px-4 sm:px-8 lg:rounded-3xl lg:border lg:border-line lg:shadow-card">{children}</main>

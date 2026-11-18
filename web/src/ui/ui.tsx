@@ -390,7 +390,7 @@ export function Overlays() {
 }
 
 /** Small anchored menu (click outside / Esc closes). */
-export function Menu({ trigger, children, align = "right" }: { trigger: (open: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: "left" | "right" }) {
+export function Menu({ trigger, children, align = "right", side = "bottom" }: { trigger: (open: () => void) => ReactNode; children: (close: () => void) => ReactNode; align?: "left" | "right"; side?: "top" | "bottom" }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -408,7 +408,7 @@ export function Menu({ trigger, children, align = "right" }: { trigger: (open: (
     <div ref={ref} className="relative">
       {trigger(() => setOpen((o) => !o))}
       {open && (
-        <div role="menu" className={cx("pop-in glass absolute z-40 mt-1 min-w-48 rounded-2xl border border-line p-1.5 shadow-pop", align === "right" ? "right-0" : "left-0")}>
+        <div role="menu" className={cx("pop-in glass absolute z-40 min-w-48 rounded-2xl border border-line p-1.5 shadow-pop", side === "top" ? "bottom-full mb-1 origin-bottom" : "top-full mt-1", align === "right" ? "right-0" : "left-0", side === "top" && align === "left" && "right-0")}>
           {children(() => setOpen(false))}
         </div>
       )}
