@@ -7,7 +7,7 @@ import { useApp } from "../lib/app";
 import { shareTrash, undoableDelete } from "../lib/trash";
 import { abs, copy, PERM_NAMES, qrDataUrl, STATUS_NAMES, type Share } from "../lib/shares";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { Badge, Button, confirmDlg, Empty, Field, IconButton, Input, Modal, Select, Switch, toast } from "../ui/ui";
+import { Badge, Button, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Select, Switch, toast } from "../ui/ui";
 import { PickupBox } from "./SharePublic";
 
 const tone = (s: string) => (s === "active" ? "ok" : s === "revoked" ? "danger" : "warn") as "ok";
@@ -54,15 +54,14 @@ export function SharesPage() {
   };
   return (
     <div className="mx-auto max-w-6xl space-y-4 py-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="flex-1 text-xl font-semibold">我的分享</h1>
+      <PageHeader title="我的分享" desc={rows ? `${rows.length} 个分享 · 删除后 5 秒内可撤销` : undefined} actions={<>
         <PickupBox compact />
-        <Select value={kind} onChange={(e) => setKind(e.target.value as "")} aria-label="分享类型"><option value="">全部类型</option><option value="share">普通分享</option><option value="room">快传房间</option></Select>
-        <Button variant="primary" onClick={() => setNewRoom(true)}><Inbox className="size-4" /> 新建快传房间</Button>
-        {canAll && <label className="flex items-center gap-1 text-[13px] text-muted"><Switch checked={all} onChange={setAll} label="全部用户" />全部用户</label>}
-        <Button variant="ghost" onClick={() => go("#/stats")}><BarChart3 className="size-4" /> 访问统计总览</Button>
-        <IconButton label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
-      </div>
+        <Select size="sm" value={kind} onChange={(e) => setKind(e.target.value as "")} aria-label="分享类型"><option value="">全部类型</option><option value="share">普通分享</option><option value="room">快传房间</option></Select>
+        {canAll && <label className="flex items-center gap-1"><Switch checked={all} onChange={setAll} label="全部用户" /><span className="ctl-label">全部用户</span></label>}
+        <Button size="sm" variant="ghost" onClick={() => go("#/stats")}><BarChart3 className="size-4" /> 访问统计</Button>
+        <Button size="sm" variant="primary" onClick={() => setNewRoom(true)}><Inbox className="size-4" /> 新建快传房间</Button>
+        <IconButton size="sm" label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
+      </>} />
       {shown && shown.length === 0 && <Empty title={rows?.length ? "没有匹配的分享" : "还没有分享"}>在文件列表中选中文件后点击「分享」</Empty>}
       {shown && shown.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-line bg-panel">

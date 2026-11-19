@@ -222,7 +222,7 @@ export function AclPage({ initialPath }: { initialPath: string }) {
 
         <div className="xl:sticky xl:top-4 xl:self-start">
           <Card title={<span className="flex items-center gap-2"><ShieldCheck className="size-4" /> 有效权限</span>} actions={
-            <Select value={who} onChange={(e) => setWho(e.target.value)} className="h-8 text-xs" aria-label="查看对象">
+            <Select value={who} onChange={(e) => setWho(e.target.value)} size="sm" aria-label="查看对象">
               <option value="0">匿名访客</option>
               {users.map((u) => <option key={u.id} value={u.id}>{u.username}（{u.role}）</option>)}
             </Select>

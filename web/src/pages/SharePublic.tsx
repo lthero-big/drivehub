@@ -28,7 +28,7 @@ export function PickupBox({ compact }: { compact?: boolean }) {
   };
   return (
     <form className={compact ? "flex gap-1.5" : "mx-auto flex max-w-sm gap-2 pb-8"} onSubmit={(e) => (e.preventDefault(), go())}>
-      <Input className={compact ? "w-44" : ""} placeholder="输入取件码领取分享" value={v} onChange={(e) => setV(e.target.value)} aria-label="取件码" />
+      <Input ctl={compact ? "sm" : "md"} className={compact ? "w-44" : ""} placeholder="输入取件码领取分享" value={v} onChange={(e) => setV(e.target.value)} aria-label="取件码" />
       <Button type="submit" size={compact ? "sm" : "md"}><KeyRound className="size-4" /> 领取</Button>
     </form>
   );

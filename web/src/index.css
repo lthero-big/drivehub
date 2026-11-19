@@ -309,3 +309,13 @@ body {
 .disc-spin.paused { animation-play-state: paused; }
 /* image zoom */
 .zoomable { cursor: zoom-in; } .zoomable.zoomed { cursor: grab; } .zoomable.zoomed.panning { cursor: grabbing; }
+
+/* DEPTAI-485 r6 #2: one control scale. Anything placed beside text (page-header actions, filter
+   bars, card headers, toolbars) sits in a .ctl-sm context: inputs, selects and buttons are all
+   32px / 13px so they line up with the 13px labels next to them instead of towering over them. */
+.ctl-sm .field-input { height: 2rem; font-size: 13px; border-radius: 0.5rem; }
+.ctl-sm input.field-input { padding-inline: 0.625rem; }
+.ctl-sm button.field-input { padding-inline: 0.625rem; min-width: 5rem; }
+.ctl-sm button.btn-key:not(.btn-icon):not(.field-input):not([aria-pressed]) { height: 2rem; font-size: 13px; padding-inline: 0.75rem; border-radius: 0.5rem; }
+.ctl-sm .btn-icon { width: 2rem; height: 2rem; border-radius: 0.5rem; }
+.ctl-sm .ctl-label { font-size: 13px; line-height: 2rem; color: var(--muted); white-space: nowrap; }

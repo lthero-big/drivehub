@@ -61,21 +61,29 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ 
   );
 });
 
-export function IconButton({ label, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+/** Control sizes (DEPTAI-485 r6 #2) — one scale for every input-like control:
+ *  - "md" (h-10, 14px): form fields stacked under a <Field> label (dialogs, settings forms)
+ *  - "sm" (h-8, 13px): controls placed *beside* text — page-header actions, filter bars, card headers, toolbars
+ *  - "xs" (h-7, 12px): dense chrome such as the code-viewer header
+ *  Labels next to an sm control use 13px text so label and control share one baseline. */
+export type CtlSize = "xs" | "sm" | "md";
+export const CTL_H: Record<CtlSize, string> = { xs: "h-7 rounded-lg px-2 text-xs", sm: "h-8 rounded-lg px-2.5 text-[13px]", md: "h-10 rounded-xl px-3 text-sm" };
+
+export function IconButton({ label, className, children, size = "md", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: CtlSize }) {
   return (
-    <button aria-label={label} title={label} className={cx("btn-key btn-icon inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-hover hover:text-fg disabled:opacity-40", className)} {...rest}>
+    <button aria-label={label} title={label} className={cx("btn-key btn-icon inline-flex shrink-0", size === "md" ? "size-9" : size === "sm" ? "size-8 [&>svg]:size-4" : "size-7 [&>svg]:size-3.5", "items-center justify-center rounded-xl text-muted hover:bg-hover hover:text-fg disabled:opacity-40", className)} {...rest}>
       {children}
     </button>
   );
 }
 
-export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
-  return <input ref={ref} className={cx("field-input h-10 w-full rounded-xl border border-line bg-panel px-3 text-sm outline-none placeholder:text-faint hover:border-faint/60 focus:border-accent", className)} {...rest} />;
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { ctl?: CtlSize }>(function Input({ className, ctl = "md", ...rest }, ref) {
+  return <input ref={ref} className={cx("field-input w-full border border-line bg-panel outline-none", CTL_H[ctl], " placeholder:text-faint hover:border-faint/60 focus:border-accent", className)} {...rest} />;
 });
 
-type SelectProps = { value: string | undefined; required?: boolean; onChange: (e: { target: { value: string } }) => void; children: ReactNode; className?: string; "aria-label"?: string; disabled?: boolean };
+type SelectProps = { value: string | undefined; required?: boolean; onChange: (e: { target: { value: string } }) => void; children: ReactNode; className?: string; "aria-label"?: string; disabled?: boolean; size?: CtlSize };
 /** Custom listbox. Keeps the native-select call shape: <Select value onChange={(e)=>e.target.value}><option value>…</option></Select>. */
-export function Select({ value, onChange, children, className, disabled, ...rest }: SelectProps) {
+export function Select({ value, onChange, children, className, disabled, size = "md", ...rest }: SelectProps) {
   const opts = useMemo(() => {
     const out: { value: string; label: ReactNode }[] = [];
     Children.forEach(children, (c) => {
@@ -130,10 +138,11 @@ export function Select({ value, onChange, children, className, disabled, ...rest
         aria-label={rest["aria-label"]}
         disabled={disabled}
         onClick={() => (setHi(Math.max(0, opts.findIndex((o) => o.value === value))), setOpen((o) => !o))}
-        className="btn-key field-input flex h-10 w-full min-w-28 items-center justify-between gap-2 rounded-xl border border-line bg-panel px-3 text-left text-sm hover:border-faint/60 disabled:opacity-50"
+        data-size={size}
+        className={cx("btn-key field-input flex w-full items-center justify-between gap-2 border border-line bg-panel text-left hover:border-faint/60 disabled:opacity-50", CTL_H[size], size === "md" ? "min-w-28" : "min-w-20")}
       >
         <span className="truncate">{cur?.label ?? "请选择"}</span>
-        <ChevronDown className={cx("size-4 shrink-0 text-faint transition-transform duration-200", open && "rotate-180")} />
+        <ChevronDown className={cx(size === "md" ? "size-4" : "size-3.5", "shrink-0 text-faint transition-transform duration-200", open && "rotate-180")} />
       </button>
       {open &&
         createPortal(
@@ -230,7 +239,7 @@ export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: 
         <h1 className="text-[26px] leading-tight font-semibold tracking-tight">{title}</h1>
         {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="ctl-sm flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -291,7 +300,7 @@ export function Card({ title, actions, children, className }: { title?: ReactNod
       {(title || actions) && (
         <header className="flex items-center justify-between gap-2 border-b border-line px-5 py-3.5">
           <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
-          <div className="flex items-center gap-2">{actions}</div>
+          <div className="ctl-sm flex items-center gap-2">{actions}</div>
         </header>
       )}
       <div className="p-5">{children}</div>

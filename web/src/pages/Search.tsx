@@ -64,7 +64,7 @@ export function SearchPage({ initial }: { initial: string }) {
             <option value="semantic">语义（二期）</option>
           </Select>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="ctl-sm flex flex-wrap items-center gap-1.5">
           {KINDS.map((k) => (
             <button type="button" key={k} onClick={() => toggleKind(k)} aria-pressed={kinds.includes(k)} className={cx("btn-key min-h-8 rounded-full border px-3 py-1 text-xs", kinds.includes(k) ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:bg-hover")}>
               {KIND_LABEL[k]}

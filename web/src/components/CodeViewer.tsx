@@ -90,7 +90,7 @@ export function CodeViewer({ name, text, truncated }: { name: string; text: stri
         {lang !== auto && <button className="underline hover:text-fg" onClick={() => setLang(auto)}>恢复自动（{langLabel(auto)}）</button>}
         <span>{lines.length} 行</span>
         <span className="ml-auto flex items-center gap-1">
-          <Select value={lang} onChange={(e) => setLang(e.target.value)} className="h-7 text-xs" aria-label="语言">
+          <Select value={lang} onChange={(e) => setLang(e.target.value)} size="xs" aria-label="语言">
             {langs.map((l) => <option key={l} value={l}>{langLabel(l)}</option>)}
           </Select>
           <button aria-pressed={wrap} onClick={() => setWrap(!wrap)} className={cx("flex h-7 items-center gap-1 rounded-md border border-line px-2 hover:bg-hover", wrap && "bg-active text-fg")}>
