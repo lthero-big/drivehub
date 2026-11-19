@@ -64,6 +64,11 @@ fn public_base(st: &AppState, h: &HeaderMap) -> String {
     format!("{proto}://{host}")
 }
 
+/// Global capability names of the principal (`share_manage`, `admin_*`), for UI gating.
+pub fn caps_of(st: &AppState, p: &Principal) -> Vec<&'static str> {
+    drivehub_core::acl::bits_to_names(st.caps(p) & drivehub_core::acl::GLOBAL_ALL)
+}
+
 pub async fn user_json(st: &AppState, uid: i64) -> ApiResult<Value> {
     #[allow(clippy::type_complexity)]
     let r: (i64, String, Option<String>, String, i64, i64, Option<String>, String, Option<String>, Option<i64>, i64, i64, Option<String>) = sqlx::query_as(
@@ -212,7 +217,11 @@ pub async fn status(
 ) -> ApiResult<Json<AuthStatus>> {
     let s = Settings::load(&st.db).await?;
     let me = match p.uid() {
-        Some(u) => Some(user_json(&st, u).await?),
+        Some(u) => {
+            let mut v = user_json(&st, u).await?;
+            v["caps"] = json!(caps_of(&st, &p));
+            Some(v)
+        }
         None => None,
     };
     let mut providers: Vec<String> = st.auth.oauth.read().unwrap().keys().cloned().collect();
@@ -736,6 +745,7 @@ pub async fn me(
 ) -> ApiResult<Json<Value>> {
     let u = p.require_user()?;
     let mut v = user_json(&st, u.id).await?;
+    v["caps"] = json!(caps_of(&st, &p));
     v["auth_via"] = json!(p.via);
     v["session_id"] = json!(p.session_id);
     Ok(Json(v))

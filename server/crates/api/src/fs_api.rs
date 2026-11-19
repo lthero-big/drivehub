@@ -12,7 +12,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use drivehub_core::acl::{CREATE, DELETE, DOWNLOAD, EDIT, READ, UPLOAD};
+use drivehub_core::acl::{COPY, CREATE, DELETE, DOWNLOAD, EDIT, MOVE, READ, RENAME, UPLOAD};
 use drivehub_storage::{ByteRange, Entry, TransferMode};
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
@@ -529,7 +529,7 @@ pub async fn rename(
         return Err(ApiError::bad("invalid new_name"));
     }
     let real = p.map_in(&b.path)?;
-    st.authorize(&p, &real, EDIT, CH_API, "rename")?;
+    st.authorize(&p, &real, RENAME, CH_API, "rename")?;
     let (mount, rel) = st.vfs.resolve_in(&real, true)?;
     let to = match rel.rsplit_once('/') {
         Some((parent, _)) => format!("{parent}/{}", b.new_name),
@@ -538,11 +538,12 @@ pub async fn rename(
     st.authorize(
         &p,
         &format!("{}/{to}", mount.cfg.name),
-        EDIT,
+        RENAME,
         CH_API,
         "rename",
     )?;
     mount.driver.rename(&rel, &to).await?;
+    crate::tags_api::on_move(&st, &real, &format!("{}/{to}", mount.cfg.name)).await;
     st.audit(&p, CH_API, "rename", &real, true, &b.new_name);
     st.after_change(&mount.cfg.name);
     Ok(Json(OkResp {
@@ -570,14 +571,14 @@ async fn copy_or_move(
     let (dm, drel) = st.vfs.resolve_in(&dst, true)?;
     let se = sm.driver.stat(&srel).await?;
     let src_need = if kind == "move" {
-        EDIT
+        MOVE
     } else {
-        READ | DOWNLOAD
+        READ | DOWNLOAD | COPY
     };
     st.authorize(&p, &src, src_need, CH_API, kind)?;
     let dst_need = if se.is_dir { CREATE } else { UPLOAD };
     let dst_need = if kind == "move" {
-        dst_need | EDIT
+        dst_need | MOVE
     } else {
         dst_need
     };
@@ -589,6 +590,7 @@ async fn copy_or_move(
         }
         if kind == "move" {
             sm.driver.r#move(&srel, &drel).await?;
+            crate::tags_api::on_move(&st, &src, &dst).await;
         } else {
             sm.driver.copy(&srel, &drel).await?;
         }
@@ -646,6 +648,7 @@ pub async fn delete(
         .filter(|e| !e.is_dir)
         .map(|e| e.size as i64);
     mount.driver.delete(&rel).await?;
+    crate::tags_api::on_delete(&st, &real).await;
     if let Some(sz) = size {
         st.add_usage(&p, -sz).await;
     }
@@ -663,7 +666,7 @@ pub async fn mounts(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Vec<MountConfig>>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_MOUNTS)?;
     Ok(Json(
         st.vfs
             .mounts()
@@ -691,7 +694,7 @@ pub async fn add_mount(
     Extension(p): Extension<Principal>,
     Json(mut cfg): Json<MountConfig>,
 ) -> ApiResult<Json<OkResp>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_MOUNTS)?;
     // Editing from the UI echoes masked credentials back as "***": keep the stored value.
     if let Some(old) = st.vfs.mounts().iter().find(|m| m.cfg.name == cfg.name) {
         for (k, v) in cfg.options.iter_mut() {
@@ -730,7 +733,7 @@ pub async fn remove_mount(
     Extension(p): Extension<Principal>,
     Path(name): Path<String>,
 ) -> ApiResult<Json<OkResp>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_MOUNTS)?;
     if !st.vfs.remove(&name).await? {
         return Err(ApiError::not_found("no such mount"));
     }
@@ -756,7 +759,7 @@ pub async fn tasks(
     Extension(p): Extension<Principal>,
     Query(q): Query<TasksQuery>,
 ) -> ApiResult<Json<Vec<TaskInfo>>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_MOUNTS)?;
     Ok(Json(
         st.tasks
             .list(q.status.as_deref(), q.limit.unwrap_or(100).clamp(1, 1000))
@@ -771,7 +774,7 @@ pub async fn task(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<TaskInfo>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_MOUNTS)?;
     st.tasks
         .get(id)
         .await?

@@ -150,7 +150,7 @@ pub async fn reindex(
     Extension(p): Extension<Principal>,
     Query(q): Query<ReindexQuery>,
 ) -> ApiResult<Json<ReindexResp>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_MOUNTS)?;
     let t0 = std::time::Instant::now();
     let names: Vec<String> = match q.mount {
         Some(m) => {

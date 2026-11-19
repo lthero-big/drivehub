@@ -20,21 +20,87 @@ pub const READ: u32 = 1; // list + preview + stat
 pub const DOWNLOAD: u32 = 2;
 pub const UPLOAD: u32 = 4;
 pub const CREATE: u32 = 8; // mkdir
-pub const EDIT: u32 = 16; // rename / move / overwrite
+pub const EDIT: u32 = 16; // overwrite / edit content
 pub const DELETE: u32 = 32;
-pub const SHARE: u32 = 64;
-pub const ALL: u32 = 127;
+pub const SHARE: u32 = 64; // create shares
+                           // DEPTAI-485 r5: finer-grained, categorized permissions.
+pub const RENAME: u32 = 1 << 7;
+pub const MOVE: u32 = 1 << 8;
+pub const COPY: u32 = 1 << 9;
+pub const SHARE_UPLOAD: u32 = 1 << 10; // create upload (collect-files) shares
+pub const TAG: u32 = 1 << 11; // tag files / folders
+/// Global (evaluated on root-level rules / roles only) delegated admin capabilities.
+pub const SHARE_MANAGE: u32 = 1 << 12; // see / manage everybody's shares
+pub const ADMIN_USERS: u32 = 1 << 13;
+pub const ADMIN_GROUPS: u32 = 1 << 14;
+pub const ADMIN_ROLES: u32 = 1 << 15;
+pub const ADMIN_ACL: u32 = 1 << 16;
+pub const ADMIN_MOUNTS: u32 = 1 << 17;
+pub const ADMIN_AUDIT: u32 = 1 << 18;
+pub const ADMIN_SETTINGS: u32 = 1 << 19;
+/// Every per-path file permission.
+pub const FILE_ALL: u32 = READ
+    | DOWNLOAD
+    | UPLOAD
+    | CREATE
+    | EDIT
+    | DELETE
+    | SHARE
+    | RENAME
+    | MOVE
+    | COPY
+    | SHARE_UPLOAD
+    | TAG;
+/// Global capabilities (only root-level grants count).
+pub const GLOBAL_ALL: u32 = SHARE_MANAGE
+    | ADMIN_USERS
+    | ADMIN_GROUPS
+    | ADMIN_ROLES
+    | ADMIN_ACL
+    | ADMIN_MOUNTS
+    | ADMIN_AUDIT
+    | ADMIN_SETTINGS;
+pub const ALL: u32 = FILE_ALL | GLOBAL_ALL;
 pub const GUEST_MAX: u32 = READ | DOWNLOAD;
 
-pub const PERM_NAMES: [(u32, &str); 7] = [
-    (READ, "read"),
-    (DOWNLOAD, "download"),
-    (UPLOAD, "upload"),
-    (CREATE, "create"),
-    (EDIT, "edit"),
-    (DELETE, "delete"),
-    (SHARE, "share"),
+/// (bit, name, category, label) — category: file | share | tag | admin.
+pub const PERM_CATALOG: [(u32, &str, &str, &str); 20] = [
+    (READ, "read", "file", "浏览/预览"),
+    (DOWNLOAD, "download", "file", "下载"),
+    (UPLOAD, "upload", "file", "上传"),
+    (CREATE, "create", "file", "新建文件夹"),
+    (EDIT, "edit", "file", "编辑/覆盖"),
+    (RENAME, "rename", "file", "重命名"),
+    (MOVE, "move", "file", "移动"),
+    (COPY, "copy", "file", "复制"),
+    (DELETE, "delete", "file", "删除"),
+    (SHARE, "share", "share", "创建分享"),
+    (
+        SHARE_UPLOAD,
+        "share_upload",
+        "share",
+        "创建收集（上传）分享",
+    ),
+    (SHARE_MANAGE, "share_manage", "share", "管理所有人的分享"),
+    (TAG, "tag", "tag", "打标签"),
+    (ADMIN_USERS, "admin_users", "admin", "管理用户"),
+    (ADMIN_GROUPS, "admin_groups", "admin", "管理用户组"),
+    (ADMIN_ROLES, "admin_roles", "admin", "管理角色"),
+    (ADMIN_ACL, "admin_acl", "admin", "管理目录权限"),
+    (ADMIN_MOUNTS, "admin_mounts", "admin", "管理存储挂载"),
+    (ADMIN_AUDIT, "admin_audit", "admin", "查看审计/访问统计"),
+    (ADMIN_SETTINGS, "admin_settings", "admin", "管理系统设置"),
 ];
+
+pub const PERM_NAMES: [(u32, &str); 20] = {
+    let mut out = [(0u32, ""); 20];
+    let mut i = 0;
+    while i < 20 {
+        out[i] = (PERM_CATALOG[i].0, PERM_CATALOG[i].1);
+        i += 1;
+    }
+    out
+};
 
 pub fn bits_to_names(bits: u32) -> Vec<&'static str> {
     PERM_NAMES
@@ -233,6 +299,31 @@ pub struct Acl {
 impl Acl {
     pub fn new(rules: Vec<Rule>, gates: Vec<Gate>) -> Self {
         Self { rules, gates }
+    }
+
+    /// Global capability bits of `who`: only root-level ("") rules / roles count, no jail or
+    /// gate applies (DEPTAI-485 r5 delegated admin permissions).
+    pub fn global_bits(&self, who: &Identity) -> u32 {
+        if who.superuser {
+            return ALL;
+        }
+        if who.user_id.is_none() {
+            return 0;
+        }
+        let mut here: Vec<&Rule> = self
+            .rules
+            .iter()
+            .filter(|r| r.path.is_empty() && who.matches(&r.subject))
+            .collect();
+        here.sort_by_key(|r| r.subject.rank());
+        let mut bits = 0u32;
+        for r in here {
+            bits = (bits | r.allow) & !r.deny;
+        }
+        if who.role == Some(Role::Guest) {
+            bits &= GUEST_MAX;
+        }
+        bits & GLOBAL_ALL
     }
 
     /// Effective permissions of `who` on normalized `path`.

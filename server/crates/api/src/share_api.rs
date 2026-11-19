@@ -17,7 +17,7 @@ use axum::{
     Extension, Json,
 };
 use data_encoding::BASE64URL_NOPAD;
-use drivehub_core::acl::{DOWNLOAD, READ, SHARE, UPLOAD};
+use drivehub_core::acl::{DOWNLOAD, READ, SHARE, SHARE_MANAGE, SHARE_UPLOAD, UPLOAD};
 use futures::TryStreamExt;
 use hmac::{Hmac, Mac};
 use rand::Rng;
@@ -411,7 +411,7 @@ pub async fn create(
             if !e.is_dir || b.paths.len() != 1 {
                 return Err(ApiError::bad("upload shares need exactly one folder"));
             }
-            st.authorize(&p, &real, UPLOAD, CH_SHARE, "share_create")?;
+            st.authorize(&p, &real, UPLOAD | SHARE_UPLOAD, CH_SHARE, "share_create")?;
         }
         if items.iter().any(|i| basename(i) == basename(&real)) {
             return Err(ApiError::bad(format!(
@@ -513,7 +513,7 @@ pub async fn list(
     Query(q): Query<ListSharesQuery>,
 ) -> ApiResult<Json<Vec<Value>>> {
     let u = p.require_user()?;
-    let all = q.all.unwrap_or(false) && p.is_admin();
+    let all = q.all.unwrap_or(false) && st.has_cap(&p, SHARE_MANAGE);
     let rows: Vec<Share> =
         sqlx::query_as("SELECT * FROM shares WHERE (? = 1 OR owner_id = ?) ORDER BY id DESC")
             .bind(all as i64)
@@ -526,7 +526,7 @@ pub async fn list(
 async fn owned(st: &AppState, p: &Principal, id: i64) -> ApiResult<Share> {
     let u = p.require_user()?;
     let s = load_by_id(st, id).await?;
-    if s.owner_id != Some(u.id) && !p.is_admin() {
+    if s.owner_id != Some(u.id) && !st.has_cap(p, SHARE_MANAGE) {
         return Err(ApiError::not_found("no such share"));
     }
     Ok(s)
@@ -624,6 +624,24 @@ pub async fn patch(
     }
     if let Some(v) = o.get("perm").and_then(Value::as_str) {
         check_perm(v)?;
+        if v == "upload" && s.perm != "upload" {
+            // Upload ("collect files") only makes sense for exactly one folder (DEPTAI-485 r5).
+            let items = s.items();
+            if items.len() != 1 {
+                return Err(ApiError::bad("upload shares need exactly one folder"));
+            }
+            let (mount, rel) = st.vfs.resolve_in(&items[0], false)?;
+            if !mount.driver.stat(&rel).await?.is_dir {
+                return Err(ApiError::bad("upload shares need exactly one folder"));
+            }
+            st.authorize(
+                &p,
+                &items[0],
+                UPLOAD | SHARE_UPLOAD,
+                CH_SHARE,
+                "share_update",
+            )?;
+        }
         s.perm = v.to_string();
     }
     if let Some(v) = o.get("require_login").and_then(Value::as_bool) {

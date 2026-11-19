@@ -46,7 +46,9 @@ pub async fn list_roles(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
+    if !(st.has_cap(&p, acl::ADMIN_USERS) || st.has_cap(&p, acl::ADMIN_GROUPS)) {
+        st.require_cap(&p, acl::ADMIN_ROLES)?;
+    }
     let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM roles ORDER BY builtin DESC, id")
         .fetch_all(&st.db)
         .await?;
@@ -61,9 +63,21 @@ pub async fn list_roles(
 pub struct RoleBody {
     pub name: String,
     pub description: Option<String>,
-    /// read | download | upload | create | edit | delete | share
+    /// permission names, see `GET /api/acl/catalog`
     #[serde(default)]
     pub permissions: Vec<String>,
+}
+
+/// Delegated role managers cannot hand out global capabilities they do not hold themselves.
+fn no_escalation(st: &AppState, p: &Principal, bits: u32) -> ApiResult<()> {
+    let extra = bits & acl::GLOBAL_ALL & !st.caps(p);
+    if extra != 0 {
+        return Err(ApiError::forbidden(format!(
+            "cannot grant {}",
+            acl::bits_to_names(extra).join(",")
+        )));
+    }
+    Ok(())
 }
 
 fn clean_name(n: &str) -> ApiResult<String> {
@@ -81,9 +95,10 @@ pub async fn add_role(
     Extension(p): Extension<Principal>,
     Json(b): Json<RoleBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_ROLES)?;
     let name = clean_name(&b.name)?;
     let bits = acl::names_to_bits(&b.permissions).map_err(ApiError::bad)?;
+    no_escalation(&st, &p, bits)?;
     let r = sqlx::query("INSERT INTO roles (name, description, permissions, builtin, created_at) VALUES (?,?,?,0,?)")
         .bind(&name)
         .bind(b.description.clone().unwrap_or_default())
@@ -105,14 +120,19 @@ pub async fn patch_role(
     Path(id): Path<i64>,
     Json(b): Json<RoleBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_ROLES)?;
     let cur: (String, i64) = sqlx::query_as("SELECT name, builtin FROM roles WHERE id = ?")
         .bind(id)
         .fetch_optional(&st.db)
         .await?
         .ok_or_else(|| ApiError::not_found("no such role"))?;
-    let name = if cur.1 != 0 { cur.0 } else { clean_name(&b.name)? };
+    let name = if cur.1 != 0 {
+        cur.0
+    } else {
+        clean_name(&b.name)?
+    };
     let bits = acl::names_to_bits(&b.permissions).map_err(ApiError::bad)?;
+    no_escalation(&st, &p, bits)?;
     sqlx::query("UPDATE roles SET name = ?, description = ?, permissions = ? WHERE id = ?")
         .bind(&name)
         .bind(b.description.clone().unwrap_or_default())
@@ -133,7 +153,7 @@ pub async fn delete_role(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_ROLES)?;
     for q in [
         "DELETE FROM user_roles WHERE role_id = ?",
         "DELETE FROM group_roles WHERE role_id = ?",
@@ -163,7 +183,7 @@ pub async fn patch_group(
     Path(id): Path<i64>,
     Json(b): Json<PatchGroupBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_GROUPS)?;
     let ex: Option<i64> = sqlx::query_scalar("SELECT id FROM groups WHERE id = ?")
         .bind(id)
         .fetch_optional(&st.db)

@@ -968,7 +968,7 @@ async fn acl_world(t: &T) -> (i64, String, String) {
         ),
     )
     .await;
-    t.adm("POST", "/api/acl/rules", Some(json!({"path": "/local/team", "subject": "group", "subject_id": gid, "allow": ["upload", "create", "edit", "delete"]}))).await;
+    t.adm("POST", "/api/acl/rules", Some(json!({"path": "/local/team", "subject": "group", "subject_id": gid, "allow": ["upload", "create", "edit", "rename", "move", "delete"]}))).await;
     let ap = t
         .call(
             "POST",

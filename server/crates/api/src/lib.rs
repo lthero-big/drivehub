@@ -1,5 +1,4 @@
 pub mod admin_api;
-pub mod roles_api;
 pub mod audit;
 pub mod audit_api;
 pub mod auth;
@@ -7,9 +6,12 @@ pub mod auth_api;
 pub mod dav;
 pub mod error;
 pub mod fs_api;
+pub mod roles_api;
 pub mod search_api;
 pub mod settings;
 pub mod share_api;
+pub mod stats_api;
+pub mod tags_api;
 pub mod tasks;
 pub mod transfer_api;
 pub mod vfs;
@@ -270,7 +272,16 @@ impl AppState {
         share_api::visit_download,
         share_api::visit_direct,
         share_api::visit_upload,
+        stats_api::access,
+        tags_api::list,
+        tags_api::create,
+        tags_api::patch,
+        tags_api::delete,
+        tags_api::assign,
+        tags_api::of,
+        tags_api::files,
         admin_api::list_rules,
+        admin_api::catalog,
         admin_api::add_rule,
         admin_api::delete_rule,
         admin_api::list_gates,
@@ -322,7 +333,9 @@ impl AppState {
         audit_api::AlertBody,
         share_api::NewShare,
         share_api::ClaimBody,
-        share_api::Captcha
+        share_api::Captcha,
+        tags_api::TagBody,
+        tags_api::AssignBody
     ))
 )]
 pub struct ApiDoc;
@@ -470,9 +483,18 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
             "/admin/groups",
             get(admin_api::list_groups).post(admin_api::add_group),
         )
-        .route("/admin/groups/{id}", delete(admin_api::delete_group).patch(roles_api::patch_group))
-        .route("/admin/roles", get(roles_api::list_roles).post(roles_api::add_role))
-        .route("/admin/roles/{id}", delete(roles_api::delete_role).patch(roles_api::patch_role))
+        .route(
+            "/admin/groups/{id}",
+            delete(admin_api::delete_group).patch(roles_api::patch_group),
+        )
+        .route(
+            "/admin/roles",
+            get(roles_api::list_roles).post(roles_api::add_role),
+        )
+        .route(
+            "/admin/roles/{id}",
+            delete(roles_api::delete_role).patch(roles_api::patch_role),
+        )
         .route("/admin/audit", get(audit_api::list))
         .route("/admin/audit/export", get(audit_api::export))
         .route("/admin/audit/verify", get(audit_api::verify))
@@ -501,6 +523,16 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
                 .delete(share_api::delete),
         )
         .route("/shares/{id}/revoke", post(share_api::revoke))
+        // DEPTAI-485 r4: access statistics + tags
+        .route("/stats/access", get(stats_api::access))
+        .route("/tags", get(tags_api::list).post(tags_api::create))
+        .route("/tags/assign", post(tags_api::assign))
+        .route("/tags/of", get(tags_api::of))
+        .route("/tags/files", get(tags_api::files))
+        .route(
+            "/tags/{id}",
+            axum::routing::patch(tags_api::patch).delete(tags_api::delete),
+        )
         .route("/s/captcha", get(share_api::captcha))
         .route("/s/claim", post(share_api::claim))
         .route("/s/{code}", get(share_api::open))
@@ -521,6 +553,7 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
             get(admin_api::list_gates).put(admin_api::put_gate),
         )
         .route("/acl/effective", get(admin_api::effective))
+        .route("/acl/catalog", get(admin_api::catalog))
         .layer(DefaultBodyLimit::disable())
         .layer(middleware::from_fn_with_state(state.clone(), auth::authn))
         .layer(middleware::from_fn(version_gate));

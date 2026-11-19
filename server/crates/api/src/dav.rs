@@ -12,7 +12,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use drivehub_core::acl::{CREATE, DELETE, DOWNLOAD, EDIT, READ, UPLOAD};
+use drivehub_core::acl::{CREATE, DELETE, DOWNLOAD, EDIT, MOVE, READ, UPLOAD};
 use drivehub_storage::{ByteRange, ByteStream, Entry, StorageError};
 use drivehub_webdav::{Backend, DavError, DavHandler, Session, WriteIntent};
 use std::sync::{Arc, OnceLock};
@@ -216,11 +216,11 @@ impl Backend for DavSession {
 
     async fn rename(&self, from: &str, to: &str) -> R<()> {
         let (src, dst) = (self.real(from)?, self.real(to)?);
-        self.authz(&src, EDIT, "move")?;
+        self.authz(&src, MOVE, "move")?;
         let (sm, srel) = self.in_mount(&src, true)?;
         let (dm, drel) = self.in_mount(&dst, true)?;
         let se = sm.driver.stat(&srel).await.map_err(map_st)?;
-        self.authz(&dst, EDIT | if se.is_dir { CREATE } else { UPLOAD }, "move")?;
+        self.authz(&dst, MOVE | if se.is_dir { CREATE } else { UPLOAD }, "move")?;
         if sm.cfg.name != dm.cfg.name {
             return Err(DavError::IsRemote); // → 502; clients fall back to copy+delete
         }

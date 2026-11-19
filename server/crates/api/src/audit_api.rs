@@ -137,7 +137,7 @@ pub async fn list(
     Extension(p): Extension<Principal>,
     Query(f): Query<AuditFilter>,
 ) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     Ok(Json(
         query(&st, &f, 1000)
             .await?
@@ -167,7 +167,7 @@ pub async fn export(
     Extension(p): Extension<Principal>,
     Query(mut f): Query<AuditFilter>,
 ) -> ApiResult<Response> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     f.limit = Some(f.limit.unwrap_or(100_000));
     f.order = Some(f.order.clone().unwrap_or_else(|| "asc".into()));
     let q = AuditFilter {
@@ -248,7 +248,7 @@ pub async fn verify(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     st.audit_log.flush().await;
     let r = audit::verify(&st.db).await?;
     if !r.ok {
@@ -269,7 +269,7 @@ pub async fn get_policy(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     let anchor: Option<String> = crate::settings::get_meta(&st.db, "audit.anchor_id").await?;
     Ok(Json(
         json!({"retention_days": audit::retention_days(&st.db).await, "anchor_id": anchor.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0)}),
@@ -283,7 +283,7 @@ pub async fn put_policy(
     Extension(p): Extension<Principal>,
     Json(b): Json<PolicyBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     if b.retention_days < 0 {
         return Err(ApiError::bad("retention_days must be >= 0"));
     }
@@ -317,7 +317,7 @@ pub async fn purge(
     Extension(p): Extension<Principal>,
     Query(q): Query<PurgeQuery>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     st.audit_log.flush().await;
     let days = match q.days {
         Some(d) => d,
@@ -350,7 +350,7 @@ pub async fn dashboard(
     Extension(p): Extension<Principal>,
     Query(q): Query<DashQuery>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     st.audit_log.flush().await;
     let days = q.days.unwrap_or(7).clamp(1, 366);
     let since = now() - days * 86400;
@@ -460,7 +460,7 @@ pub async fn list_alerts(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Vec<AlertRule>>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     Ok(Json(
         sqlx::query_as("SELECT * FROM alert_rules ORDER BY id")
             .fetch_all(&st.db)
@@ -475,7 +475,7 @@ pub async fn add_alert(
     Extension(p): Extension<Principal>,
     Json(b): Json<AlertBody>,
 ) -> ApiResult<Json<AlertRule>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     validate(&b)?;
     let r = sqlx::query("INSERT INTO alert_rules (name, kind, actions, threshold, window_secs, sink, target, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?)")
         .bind(b.name.trim())
@@ -508,7 +508,7 @@ pub async fn put_alert(
     Path(id): Path<i64>,
     Json(b): Json<AlertBody>,
 ) -> ApiResult<Json<AlertRule>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     validate(&b)?;
     sqlx::query("UPDATE alert_rules SET name=?, kind=?, actions=?, threshold=?, window_secs=?, sink=?, target=?, enabled=? WHERE id=?")
         .bind(b.name.trim())
@@ -539,7 +539,7 @@ pub async fn delete_alert(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     sqlx::query("DELETE FROM alert_rules WHERE id = ?")
         .bind(id)
         .execute(&st.db)
@@ -563,7 +563,7 @@ pub async fn test_alert(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     let r: AlertRule = sqlx::query_as("SELECT * FROM alert_rules WHERE id = ?")
         .bind(id)
         .fetch_optional(&st.db)
@@ -590,7 +590,7 @@ pub async fn alert_events(
     Extension(p): Extension<Principal>,
     Query(q): Query<AlertEventsQuery>,
 ) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
+    st.require_cap(&p, drivehub_core::acl::ADMIN_AUDIT)?;
     st.audit_log.flush().await;
     let rows: Vec<(i64, i64, i64, String, String, String, String, String, bool, String)> = sqlx::query_as(
         "SELECT id, ts, rule_id, rule_name, username, ip, message, sink, delivered, error FROM alert_events

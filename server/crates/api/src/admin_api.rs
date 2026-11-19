@@ -22,7 +22,7 @@ pub async fn get_settings(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Settings>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_SETTINGS)?;
     Ok(Json(Settings::load(&st.db).await?))
 }
 
@@ -33,7 +33,7 @@ pub async fn put_settings(
     Extension(p): Extension<Principal>,
     Json(b): Json<SettingsPatch>,
 ) -> ApiResult<Json<Settings>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_SETTINGS)?;
     let s = Settings::apply(&st.db, &b).await?;
     st.audit(
         &p,
@@ -52,7 +52,7 @@ pub async fn list_users(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_USERS)?;
     let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM users ORDER BY id")
         .fetch_all(&st.db)
         .await?;
@@ -79,9 +79,12 @@ pub async fn add_user(
     Extension(p): Extension<Principal>,
     Json(b): Json<NewUserBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_USERS)?;
     let role = Role::parse(b.role.as_deref().unwrap_or("user"))
         .ok_or_else(|| ApiError::bad("bad role"))?;
+    if role == Role::Admin && !p.is_admin() {
+        return Err(ApiError::forbidden("only admins can create admins"));
+    }
     let id = create_user(
         &st,
         &b.username,
@@ -141,8 +144,11 @@ pub async fn patch_user(
     Path(id): Path<i64>,
     Json(b): Json<PatchUserBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_USERS)?;
     let was_admin = is_admin_user(&st, id).await?;
+    if !p.is_admin() && (was_admin || b.role.as_deref() == Some("admin")) {
+        return Err(ApiError::forbidden("only admins can manage admin accounts"));
+    }
     let demote = b.role.as_deref().is_some_and(|r| r != "admin") || b.disabled == Some(true);
     if was_admin && demote && admin_count(&st).await? <= 1 {
         return Err(ApiError::bad("cannot demote/disable the last admin"));
@@ -257,7 +263,10 @@ pub async fn delete_user(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_USERS)?;
+    if !p.is_admin() && is_admin_user(&st, id).await? {
+        return Err(ApiError::forbidden("only admins can manage admin accounts"));
+    }
     if is_admin_user(&st, id).await? && admin_count(&st).await? <= 1 {
         return Err(ApiError::bad("cannot delete the last admin"));
     }
@@ -287,7 +296,7 @@ pub async fn user_sessions(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_USERS)?;
     Ok(Json(list_sessions_of(&st, id, None).await?))
 }
 
@@ -298,7 +307,7 @@ pub async fn force_logout(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_USERS)?;
     let r = sqlx::query("UPDATE sessions SET revoked = 1 WHERE user_id = ? AND revoked = 0")
         .bind(id)
         .execute(&st.db)
@@ -314,7 +323,9 @@ pub async fn list_groups(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
+    if !(st.has_cap(&p, acl::ADMIN_USERS) || st.has_cap(&p, acl::ADMIN_GROUPS)) {
+        st.require_cap(&p, acl::ADMIN_GROUPS)?;
+    }
     let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM groups ORDER BY name")
         .fetch_all(&st.db)
         .await?;
@@ -337,7 +348,7 @@ pub async fn add_group(
     Extension(p): Extension<Principal>,
     Json(b): Json<GroupBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_GROUPS)?;
     let r = sqlx::query("INSERT INTO groups (name, created_at) VALUES (?, ?)")
         .bind(b.name.trim())
         .bind(now())
@@ -357,7 +368,7 @@ pub async fn delete_group(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_GROUPS)?;
     for q in [
         "DELETE FROM user_groups WHERE group_id = ?",
         "DELETE FROM group_roles WHERE group_id = ?",
@@ -391,7 +402,7 @@ pub async fn list_rules(
     Extension(p): Extension<Principal>,
     Query(q): Query<RulesQuery>,
 ) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_ACL)?;
     let want = q.path.as_deref().map(drivehub_storage::norm).transpose()?;
     let a = st.auth.acl();
     Ok(Json(
@@ -424,7 +435,7 @@ pub async fn add_rule(
     Extension(p): Extension<Principal>,
     Json(b): Json<RuleBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_ACL)?;
     let path = drivehub_storage::norm(&b.path)?;
     let subj = Subject::parse(&b.subject, b.subject_id)
         .ok_or_else(|| ApiError::bad("bad subject / subject_id"))?;
@@ -470,7 +481,7 @@ pub async fn delete_rule(
     Extension(p): Extension<Principal>,
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_ACL)?;
     sqlx::query("DELETE FROM acl_rules WHERE id = ?")
         .bind(id)
         .execute(&st.db)
@@ -493,7 +504,7 @@ pub async fn list_gates(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> ApiResult<Json<Vec<Value>>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_ACL)?;
     Ok(Json(
         st.auth
             .acl()
@@ -534,7 +545,7 @@ pub async fn put_gate(
     Extension(p): Extension<Principal>,
     Json(b): Json<GateBody>,
 ) -> ApiResult<Json<Value>> {
-    p.require_admin()?;
+    st.require_cap(&p, acl::ADMIN_ACL)?;
     let path = drivehub_storage::norm(&b.path)?;
     let mut modes = 0;
     for m in &b.modes {
@@ -601,7 +612,7 @@ pub async fn effective(
 ) -> ApiResult<Json<Value>> {
     let target = match q.user_id {
         Some(uid) if Some(uid) != p.uid() => {
-            p.require_admin()?;
+            st.require_cap(&p, acl::ADMIN_ACL)?;
             let mut t = Principal::anonymous(false, p.ip.clone());
             if uid != 0 {
                 t.user = Some(
@@ -630,4 +641,23 @@ pub async fn effective(
         "trace": e.trace.iter().map(|t| json!({"path": format!("/{}", t.path), "subject": t.subject.kind(), "subject_id": t.subject.id(),
             "allow": acl::bits_to_names(t.allow), "deny": acl::bits_to_names(t.deny), "after": acl::bits_to_names(t.bits_after)})).collect::<Vec<_>>(),
     })))
+}
+
+/// Permission catalog (DEPTAI-485 r5): every grantable permission with its category and
+/// label. `global` permissions only take effect on root-level rules / roles.
+#[utoipa::path(get, path = "/api/acl/catalog", responses((status = 200, description = "permission catalog")))]
+pub async fn catalog() -> Json<Value> {
+    let cats = [
+        ("file", "文件"),
+        ("share", "分享"),
+        ("tag", "标签"),
+        ("admin", "管理后台"),
+    ];
+    Json(json!({
+        "categories": cats.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>(),
+        "permissions": acl::PERM_CATALOG.iter().map(|(bit, name, cat, label)| json!({
+            "name": name, "category": cat, "label": label, "bit": bit,
+            "global": bit & acl::GLOBAL_ALL != 0,
+        })).collect::<Vec<_>>(),
+    }))
 }

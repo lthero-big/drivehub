@@ -715,6 +715,33 @@ impl AppState {
         })
     }
 
+    /// Global capability bits (DEPTAI-485 r5): admins have all; others get what root-level
+    /// rules / roles grant them (`share_manage`, `admin_*`).
+    pub fn caps(&self, p: &Principal) -> u32 {
+        if p.is_admin() {
+            return acl::ALL;
+        }
+        self.auth.acl().global_bits(&p.identity())
+    }
+
+    pub fn has_cap(&self, p: &Principal, cap: u32) -> bool {
+        self.caps(p) & cap == cap
+    }
+
+    /// Like `require_admin`, but also accepts users holding the delegated capability `cap`.
+    pub fn require_cap(&self, p: &Principal, cap: u32) -> ApiResult<()> {
+        if self.has_cap(p, cap) {
+            return Ok(());
+        }
+        if p.user.is_none() && !p.setup {
+            return Err(ApiError(StatusCode::UNAUTHORIZED, "login required".into()));
+        }
+        Err(ApiError::forbidden(format!(
+            "permission denied: {}",
+            acl::bits_to_names(cap).join(",")
+        )))
+    }
+
     pub fn can_see_mount(&self, p: &Principal, mount: &str) -> bool {
         let acl = self.auth.acl();
         let pw = p.path_password.clone();
