@@ -9,6 +9,7 @@ import { favorites, useFavorites } from "../lib/favs";
 import { appLink, copyText } from "../lib/links";
 import { tabs } from "../lib/tabs";
 import { trash } from "../lib/trash";
+import { liftEnd, liftOutcome, liftStart } from "../lib/dragGhost";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
 import { fromDataTransfer, fromFileList, uploads, useUploads } from "../lib/uploads";
@@ -158,6 +159,8 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   const [picker, setPicker] = useState<null | "move" | "copy">(null);
   const [pw, setPw] = useState("");
   const [dragPaths, setDragPaths] = useState<string[] | null>(null);
+  const [dragSrc, setDragSrc] = useState<string | null>(null);
+  const [dragHome, setDragHome] = useState<DOMRect | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [band, setBand] = useState<{ l: number; t: number; w: number; h: number } | null>(null);
   const bandRef = useRef<{ x0: number; y0: number; lx: number; ly: number; base: Set<string>; mode: "new" | "add" | "toggle"; moved: boolean; sc: HTMLElement } | null>(null);
@@ -403,16 +406,11 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
     e.dataTransfer.setData(INTERNAL_MIME, JSON.stringify(paths));
     e.dataTransfer.setData("text/plain", paths.map(baseName).join("\n"));
     e.dataTransfer.effectAllowed = "copyMove";
-    const chip = document.createElement("div");
-    chip.className = "fly-chip";
-    chip.style.cssText += ";left:-999px;top:-999px";
-    chip.textContent = paths.length > 1 ? `${paths.length} 项` : i.name;
-    document.body.appendChild(chip);
-    e.dataTransfer.setDragImage(chip, 12, 12);
-    setTimeout(() => chip.remove(), 0);
-    setTimeout(() => setDragPaths(paths), 0); // changing the DOM inside dragstart can cancel the drag
+    // the whole card / row lifts and follows the pointer (not just a name chip)
+    const home = liftStart(e, paths.length);
+    setTimeout(() => (setDragHome(home), setDragPaths(paths), setDragSrc(i.path)), 0); // changing the DOM inside dragstart can cancel the drag
   };
-  const onItemDragEnd = () => (setDragPaths(null), setDropTarget(null));
+  const onItemDragEnd = (e: DragEvent) => (liftEnd(e.dataTransfer?.dropEffect ?? "none"), setDragPaths(null), setDragSrc(null), setDragHome(null), setDropTarget(null));
   const moveInto = async (paths: string[], dst: string) => {
     const todo = paths.filter((p) => p !== dst && p.slice(0, p.lastIndexOf("/")) !== dst && !dst.startsWith(p + "/"));
     if (!todo.length) return;
@@ -452,6 +450,10 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
             e.preventDefault();
             e.stopPropagation();
             setDropTarget(null);
+            liftOutcome("drop");
+            setDragPaths(null);
+            setDragSrc(null);
+            setDragHome(null);
             try {
               moveInto(JSON.parse(e.dataTransfer.getData(INTERNAL_MIME)), i.path);
             } catch {
@@ -461,7 +463,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         }
       : {}),
   });
-  const dragCls = (i: FsItem) => cx(dragPaths?.includes(i.path) && "drag-ghost-src", dropTarget === i.path && "drop-folder");
+  const dragCls = (i: FsItem) => cx(dragSrc === i.path ? "drag-slot" : dragPaths?.includes(i.path) && "drag-ghost-src", dropTarget === i.path && "drop-folder");
 
   // ---- rubber-band selection (desktop-style marquee) ------------------------------
   const updateBand = () => {
@@ -786,7 +788,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         </div>
       )}
       {band && band.w + band.h > 0 && <div className="band" data-testid="band" style={{ left: band.l, top: band.t, width: band.w, height: band.h }} />}
-      <TrashZone active={!!dragPaths && !isRoot} count={dragPaths?.length ?? 0} onDelete={() => { const ps = dragPaths ?? []; setDragPaths(null); const its = all.filter((i) => ps.includes(i.path)); if (its.length) scheduleDelete(its); }} />
+      <TrashZone active={!!dragPaths && !isRoot} home={dragHome} count={dragPaths?.length ?? 0} onDelete={() => { liftOutcome("delete"); const ps = dragPaths ?? []; setDragPaths(null); setDragSrc(null); setDragHome(null); const its = all.filter((i) => ps.includes(i.path)); if (its.length) scheduleDelete(its); }} />
       <DirPicker open={!!picker} title={picker === "move" ? `移动 ${selected.length} 项到…` : `复制 ${selected.length} 项到…`} start={path} onClose={() => setPicker(null)} onPick={(d) => transfer(picker!, d)} />
       {!hidden && selected.length > 0 && (
         <Dock label="批量操作">
