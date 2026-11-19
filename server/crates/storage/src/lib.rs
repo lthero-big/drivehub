@@ -119,7 +119,13 @@ pub trait StorageDriver: Send + Sync {
     async fn delete(&self, path: &str) -> Result<()>;
     /// Direct (presigned) link if the backend supports one.
     async fn link(&self, path: &str, expire: Duration) -> Result<Option<String>>;
+    /// Registers a callback for option values the driver rotates at runtime (e.g. a
+    /// refreshed `refresh_token`) so the mount config can persist them. Default: ignored.
+    fn set_option_sink(&self, _sink: OptionSink) {}
 }
+
+/// Callback `(option key, new value)` used by [`StorageDriver::set_option_sink`].
+pub type OptionSink = std::sync::Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// Normalizes a mount-relative path: strips leading/trailing slashes, rejects `..`.
 pub fn norm(path: &str) -> Result<String> {

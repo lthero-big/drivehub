@@ -59,6 +59,33 @@ pub struct Vfs {
     pub ttl: Duration,
 }
 
+/// Persists driver-rotated option values (e.g. PikPak refresh_token) back into `mounts.options`.
+fn option_sink(db: SqlitePool, mount: String) -> drivehub_storage::OptionSink {
+    Arc::new(move |key: &str, value: &str| {
+        if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return;
+        }
+        let (db, mount, path, value) = (
+            db.clone(),
+            mount.clone(),
+            format!("$.{key}"),
+            value.to_string(),
+        );
+        tokio::spawn(async move {
+            let r =
+                sqlx::query("UPDATE mounts SET options = json_set(options, ?, ?) WHERE name = ?")
+                    .bind(&path)
+                    .bind(&value)
+                    .bind(&mount)
+                    .execute(&db)
+                    .await;
+            if let Err(e) = r {
+                tracing::warn!(mount = %mount, error = %e, "persisting rotated mount option failed");
+            }
+        });
+    })
+}
+
 fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -91,6 +118,7 @@ impl Vfs {
             };
             match build_driver(&cfg.kind, &cfg.options) {
                 Ok(d) => {
+                    d.set_option_sink(option_sink(vfs.db.clone(), name.clone()));
                     vfs.mounts.write().unwrap().insert(
                         name,
                         Arc::new(Mount {
@@ -123,6 +151,7 @@ impl Vfs {
             return Err(ApiError::bad("transfer_mode must be direct|proxy|auto"));
         }
         let driver = build_driver(&cfg.kind, &cfg.options)?;
+        driver.set_option_sink(option_sink(self.db.clone(), cfg.name.clone()));
         sqlx::query(
             "INSERT INTO mounts (name, kind, options, read_only, hidden, sort_order, transfer_mode, created_at)
              VALUES (?,?,?,?,?,?,?,?)

@@ -7,7 +7,9 @@
 //! Options: username, password, platform (web|android|pc, default web), refresh_token,
 //! captcha_token, device_id, root_id (default ""), skip_verification (true = ignore the
 //! human-verification URL like upstream; may trigger risk control), and for tests / proxies
-//! user_endpoint, api_endpoint, oss_endpoint (override `https://{bucket}.{endpoint}`).
+//! user_endpoint, api_endpoint, oss_endpoint (override `https://{bucket}.{endpoint}`),
+//! upload_part_size (bytes, default 16 MiB: single PUT up to it, OSS multipart above).
+//! A rotated refresh_token is reported through `set_option_sink` for persistence.
 use crate::{norm, ByteRange, ByteStream, Entry, Result, StorageDriver, StorageError};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -59,6 +61,9 @@ const PC_ALGORITHMS: &[&str] = &[
     "TsWXI81fD1",
     "vk7hBjawK/rOSrSWajtbMk95nfgf3",
 ];
+
+/// Default OSS part size (also the single-PUT threshold).
+const DEFAULT_PART: u64 = 16 << 20;
 
 struct Platform {
     client_id: &'static str,
@@ -125,11 +130,7 @@ pub fn captcha_sign(
 
 /// Thunder/PikPak GCID (upper-case hex), port of OpenList pkg/utils/hash/gcid.go.
 pub fn gcid(data: &[u8]) -> String {
-    let size = data.len() as f64;
-    let mut psize: usize = 0x40000;
-    while size / psize as f64 > 512.0 && psize < 0x200000 {
-        psize <<= 1;
-    }
+    let psize = gcid_block(data.len() as u64) as usize;
     let mut outer = Sha1::new();
     for chunk in data.chunks(psize) {
         outer.update(Sha1::digest(chunk));
@@ -173,6 +174,77 @@ pub struct PikPakDriver {
     skip_verification: bool,
     tok: Mutex<Tokens>,
     inited: Mutex<bool>,
+    part_size: u64,
+    sink: std::sync::Mutex<Option<crate::OptionSink>>,
+}
+
+/// Upload source: small payloads stay in memory, streamed uploads are spooled to a temp file.
+enum Src {
+    Mem(Bytes),
+    File(std::path::PathBuf, u64),
+}
+
+impl Src {
+    fn len(&self) -> u64 {
+        match self {
+            Src::Mem(b) => b.len() as u64,
+            Src::File(_, n) => *n,
+        }
+    }
+    async fn slice(&self, off: u64, len: u64) -> Result<Bytes> {
+        match self {
+            Src::Mem(b) => Ok(b.slice(off as usize..(off + len) as usize)),
+            Src::File(p, _) => {
+                let p = p.clone();
+                tokio::task::spawn_blocking(move || {
+                    use std::os::unix::fs::FileExt;
+                    let f = std::fs::File::open(p)?;
+                    let mut buf = vec![0u8; len as usize];
+                    f.read_exact_at(&mut buf, off)?;
+                    Ok::<_, std::io::Error>(Bytes::from(buf))
+                })
+                .await
+                .map_err(be)?
+                .map_err(be)
+            }
+        }
+    }
+    async fn gcid(&self) -> Result<String> {
+        let n = self.len();
+        let psize = gcid_block(n);
+        let mut outer = Sha1::new();
+        let mut off = 0;
+        while off < n {
+            let len = psize.min(n - off);
+            outer.update(Sha1::digest(&self.slice(off, len).await?));
+            off += len;
+        }
+        Ok(hex(&outer.finalize()).to_uppercase())
+    }
+}
+
+impl Drop for Src {
+    fn drop(&mut self) {
+        if let Src::File(p, _) = self {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
+/// GCID block size for a payload of `n` bytes (256 KiB doubling up to 2 MiB, <= 512 blocks).
+fn gcid_block(n: u64) -> u64 {
+    let mut psize: u64 = 0x40000;
+    while n as f64 / psize as f64 > 512.0 && psize < 0x200000 {
+        psize <<= 1;
+    }
+    psize
+}
+
+/// Minimal XML text extraction (`<tag>value</tag>`), enough for OSS multipart replies.
+fn xml_tag(body: &str, tag: &str) -> Option<String> {
+    let a = body.find(&format!("<{tag}>"))? + tag.len() + 2;
+    let b = body[a..].find(&format!("</{tag}>"))? + a;
+    Some(body[a..b].to_string())
 }
 
 fn be(e: impl std::fmt::Display) -> StorageError {
@@ -275,6 +347,11 @@ impl PikPakDriver {
                 ..Default::default()
             }),
             inited: Mutex::new(false),
+            part_size: get("upload_part_size")
+                .and_then(|v| v.parse().ok())
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_PART),
+            sink: std::sync::Mutex::new(None),
         })
     }
 
@@ -357,8 +434,15 @@ impl PikPakDriver {
         }
         let mut t = self.tok.lock().await;
         t.access = s("access_token");
+        let changed = t.refresh != s("refresh_token");
         t.refresh = s("refresh_token");
         t.user_id = s("sub");
+        if changed {
+            // Persist the rotated refresh_token so a restart does not need the password again.
+            if let Some(f) = self.sink.lock().unwrap().as_ref() {
+                f("refresh_token", &t.refresh);
+            }
+        }
         Ok(())
     }
 
@@ -619,7 +703,16 @@ impl PikPakDriver {
             .ok_or_else(|| be("no web_content_link"))
     }
 
-    async fn oss_put(&self, params: &Value, data: Bytes) -> Result<()> {
+    /// Signed Aliyun OSS request with STS credentials (V1 signature, like the upstream SDK).
+    /// `sub` is the sub-resource query (e.g. `uploads`, `partNumber=1&uploadId=x`).
+    async fn oss(
+        &self,
+        method: reqwest::Method,
+        params: &Value,
+        sub: &str,
+        ctype: &str,
+        data: Bytes,
+    ) -> Result<reqwest::Response> {
         let s = |k: &str| {
             params
                 .get(k)
@@ -634,21 +727,26 @@ impl PikPakDriver {
             s("access_key_secret"),
             s("security_token"),
         );
+        let q = if sub.is_empty() {
+            String::new()
+        } else {
+            format!("?{sub}")
+        };
         let url = match &self.oss_ep {
-            Some(ep) => format!("{}/{bucket}/{key}", ep.trim_end_matches('/')),
-            None => format!("https://{bucket}.{}/{key}", s("endpoint")),
+            Some(ep) => format!("{}/{bucket}/{key}{q}", ep.trim_end_matches('/')),
+            None => format!("https://{bucket}.{}/{key}{q}", s("endpoint")),
         };
         let date = httpdate::fmt_http_date(SystemTime::now());
-        let ctype = "application/octet-stream";
-        let to_sign =
-            format!("PUT\n\n{ctype}\n{date}\nx-oss-security-token:{token}\n/{bucket}/{key}");
+        let to_sign = format!(
+            "{method}\n\n{ctype}\n{date}\nx-oss-security-token:{token}\n/{bucket}/{key}{q}"
+        );
         let mut mac = Hmac::<Sha1>::new_from_slice(sk.as_bytes()).map_err(be)?;
         mac.update(to_sign.as_bytes());
         use base64::Engine;
         let sig = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
         let r = self
             .http
-            .put(url)
+            .request(method, url)
             .header("Date", date)
             .header("Content-Type", ctype)
             .header("X-OSS-Security-Token", token)
@@ -664,11 +762,125 @@ impl PikPakDriver {
         if !r.status().is_success() {
             let st = r.status();
             return Err(be(format!(
-                "oss put HTTP {st}: {}",
+                "oss {sub} HTTP {st}: {}",
                 r.text().await.unwrap_or_default()
             )));
         }
+        Ok(r)
+    }
+
+    /// Single PUT for small files, OSS multipart (Initiate / UploadPart / Complete) above
+    /// one part; no 5 GB single-PUT ceiling. Parts are read lazily from `src`.
+    async fn oss_upload(
+        &self,
+        params: &Value,
+        src: &Src,
+        on_progress: &(dyn Fn(u64) + Send + Sync),
+    ) -> Result<()> {
+        const OCT: &str = "application/octet-stream";
+        let n = src.len();
+        if n <= self.part_size {
+            let data = src.slice(0, n).await?;
+            self.oss(reqwest::Method::PUT, params, "", OCT, data)
+                .await?;
+            on_progress(n);
+            return Ok(());
+        }
+        // OSS allows at most 10000 parts.
+        let part = self.part_size.max(n.div_ceil(10_000));
+        let r = self
+            .oss(reqwest::Method::POST, params, "uploads", OCT, Bytes::new())
+            .await?;
+        let body = r.text().await.map_err(be)?;
+        let upload_id = xml_tag(&body, "UploadId").ok_or_else(|| be("oss: no UploadId"))?;
+        let mut xml = String::from("<CompleteMultipartUpload>");
+        let (mut off, mut no) = (0u64, 1u32);
+        while off < n {
+            let len = part.min(n - off);
+            let data = src.slice(off, len).await?;
+            let mut tries = 0;
+            let r = loop {
+                match self
+                    .oss(
+                        reqwest::Method::PUT,
+                        params,
+                        &format!("partNumber={no}&uploadId={upload_id}"),
+                        OCT,
+                        data.clone(),
+                    )
+                    .await
+                {
+                    Ok(r) => break r,
+                    Err(e) if tries >= 2 => return Err(e),
+                    Err(_) => tries += 1,
+                }
+            };
+            let etag = r
+                .headers()
+                .get("etag")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            xml.push_str(&format!(
+                "<Part><PartNumber>{no}</PartNumber><ETag>{etag}</ETag></Part>"
+            ));
+            off += len;
+            no += 1;
+            on_progress(off);
+        }
+        xml.push_str("</CompleteMultipartUpload>");
+        self.oss(
+            reqwest::Method::POST,
+            params,
+            &format!("uploadId={upload_id}"),
+            "application/xml",
+            Bytes::from(xml),
+        )
+        .await?;
         Ok(())
+    }
+
+    async fn upload(
+        &self,
+        path: &str,
+        src: Src,
+        on_progress: &(dyn Fn(u64) + Send + Sync),
+    ) -> Result<()> {
+        let (parent, name) = Self::split(path)?;
+        let pid = self.mkdir_id(&parent).await?;
+        // Overwrite semantics: trash an existing file of the same name first.
+        if let Some(old) = self
+            .list_id(&pid)
+            .await?
+            .into_iter()
+            .find(|f| f.name == name)
+        {
+            if old.is_dir {
+                return Err(StorageError::AlreadyExists(path.into()));
+            }
+            self.trash(&old.id).await?;
+        }
+        let hash = src.gcid().await?;
+        let v = self
+            .api(
+                reqwest::Method::POST,
+                "/drive/v1/files",
+                &[],
+                Some(json!({
+                    "kind": "drive#file", "name": name, "size": src.len().to_string(), "hash": hash,
+                    "upload_type": "UPLOAD_TYPE_RESUMABLE",
+                    "objProvider": {"provider": "UPLOAD_TYPE_UNKNOWN"},
+                    "parent_id": pid, "folder_type": "NORMAL"})),
+            )
+            .await?;
+        match v.pointer("/resumable/params") {
+            // No resumable section = instant (hash-matched) upload.
+            None | Some(Value::Null) => {
+                on_progress(src.len());
+                Ok(())
+            }
+            Some(params) => self.oss_upload(params, &src, on_progress).await,
+        }
     }
 
     async fn trash(&self, id: &str) -> Result<()> {
@@ -778,31 +990,7 @@ impl StorageDriver for PikPakDriver {
     }
 
     async fn write(&self, path: &str, data: Bytes) -> Result<()> {
-        let (parent, name) = Self::split(path)?;
-        let pid = self.mkdir_id(&parent).await?;
-        // Overwrite semantics: trash an existing file of the same name first.
-        if let Some(old) = self
-            .list_id(&pid)
-            .await?
-            .into_iter()
-            .find(|f| f.name == name)
-        {
-            if old.is_dir {
-                return Err(StorageError::AlreadyExists(path.into()));
-            }
-            self.trash(&old.id).await?;
-        }
-        let v = self
-            .api(reqwest::Method::POST, "/drive/v1/files", &[], Some(json!({
-                "kind": "drive#file", "name": name, "size": data.len().to_string(), "hash": gcid(&data),
-                "upload_type": "UPLOAD_TYPE_RESUMABLE", "objProvider": {"provider": "UPLOAD_TYPE_UNKNOWN"},
-                "parent_id": pid, "folder_type": "NORMAL"})))
-            .await?;
-        match v.pointer("/resumable/params") {
-            // No resumable section = instant (hash-matched) upload.
-            None | Some(Value::Null) => Ok(()),
-            Some(params) => self.oss_put(params, data).await,
-        }
+        self.upload(path, Src::Mem(data), &|_| {}).await
     }
 
     async fn write_stream(
@@ -811,15 +999,40 @@ impl StorageDriver for PikPakDriver {
         mut data: ByteStream,
         on_progress: &(dyn Fn(u64) + Send + Sync),
     ) -> Result<u64> {
-        // GCID needs the whole content before the upload task is created (upstream caches too).
-        let mut buf = Vec::new();
+        // GCID needs the whole content before the upload task is created, so spool to a
+        // temp file (not memory); parts are then read back one at a time.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let tmp = std::env::temp_dir().join(format!(
+            "drivehub-pikpak-{}-{}-{}.part",
+            std::process::id(),
+            now_ms(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let f = std::sync::Arc::new(std::fs::File::create(&tmp).map_err(be)?);
+        let mut src = Src::File(tmp, 0);
+        let mut n = 0u64;
         while let Some(c) = data.next().await {
-            buf.extend_from_slice(&c.map_err(be)?);
-            on_progress(buf.len() as u64);
+            let c = c.map_err(be)?;
+            n += c.len() as u64;
+            let f = f.clone();
+            tokio::task::spawn_blocking(move || {
+                use std::io::Write;
+                (&*f).write_all(&c)
+            })
+            .await
+            .map_err(be)?
+            .map_err(be)?;
         }
-        let n = buf.len() as u64;
-        self.write(path, Bytes::from(buf)).await?;
+        if let Src::File(_, len) = &mut src {
+            *len = n;
+        }
+        drop(f);
+        self.upload(path, src, on_progress).await?;
         Ok(n)
+    }
+
+    fn set_option_sink(&self, sink: crate::OptionSink) {
+        *self.sink.lock().unwrap() = Some(sink);
     }
 
     async fn mkdir(&self, path: &str) -> Result<()> {

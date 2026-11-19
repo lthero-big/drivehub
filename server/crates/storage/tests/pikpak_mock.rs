@@ -36,6 +36,9 @@ struct Mock {
     captcha_inits: u32,
     pending: HashMap<String, String>, // oss key -> file id
     base: String,
+    parts: HashMap<String, std::collections::BTreeMap<u32, Vec<u8>>>, // uploadId -> parts
+    single_puts: u32,
+    completes: u32,
 }
 type S = Arc<Mutex<Mock>>;
 
@@ -89,12 +92,15 @@ async fn signin(State(s): State<S>, Json(b): Json<Value>) -> Json<Value> {
 
 async fn token(State(s): State<S>, Json(b): Json<Value>) -> Json<Value> {
     let mut m = s.lock().unwrap();
-    if b["refresh_token"] != "rt" {
+    if !b["refresh_token"].as_str().unwrap_or("").starts_with("rt") {
         return Json(json!({"error_code": 4126, "error": "invalid_grant"}));
     }
     m.refreshes += 1;
     m.access = format!("rf{}", m.refreshes);
-    Json(json!({"access_token": m.access, "refresh_token": "rt", "sub": "uid1"}))
+    // rotate the refresh token like the real service does
+    Json(
+        json!({"access_token": m.access, "refresh_token": format!("rt{}", m.refreshes), "sub": "uid1"}),
+    )
 }
 
 async fn list(
@@ -153,23 +159,75 @@ async fn create(State(s): State<S>, h: HeaderMap, Json(b): Json<Value>) -> Json<
     )
 }
 
-async fn oss(
-    State(s): State<S>,
-    Path((bucket, key)): Path<(String, String)>,
-    h: HeaderMap,
-    body: AxBytes,
-) -> StatusCode {
-    let mut m = s.lock().unwrap();
+fn oss_check(bucket: &str, h: &HeaderMap) {
     assert_eq!(bucket, "bkt");
     assert!(h["authorization"].to_str().unwrap().starts_with("OSS AK:"));
     assert_eq!(h["x-oss-security-token"], "STS");
-    let Some(id) = m.pending.remove(&key) else {
+}
+
+fn oss_finish(m: &mut Mock, key: &str, data: Vec<u8>) -> StatusCode {
+    let Some(id) = m.pending.remove(key) else {
         return StatusCode::NOT_FOUND;
     };
     let o = m.objs.iter_mut().find(|o| o.id == id).unwrap();
-    o.data = body.to_vec();
+    o.data = data;
     o.trashed = false;
     StatusCode::OK
+}
+
+async fn oss(
+    State(s): State<S>,
+    Path((bucket, key)): Path<(String, String)>,
+    Query(q): Query<HashMap<String, String>>,
+    h: HeaderMap,
+    body: AxBytes,
+) -> impl IntoResponse {
+    let mut m = s.lock().unwrap();
+    oss_check(&bucket, &h);
+    if let (Some(no), Some(uid)) = (q.get("partNumber"), q.get("uploadId")) {
+        let no: u32 = no.parse().unwrap();
+        let Some(parts) = m.parts.get_mut(uid) else {
+            return (StatusCode::NOT_FOUND, [("etag", String::new())]);
+        };
+        parts.insert(no, body.to_vec());
+        return (StatusCode::OK, [("etag", format!("\"e{no}\""))]);
+    }
+    m.single_puts += 1;
+    (
+        oss_finish(&mut m, &key, body.to_vec()),
+        [("etag", "\"x\"".into())],
+    )
+}
+
+async fn oss_post(
+    State(s): State<S>,
+    Path((bucket, key)): Path<(String, String)>,
+    Query(q): Query<HashMap<String, String>>,
+    h: HeaderMap,
+    body: AxBytes,
+) -> (StatusCode, String) {
+    let mut m = s.lock().unwrap();
+    oss_check(&bucket, &h);
+    if q.contains_key("uploads") {
+        let uid = format!("up{}", m.parts.len() + 1);
+        m.parts.insert(uid.clone(), Default::default());
+        return (
+            StatusCode::OK,
+            format!("<InitiateMultipartUploadResult><Bucket>bkt</Bucket><UploadId>{uid}</UploadId></InitiateMultipartUploadResult>"),
+        );
+    }
+    let uid = q.get("uploadId").expect("uploadId");
+    let parts = m.parts.remove(uid).expect("known upload");
+    let xml = String::from_utf8(body.to_vec()).unwrap();
+    // every uploaded part must be listed, in order, with its ETag
+    for no in parts.keys() {
+        assert!(xml.contains(&format!(
+            "<PartNumber>{no}</PartNumber><ETag>\"e{no}\"</ETag>"
+        )));
+    }
+    m.completes += 1;
+    let data = parts.into_values().flatten().collect();
+    (oss_finish(&mut m, &key, data), String::new())
 }
 
 async fn one(State(s): State<S>, h: HeaderMap, Path(id): Path<String>) -> Json<Value> {
@@ -301,7 +359,7 @@ async fn start() -> (S, String) {
         .route("/drive/v1/files", get(list).post(create))
         .route("/drive/v1/files/{id}", get(one).patch(patch))
         .route("/drive/v1/{op}", post(files_post))
-        .route("/oss/{bucket}/{*key}", put(oss))
+        .route("/oss/{bucket}/{*key}", put(oss).post(oss_post))
         .route("/dl/{id}", get(dl))
         .with_state(s.clone());
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -447,6 +505,84 @@ async fn pikpak_token_refresh_and_relogin() {
     // bad password surfaces an error
     let bad = build_driver("pikpak", &opts(&base, &[("password", "nope")])).unwrap();
     assert!(bad.list("").await.is_err());
+}
+
+#[tokio::test]
+async fn pikpak_multipart_and_streaming_upload() {
+    let (s, base) = start().await;
+    let drv = build_driver("pikpak", &opts(&base, &[("upload_part_size", "7")])).unwrap();
+    // small (<= part size) -> single PUT
+    drv.write("m/small.txt", Bytes::from_static(b"tiny"))
+        .await
+        .unwrap();
+    assert_eq!(s.lock().unwrap().single_puts, 1);
+    // in-memory write above part size -> multipart (4 parts of <=7 bytes)
+    let big: Vec<u8> = (0..25u8).collect();
+    drv.write("m/big.bin", Bytes::from(big.clone()))
+        .await
+        .unwrap();
+    assert_eq!(s.lock().unwrap().completes, 1);
+    assert_eq!(
+        collect(drv.read("m/big.bin", None).await.unwrap()).await,
+        big
+    );
+    // streaming write: spooled to disk, multipart, progress reaches the total
+    let chunks: Vec<std::io::Result<Bytes>> = (0..10)
+        .map(|i| Ok(Bytes::from(vec![b'a' + i as u8; 5])))
+        .collect();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let seen2 = seen.clone();
+    let n = drv
+        .write_stream(
+            "m/stream.bin",
+            futures::stream::iter(chunks).boxed(),
+            &move |t| seen2.lock().unwrap().push(t),
+        )
+        .await
+        .unwrap();
+    assert_eq!(n, 50);
+    assert_eq!(*seen.lock().unwrap().last().unwrap(), 50);
+    assert_eq!(s.lock().unwrap().completes, 2);
+    let got = collect(drv.read("m/stream.bin", None).await.unwrap()).await;
+    assert_eq!(got.len(), 50);
+    assert_eq!(&got[45..], b"jjjjj");
+    assert_eq!(drv.stat("m/stream.bin").await.unwrap().size, 50);
+    // ranged read across a part boundary
+    let r = collect(
+        drv.read(
+            "m/big.bin",
+            Some(ByteRange {
+                start: 5,
+                end: Some(10),
+            }),
+        )
+        .await
+        .unwrap(),
+    )
+    .await;
+    assert_eq!(r, vec![5, 6, 7, 8, 9]);
+    // no multipart session left dangling
+    assert!(s.lock().unwrap().parts.is_empty());
+}
+
+#[tokio::test]
+async fn pikpak_refresh_token_is_reported_for_persistence() {
+    let (s, base) = start().await;
+    let drv = build_driver("pikpak", &opts(&base, &[("refresh_token", "rt")])).unwrap();
+    let got = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+    let g2 = got.clone();
+    drv.set_option_sink(Arc::new(move |k: &str, v: &str| {
+        g2.lock().unwrap().push((k.into(), v.into()))
+    }));
+    drv.mkdir("a").await.unwrap();
+    assert_eq!(
+        got.lock().unwrap().clone(),
+        vec![("refresh_token".to_string(), "rt1".to_string())]
+    );
+    s.lock().unwrap().expire_once = true; // forces another refresh -> rotated again
+    drv.list("").await.unwrap();
+    assert_eq!(got.lock().unwrap().last().unwrap().1, "rt2");
+    assert_eq!(s.lock().unwrap().logins, 0);
 }
 
 #[test]
