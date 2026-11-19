@@ -1,0 +1,179 @@
+# Release pipeline (DEPTAI-478): push a tag vX.Y.Z whose number equals /VERSION.
+#   scripts/bump-version.sh X.Y.Z && git commit -am "release: vX.Y.Z" && git tag vX.Y.Z && git push --tags
+# Produces workflow artifacts only (server binary, web dist, bundle, docker image tarball, Android APK,
+# SHA256SUMS). Nothing is pushed to an external registry / release page: the optional
+# publish steps at the bottom are commented out on purpose.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: tag == VERSION == every consumer
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then scripts/check-version.sh "$GITHUB_REF_NAME"; else scripts/check-version.sh; fi
+          echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+
+  web:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: npm ci && npm run build
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        with: { name: web-dist, path: web/dist, retention-days: 7 }
+
+  server:
+    needs: [version, test, web]
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-latest, arch: amd64 }
+          # aarch64: native ARM runner (no cross toolchain needed). Enable when wanted:
+          # - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.arch }}
+      - uses: actions/download-artifact@v4
+        with: { name: web-dist, path: web/dist }
+      - name: package (binary + web + bundle + SHA256SUMS)
+        run: SKIP_WEB=1 OUT=out scripts/package-release.sh
+      - name: smoke — binary serves /api/version with the release number
+        run: |
+          DRIVEHUB_BIND=127.0.0.1:18478 DRIVEHUB_DATA_DIR=$RUNNER_TEMP/dh DRIVEHUB_WEB_DIR=web/dist ./out/drivehub-linux-${{ matrix.arch }} &
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:18478/api/version && break; sleep 1; done | tee v.json
+          grep -q "\"server_version\":\"${{ needs.version.outputs.version }}\"" v.json
+          curl -fsS -o /dev/null http://127.0.0.1:18478/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-linux-${{ matrix.arch }}
+          path: out/*
+          retention-days: 30
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: wrapper }
+      - name: unit tests (version negotiation, API client)
+        run: ./gradlew --no-daemon testDebugUnitTest
+        working-directory: android
+      - name: signing key from secrets (optional)
+        # Secrets: ANDROID_KEYSTORE_B64 (base64 .jks), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+        # ANDROID_KEY_PASSWORD. When ANDROID_KEYSTORE_B64 is not configured the release APK is
+        # signed with the CI debug key: installable for testing, NOT suitable for stores / updates.
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [[ -n "$KS_B64" ]]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "DRIVEHUB_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "DRIVEHUB_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "DRIVEHUB_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+            echo "DRIVEHUB_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "SIGNING=release-key" >> "$GITHUB_ENV"
+          else
+            echo "SIGNING=debug-key" >> "$GITHUB_ENV"
+          fi
+      - name: assemble release APK (versionName/versionCode from VERSION)
+        run: ./gradlew --no-daemon assembleRelease
+        working-directory: android
+      - name: collect APK
+        run: |
+          mkdir out
+          cp android/app/build/outputs/apk/release/app-release.apk "out/drivehub-$VERSION-android-$SIGNING.apk"
+          (cd out && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with: { name: android-apk, path: out/*, retention-days: 30 }
+
+  docker:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: base image (tag = hash of base.Dockerfile)
+        run: |
+          BASE_TAG=$(sha256sum deploy/base.Dockerfile | cut -c1-12)
+          echo "BASE=drivehub-base:$BASE_TAG" >> "$GITHUB_ENV"
+          docker build -f deploy/base.Dockerfile -t drivehub-base:$BASE_TAG -t drivehub-base:latest deploy
+      - name: runtime image FROM base (tags = version + latest)
+        run: |
+          docker build -f deploy/runtime.Dockerfile \
+            --build-arg BASE_IMAGE="$BASE" --build-arg VERSION="$VERSION" \
+            -t drivehub:$VERSION -t drivehub:latest .
+      - name: smoke — container health + version
+        run: |
+          docker run -d --name dh -p 18470:8470 drivehub:$VERSION
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:18470/api/version && break; sleep 1; done | tee v.json
+          grep -q "\"server_version\":\"$VERSION\"" v.json
+          docker rm -f dh
+      - name: save image tarball + sha256
+        run: |
+          mkdir out
+          docker save drivehub:$VERSION drivehub:latest | gzip > out/drivehub-$VERSION-docker-amd64.tar.gz
+          (cd out && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with: { name: docker-image, path: out/*, retention-days: 30 }
+      # Optional publish (disabled — do not push images from CI until a registry is chosen):
+      # - uses: docker/login-action@v3
+      #   with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
+      # - run: |
+      #     for t in $VERSION latest; do docker tag drivehub:$t ghcr.io/lthero-big/drivehub:$t; docker push ghcr.io/lthero-big/drivehub:$t; done
+
+  checksums:
+    needs: [version, server, docker, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: combined SHA256SUMS
+        run: |
+          mkdir release
+          find artifacts -type f ! -name SHA256SUMS ! -path '*/web-dist/*' -exec cp {} release/ \;
+          (cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: drivehub-${{ needs.version.outputs.version }}-release
+          path: release/*
+          retention-days: 90
+      # Optional: attach to a GitHub Release (disabled; needs `permissions: contents: write`).
+      # Once DEPTAI-484's scripts/make-release.sh lands, sign release-manifest.json here too.
+      # - uses: softprops/action-gh-release@v2
+      #   with: { files: release/*, generate_release_notes: true }

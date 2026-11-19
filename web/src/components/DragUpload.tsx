@@ -112,51 +112,82 @@ export function PhCard({ p }: { p: Ph }) {
   );
 }
 
-const HIT = 74;
-/** Bin that appears while one of our own items is dragged; dropping on / near it deletes. */
-export function TrashZone({ active, count, onDelete }: { active: boolean; count: number; onDelete: () => void }) {
+// Dropit drag-to-trash (design.lthero.com motion-dropit-drag-trash): the bin spawns ONCE at drag start,
+// next to the dragged card (home centre + 230px east for a card, i.e. ~56px past its right edge;
+// vertically aligned with it) and stays frozen there for the whole drag. Hit test is the cursor
+// vs the bin centre (radius 30 × 1.15), not card overlap. Hot: disc 1.42× red #dc2626, lid −24°.
+// After a delete the red bin lingers ~0.8s in place.
+const BIN_R = 30, BIN_PAD = 46, BIN_GAP = 56;
+export const binSpot = (home: DOMRect) => ({
+  x: Math.min(Math.max(home.right + BIN_GAP, BIN_PAD), window.innerWidth - BIN_PAD),
+  y: Math.min(Math.max(home.top + home.height / 2, BIN_PAD), window.innerHeight - BIN_PAD),
+});
+/** Bin that appears while one of our own items is dragged; dropping on it deletes. */
+export function TrashZone({ active, home, count, onDelete }: { active: boolean; home: DOMRect | null; count: number; onDelete: () => void }) {
   const [hot, setHot] = useState(false);
-  const [gulp, setGulp] = useState(false);
-  const el = useRef<HTMLDivElement>(null);
+  const [gulp, setGulp] = useState<{ x: number; y: number; n: number } | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [shown, setShown] = useState(false);
   const hotRef = useRef(false);
+  const posRef = useRef<{ x: number; y: number } | null>(null);
   const cb = useRef(onDelete);
   cb.current = onDelete;
+  const nRef = useRef(count);
+  nRef.current = count;
+  // freeze the spot when the drag starts; never follow the pointer
+  useLayoutEffect(() => {
+    if (!active || !home) return void ((posRef.current = null), setPos(null), setShown(false));
+    const p = binSpot(home);
+    posRef.current = p;
+    setPos(p);
+    setShown(false);
+    const r = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(r);
+  }, [active, home]);
   useEffect(() => {
-    if (!active) return void (hotRef.current = false, setHot(false));
+    if (!active) return void ((hotRef.current = false), setHot(false));
     const near = (x: number, y: number) => {
-      const r = el.current?.getBoundingClientRect();
-      if (!r) return false;
-      return Math.hypot(x - (r.left + r.width / 2), y - (r.top + r.height / 2)) < HIT;
+      const p = posRef.current;
+      return !!p && Math.hypot(x - p.x, y - p.y) <= BIN_R * 1.15;
     };
     const over = (e: DragEvent) => {
+      if (e.clientX === 0 && e.clientY === 0) return; // Firefox "drag" events carry no coordinates
       const h = near(e.clientX, e.clientY);
-      if (h !== hotRef.current) (hotRef.current = h, setHot(h));
-      if (h) (e.preventDefault(), e.dataTransfer && (e.dataTransfer.dropEffect = "move"));
+      if (h !== hotRef.current) ((hotRef.current = h), setHot(h));
+      if (h && e.type === "dragover") (e.preventDefault(), e.dataTransfer && (e.dataTransfer.dropEffect = "move"));
     };
     const drop = (e: DragEvent) => {
       if (!near(e.clientX, e.clientY)) return;
       e.preventDefault();
+      e.stopPropagation();
       hotRef.current = false;
       setHot(false);
-      setGulp(true);
-      setTimeout(() => setGulp(false), 600);
+      const p = posRef.current!;
+      setGulp({ ...p, n: nRef.current });
+      setTimeout(() => setGulp(null), 800);
       cb.current();
     };
     window.addEventListener("dragover", over, true);
+    window.addEventListener("drag", over, true); // source-side events keep the hot state live between dragovers
     window.addEventListener("drop", drop, true);
     return () => {
       window.removeEventListener("dragover", over, true);
+      window.removeEventListener("drag", over, true);
       window.removeEventListener("drop", drop, true);
     };
   }, [active]);
-  if (!active && !gulp) return null;
+  const at = gulp ?? (active ? pos : null);
+  if (!at) return null;
+  const isHot = hot || !!gulp;
   return createPortal(
-    <div ref={el} data-testid="trash-zone" data-hot={hot || gulp || undefined} className="trash-zone" aria-hidden>
-      <svg viewBox="0 0 24 24" className="size-6 overflow-visible" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-        <g className="lid"><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></g>
-        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" />
-      </svg>
-      <span className="trash-label">{gulp ? "已删除" : hot ? `松手删除 ${count} 项` : "拖到这里删除"}</span>
+    <div data-testid="trash-zone" data-hot={isHot || undefined} data-x={Math.round(at.x)} data-y={Math.round(at.y)} className={cx("dbin", (shown || gulp) && "show", isHot && "hot")} style={{ transform: `translate(${at.x}px, ${at.y}px)` }} aria-hidden>
+      <div className="disc">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <g className="lid"><path d="M4 7h16" /><path d="M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2" /><path d="M12 4.6v-.4" /></g>
+          <path d="M6 7l.8 12.2A1.8 1.8 0 0 0 8.6 21h6.8a1.8 1.8 0 0 0 1.8-1.8L18 7" /><path d="M10 11v6M14 11v6" />
+        </svg>
+      </div>
+      <div className="blabel">{gulp ? `已删除 ${gulp.n} 项` : hot ? (count > 1 ? `松手删除 ${count} 项` : "松手删除") : "拖到这里删除"}</div>
     </div>,
     document.body,
   );

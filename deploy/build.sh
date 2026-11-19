@@ -7,6 +7,7 @@ BASE="drivehub-base:$BASE_TAG"
 if ! docker image inspect "$BASE" >/dev/null 2>&1; then
   docker build -f deploy/base.Dockerfile -t "$BASE" -t drivehub-base:latest deploy
 fi
-VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-docker build -f deploy/runtime.Dockerfile --build-arg BASE_IMAGE="$BASE" -t "drivehub:$VERSION" -t drivehub:latest .
+scripts/check-version.sh >/dev/null
+VERSION=$(tr -d "[:space:]" < VERSION)
+docker build -f deploy/runtime.Dockerfile --build-arg BASE_IMAGE="$BASE" --build-arg VERSION="$VERSION" -t "drivehub:$VERSION" -t drivehub:latest .
 echo "built drivehub:$VERSION on $BASE"

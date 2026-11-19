@@ -1,7 +1,10 @@
+# DriveHub — docker compose deployment. See docs/deploy.md.
+# The default tag is kept in sync with /VERSION by scripts/bump-version.sh;
+# override with DRIVEHUB_TAG=latest (or another release) in .env.
 services:
   drivehub:
-    image: drivehub:latest
-    ports: ["8470:8470"]
+    image: ${DRIVEHUB_IMAGE:-drivehub}:${DRIVEHUB_TAG:-0.1.0}
+    ports: ["${DRIVEHUB_PORT:-8470}:8470"]
     volumes:
       - ./data:/data
       - ./config:/config

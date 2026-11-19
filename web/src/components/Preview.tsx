@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEven
 import { ChevronLeft, ChevronRight, Download, ExternalLink, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 import { fileUrl, rawFetch, type FsItem } from "../lib/api";
 import { cx, ext, fmtSize, kindOf } from "../lib/util";
-import { Button } from "../ui/ui";
+import { Button, IconButton, Spinner } from "../ui/ui";
 import { SkPreview } from "../ui/r6";
 import { FoldToolbar } from "../ui/motion";
 import { FileIcon } from "./FileIcon";
@@ -315,10 +315,10 @@ function ImageStack({ item, siblings, onPick }: { item: FsItem; siblings: FsItem
           ]} />
         </div>
         <div role="toolbar" aria-label="缩放" className="pop-surface absolute top-4 right-4 z-20 flex items-center gap-0.5 rounded-xl p-1 text-[13px]">
-          <button aria-label="缩小" onClick={() => zoomAt(zm.z / 1.25)} disabled={zm.z <= 1} className="grid size-8 place-items-center rounded-lg hover:bg-hover disabled:opacity-40"><ZoomOut className="size-4" /></button>
+          <IconButton size="sm" label="缩小" onClick={() => zoomAt(zm.z / 1.25)} disabled={zm.z <= 1}><ZoomOut className="size-4" /></IconButton>
           <span data-testid="zoom-level" className="w-12 text-center tabular-nums text-muted">{Math.round(zm.z * 100)}%</span>
-          <button aria-label="放大" onClick={() => zoomAt(zm.z * 1.25)} className="grid size-8 place-items-center rounded-lg hover:bg-hover"><ZoomIn className="size-4" /></button>
-          <button aria-label="重置缩放" onClick={() => zoomAt(1)} className="grid size-8 place-items-center rounded-lg hover:bg-hover"><Maximize2 className="size-4" /></button>
+          <IconButton size="sm" label="放大" onClick={() => zoomAt(zm.z * 1.25)}><ZoomIn className="size-4" /></IconButton>
+          <IconButton size="sm" label="重置缩放" onClick={() => zoomAt(1)}><Maximize2 className="size-4" /></IconButton>
         </div>
         {prev && (
           <button aria-label="上一张" onClick={() => goto(-1)} className="absolute top-1/2 left-1 z-20 -translate-y-1/2 rounded-full border border-line bg-panel p-2 shadow-pop hover:bg-hover">

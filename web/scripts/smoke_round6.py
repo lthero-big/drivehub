@@ -1,20 +1,18 @@
-"""DEPTAI-485 round-6 checks + screenshots (Playwright, python).
-Usage: BASE=http://localhost:8488 DH_USER=.. DH_PASS=.. SHOTS=dir python3 smoke_round6.py
-Covers the 10 round-6 items:
- 1 share delete → undo toast (undo keeps it, timeout deletes it)   2 unified control / title sizes
- 3 stats page: fixed controls, only the detail area scrolls          4 IP stats + regions + offline map (API + UI)
- 5 ACL redesign (sub-tabs, member cards, presets, fine-tune)         6 skeletons while loading
- 7 no native select / checkbox / radio anywhere                      8 unified pager (numbers, jump, page size)
- 9 tags single line with +N popover                                  10 sidebar 全部文件 collapse, indented favorites, limit"""
-import json, os, time, urllib.request, urllib.parse, urllib.error
+"""DEPTAI-485 round-6 regression checks + screenshots (Playwright, python).
+Usage: BASE=http://localhost:8480 DH_USER=.. DH_PASS=.. SHOTS=dir python3 smoke_round6.py
+1 drag-to-trash (Dropit): whole card/row lifts and follows the pointer, bin spawns once next to the
+  dragged item and stays frozen, cursor hit test, delete vanishes in place, Esc flies back.
+2 audio track switch: panel + player stay mounted (no fade-in / blank frame), tab replaced in place.
+3 video player back to the full-width r3 look (no 342px phone-like card).
+4 code/text viewer: format select + wrap + copy are one 32px key row in the toolbar."""
+import json, os, urllib.request, urllib.parse, urllib.error
 from playwright.sync_api import sync_playwright
 
-BASE = os.environ.get("BASE", "http://localhost:8488")
+BASE = os.environ.get("BASE", "http://localhost:8480")
 U, P = os.environ["DH_USER"], os.environ["DH_PASS"]
 SHOTS = os.environ.get("SHOTS", "/tmp")
 TMP = "/示例/r6-tmp"
 errors, fails = [], []
-os.makedirs(SHOTS, exist_ok=True)
 
 def check(name, cond):
     (fails.append(name) if not cond else None)
@@ -23,75 +21,52 @@ def check(name, cond):
 def shot(page, name, **kw):
     page.screenshot(path=f"{SHOTS}/{name}.png", **kw)
 
-def api(tok, method, path, body=None, raw=None, ctype="application/json", auth=True, headers=None):
+def api(tok, method, path, body=None, raw=None, ctype="application/json"):
     data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
-    h = {"content-type": ctype, **(headers or {})}
-    if auth: h["authorization"] = f"Bearer {tok}"
-    req = urllib.request.Request(BASE + urllib.parse.quote(path, safe="/?=&%:,"), data=data, method=method, headers=h)
+    req = urllib.request.Request(BASE + urllib.parse.quote(path, safe="/?=&%:"), data=data, method=method, headers={"content-type": ctype, "authorization": f"Bearer {tok}"})
     try:
         with urllib.request.urlopen(req) as r:
             b = r.read()
-            try: return json.loads(b) if b else {}
-            except ValueError: return {"_raw": len(b)}
+            return json.loads(b) if b else {}
     except urllib.error.HTTPError as e:
-        return {"_err": e.code, "_body": e.read().decode()[:200]}
+        return {"_err": e.code}
 
 def login():
     req = urllib.request.Request(BASE + "/api/auth/login", data=json.dumps({"login": U, "password": P}).encode(), headers={"content-type": "application/json"})
     return json.load(urllib.request.urlopen(req))["access_token"]
 
-def combo_pick(page, cb, text):
-    cb.click(); page.wait_for_timeout(250)
-    page.get_by_role("listbox").get_by_role("option", name=text, exact=True).click(); page.wait_for_timeout(300)
+def bin_info(page):
+    return page.evaluate("""() => { const b = document.querySelector('[data-testid=trash-zone]'); if (!b) return null;
+      const d = b.querySelector('.disc').getBoundingClientRect();
+      return {x: +b.dataset.x, y: +b.dataset.y, hot: b.hasAttribute('data-hot'), cx: d.left + d.width / 2, cy: d.top + d.height / 2, label: b.innerText}; }""")
 
-def native_count(page):
-    return page.evaluate("() => [...document.querySelectorAll('select, input[type=checkbox], input[type=radio]')].filter(e => !e.classList.contains('sr-only')).length")
+def lift_box(page):
+    return page.evaluate("""() => { const g = document.querySelector('[data-drag-lift]'); if (!g) return null;
+      const r = g.getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2, w: g.offsetWidth, h: g.offsetHeight, text: g.innerText, out: g.dataset.out || '', tf: g.style.transform}; }""")
 
-def goto(page, hash_, sel, t=10000):
-    page.goto(BASE + "/#" + hash_); page.wait_for_selector(sel, timeout=t); page.wait_for_timeout(500)
+def open_dir(page, path, view):
+    page.evaluate(f"() => localStorage.setItem('dh_view', JSON.stringify('{view}'))")
+    page.goto(BASE + "/#/stats"); page.wait_for_timeout(150)
+    page.goto(BASE + "/#/files" + path); page.wait_for_timeout(300)
+    if page.locator("[role=tab]").count(): page.locator("[role=tab]").first.click()
+    page.wait_for_selector("[data-sel-path]"); page.wait_for_timeout(500)
+
+def glide(page, x0, y0, x1, y1, n=12):
+    for k in range(1, n + 1):
+        page.mouse.move(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n); page.wait_for_timeout(16)
+
+def open_file(page, path):
+    d = path.rsplit("/", 1)[0]
+    page.goto(BASE + "/#/files" + d); page.wait_for_timeout(500)
+    if page.locator("[role=tab]").count(): page.locator("[role=tab]").first.click(); page.wait_for_timeout(300)
+    page.locator(f'[data-sel-path="{path}"]').first.dblclick(); page.wait_for_timeout(1200)
 
 with sync_playwright() as pw:
     tok = login()
-    # ---------- fixtures ----------
     api(tok, "POST", "/api/fs/mkdir", {"path": TMP})
-    for i in range(1, 186):
-        api(tok, "PUT", f"/api/fs/upload?path={TMP}/f{i:03d}.txt&overwrite=true", raw=f"file {i}\n".encode(), ctype="application/octet-stream")
-    for t in api(tok, "GET", "/api/tags"):
-        if str(t.get("name", "")).startswith("r6-"): api(tok, "DELETE", f"/api/tags/{t['id']}")
-    api(tok, "POST", "/api/tags/assign", {"paths": [f"{TMP}/f001.txt"], "add_names": [f"r6-标签{i}" for i in range(1, 10)]})
-    for s in api(tok, "GET", "/api/shares"):
-        if str(s.get("name", "")).startswith("f0") or "r6" in str(s.get("name", "")): api(tok, "DELETE", f"/api/shares/{s['id']}")
-    shares = [api(tok, "POST", "/api/shares", {"paths": [f"{TMP}/f{i:03d}.txt"], "perm": "download"}) for i in range(1, 26)]
-    check(f"fixture 25 shares ({sum('code' in s for s in shares)})", all("code" in s for s in shares))
-    t0 = int(time.time()) - 1
-    IPS = {"8.8.8.8": 3, "1.1.1.1": 2, "114.114.114.114": 6, "223.5.5.5": 5, "202.96.128.86": 4, "61.135.169.121": 3, "192.168.1.20": 7, "10.0.0.8": 2, "81.2.69.142": 2, "133.242.0.1": 2, "203.0.113.9": 1}
-    for ip, n in IPS.items():
-        for k in range(n):
-            api(tok, "GET", f"/api/s/{shares[k % 5]['code']}", auth=False, headers={"x-forwarded-for": ip})
-    # ---------- #4 backend ----------
-    st = api(tok, "GET", f"/api/stats/access?scope=shares&per_page=5&from={t0}")
-    geo = st.get("summary", {}).get("geo", {})
-    codes = [c["code"] for c in geo.get("by_country", [])]
-    check(f"#4 api geo db loaded ({geo.get('db')})", geo.get("db") is True)
-    check(f"#4 api by_country has LAN/CN/US ({codes})", all(c in codes for c in ("LAN", "CN", "US")))
-    regs = [r["region"] for r in geo.get("by_region", []) if r["code"] == "CN"]
-    check(f"#4 api CN provinces ({regs})", len(regs) >= 2)
-    lan = next((c for c in geo.get("by_country", []) if c["code"] == "LAN"), {})
-    check(f"#4 api LAN = 9 events / 2 IPs ({lan})", lan.get("count") == 9 and lan.get("ips") == 2)
-    cn = api(tok, "GET", f"/api/stats/access?scope=shares&country=CN&per_page=200&from={t0}")
-    check(f"#4 api country=CN filter ({cn.get('total')} rows)", cn.get("total") == 18 and all((r.get("geo") or "").startswith("中国") for r in cn["rows"]))
-    if regs:
-        rg = api(tok, "GET", f"/api/stats/access?scope=shares&country=CN&region={urllib.parse.quote(regs[0])}&from={t0}")
-        check(f"#4 api region filter {regs[0]} ({rg.get('total')})", 0 < rg.get("total", 0) < 18)
-    ips = api(tok, "GET", f"/api/stats/ips?scope=shares&per_page=4&sort=count&from={t0}")
-    check(f"#4 api /stats/ips paged ({ips.get('total')} ips, {len(ips.get('rows', []))} rows)", ips.get("total") == len(IPS) and len(ips.get("rows", [])) == 4)
-    check("#4 api /stats/ips sorted by count", ips["rows"][0]["ip"] == "192.168.1.20" and ips["rows"][0]["geo"]["label"] == "局域网")
-    allips = {r["ip"]: r for r in api(tok, "GET", f"/api/stats/ips?scope=shares&per_page=50&from={t0}")["rows"]}
-    check(f"#4 api 10.x is 局域网, 203.0.113.9 is 保留地址 ({allips['10.0.0.8']['geo']['label']}, {allips['203.0.113.9']['geo']['label']})", allips["10.0.0.8"]["geo"]["kind"] == "lan" and allips["203.0.113.9"]["geo"]["kind"] == "reserved")
-    check(f"#4 api 8.8.8.8 → US ({allips['8.8.8.8']['geo']})", allips["8.8.8.8"]["geo"]["code"] == "US")
-    check(f"#4 api visits/shares per ip ({allips['114.114.114.114']['visits']}, {allips['114.114.114.114']['shares']})", allips["114.114.114.114"]["visits"] == 6 and allips["114.114.114.114"]["shares"] == 5)
-
-    br = pw.chromium.launch()
+    for n in ["alpha.txt", "bravo.txt", "charlie.txt", "delta.txt", "echo.txt"]:
+        api(tok, "PUT", f"/api/fs/upload?path={TMP}/{n}&overwrite=true", raw=f"hello {n}\n".encode(), ctype="application/octet-stream")
+    br = pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
     ctx = br.new_context(viewport={"width": 1440, "height": 900}, color_scheme="light")
     page = ctx.new_page()
     page.on("console", lambda m: m.type == "error" and errors.append(f"console {m.text}"))
@@ -99,226 +74,118 @@ with sync_playwright() as pw:
     page.goto(BASE + "/"); page.wait_for_selector("form")
     page.get_by_label("用户名或邮箱").fill(U); page.get_by_label("密码").fill(P)
     page.get_by_role("button", name="登录").click(); page.wait_for_selector("#main", timeout=10000)
-    favs = [{"path": f"{TMP}/f{i:03d}.txt", "name": f"f{i:03d}.txt", "is_dir": False} for i in range(1, 8)] + [{"path": "/示例/文档", "name": "文档", "is_dir": True}, {"path": "/示例/照片", "name": "照片", "is_dir": True}]
-    page.evaluate("""(f) => { localStorage.setItem('dh_view', JSON.stringify('list')); localStorage.setItem('dh_favs', JSON.stringify(f));
-      localStorage.setItem('dh_prefs', JSON.stringify({openInPlace:false,favsCollapsed:false,adminCollapsed:false,filesCollapsed:false,favsShowAll:false,hoverPreview:true}));
-      localStorage.setItem('dh_pagesize_files', '30'); }""", favs)
+    page.evaluate("""() => { localStorage.setItem('dh_tabs', JSON.stringify({tabs: [], active: null}));
+      localStorage.setItem('dh_prefs', JSON.stringify({openInPlace:false,favsCollapsed:false,adminCollapsed:false,hoverPreview:false})); }""")
     page.reload(); page.wait_for_selector("#main")
 
-    # ---------- #6 skeletons (slow API) ----------
-    def slow(route):
-        time.sleep(1.5); route.continue_()
-    page.route("**/api/fs/list**", slow)
-    page.goto(BASE + "/#/files" + TMP); page.wait_for_timeout(500)
-    check("#6 file list skeleton while loading", page.locator("[data-skeleton]").count() >= 1 and page.locator(".animate-spin").count() == 0)
-    shot(page, "06-skeleton-files")
-    page.unroute("**/api/fs/list**")
-    page.route("**/api/stats/access**", slow)
-    page.goto(BASE + "/#/stats"); page.wait_for_timeout(500)
-    check("#6 stats skeleton (kpis + table)", page.locator("[data-skeleton]").count() >= 1 and page.locator(".animate-spin").count() == 0)
-    shot(page, "06-skeleton-stats")
-    page.unroute("**/api/stats/access**")
-    page.route("**/api/acl/rules", slow)
-    page.goto(BASE + "/#/admin/acl"); page.wait_for_timeout(500)
-    check("#6 acl skeleton", page.locator("[data-skeleton]").count() >= 1)
-    shot(page, "06-skeleton-acl")
-    page.unroute("**/api/acl/rules")
+    # ---------- 1 drag to trash: list rows ----------
+    open_dir(page, TMP, "list")
+    row = page.locator(f'[role=row][data-sel-path="{TMP}/bravo.txt"]').first
+    rb = row.bounding_box()
+    sx, sy = rb["x"] + 120, rb["y"] + rb["height"] / 2
+    page.mouse.move(sx, sy); page.mouse.down()
+    glide(page, sx, sy, sx + 30, sy + 40, 6); page.wait_for_timeout(150)
+    g = lift_box(page); b0 = bin_info(page)
+    check(f"1 whole row lifts (ghost {g and round(g['w'])}x{g and round(g['h'])} vs row {round(rb['width'])}x{round(rb['height'])})", bool(g) and g["w"] >= min(rb["width"], 720) - 2 and abs(g["h"] - rb["height"]) < 2 and "bravo" in g["text"])
+    check("1 no name-only chip used", page.locator(".fly-chip").count() == 0)
+    check("1 source row becomes dashed slot", page.locator(f'[data-sel-path="{TMP}/bravo.txt"].drag-slot').count() == 1)
+    exp_x = min(max(rb["x"] + min(rb["width"], 720) + 56, 46), 1440 - 46)
+    check(f"1 bin spawns beside the dragged row ({b0}) expected x≈{round(exp_x)} y≈{round(rb['y'] + rb['height'] / 2)}", bool(b0) and abs(b0["x"] - exp_x) <= 2 and abs(b0["y"] - (rb["y"] + rb["height"] / 2)) <= 2)
+    shot(page, "1a-row-lifted-bin-beside")
+    glide(page, sx + 30, sy + 40, sx + 380, sy + 300, 14); page.wait_for_timeout(200)
+    g2 = lift_box(page); b1 = bin_info(page)
+    check(f"1 ghost follows pointer (Δx {g2 and round(g2['x'] - g['x'])}, Δy {g2 and round(g2['y'] - g['y'])})", bool(g2) and abs((g2["x"] - g["x"]) - 350) < 40 and abs((g2["y"] - g["y"]) - 260) < 40)
+    check(f"1 bin stays frozen while dragging ({b1})", bool(b1) and b1["x"] == b0["x"] and b1["y"] == b0["y"] and abs(b1["cx"] - b0["cx"]) < 1.5)
+    shot(page, "1b-dragged-far-bin-frozen")
+    glide(page, sx + 380, sy + 300, b0["x"] + 10, b0["y"] + 8, 12); page.wait_for_timeout(300)
+    b2 = bin_info(page)
+    check(f"1 cursor within 34.5px of bin -> hot ({b2})", bool(b2) and b2["hot"] and "松手删除" in b2["label"])
+    shot(page, "1c-bin-hot")
+    page.mouse.up(); page.wait_for_timeout(120)
+    g3 = lift_box(page); b3 = bin_info(page)
+    check(f"1 delete: ghost vanishes in place ({g3 and g3['out']})", (g3 is None) or g3["out"] == "delete")
+    check(f"1 red bin lingers after delete ({b3 and b3['label']})", bool(b3) and b3["hot"] and b3["x"] == b0["x"])
+    check("1 undo toast", page.get_by_role("button", name="撤销").count() >= 1)
+    shot(page, "1d-deleted-bin-lingers")
+    page.wait_for_timeout(1000)
+    check("1 bin gone ~0.8s later, ghost removed", bin_info(page) is None and lift_box(page) is None)
+    if page.get_by_role("button", name="撤销").count(): page.get_by_role("button", name="撤销").first.click(); page.wait_for_timeout(800)
 
-    # ---------- #8 pager + #9 tags (files) ----------
-    goto(page, "/files" + TMP, '[role=row][data-sel-path]')
-    pager = page.locator("[data-pager]").last
-    check("#8 file pager present", pager.count() == 1 and pager.get_attribute("data-pager") != "single")
-    check(f"#8 page numbers ({pager.locator('[aria-label^=第]').count()})", pager.locator("[aria-label^='第 ']").count() >= 5)
-    check("#8 jump input (7 pages)", pager.get_by_label("跳转页码").count() == 1)
-    pager.get_by_label("跳转页码").fill("5"); pager.get_by_label("跳转页码").press("Enter"); page.wait_for_timeout(500)
-    check("#8 jump to page 5", page.locator("[data-pager] [aria-current=page]").last.inner_text().strip() == "5")
-    check(f"#8 range text ({page.locator('[data-pager-range]').last.inner_text()})", "121–150" in page.locator("[data-pager-range]").last.inner_text())
-    shot(page, "08-pager-files-p5")
-    combo_pick(page, page.locator("[data-pager]").last.get_by_role("combobox", name="每页条数"), "100 项/页" if page.locator("[data-pager-range]").last.inner_text().endswith("项") else "100 条/页") if False else None
-    cb = page.locator("[data-pager]").last.get_by_role("combobox", name="每页条数")
-    cb.click(); page.wait_for_timeout(250)
-    opt = page.get_by_role("listbox").get_by_role("option").filter(has_text="100")
-    opt.first.click(); page.wait_for_timeout(600)
-    check(f"#8 page size 100 → 2 pages ({page.locator('[data-pager-range]').last.inner_text()})", "1–100" in page.locator("[data-pager-range]").last.inner_text())
-    check("#8 page size persisted", page.evaluate("localStorage.getItem('dh_pagesize_files')") == "100")
-    page.evaluate("localStorage.setItem('dh_pagesize_files', '30')")
-    goto(page, "/files" + TMP, '[role=row][data-sel-path]')
-    tr = page.locator(f'[role=row][data-sel-path="{TMP}/f001.txt"] [data-file-tags]').first
-    tot, shown = int(tr.get_attribute("data-tags-total")), int(tr.get_attribute("data-tags-shown"))
-    check(f"#9 tag row total 9, shown {shown} < 9", tot == 9 and 0 < shown < 9)
-    box = tr.bounding_box()
-    check(f"#9 tags single line (h={box['height']:.0f})", box["height"] <= 28)
-    more = tr.locator("[data-tags-more]")
-    check(f"#9 +N chip = {more.get_attribute('data-tags-more')}", more.count() == 1 and int(more.get_attribute("data-tags-more")) == 9 - shown)
-    more.hover(); page.wait_for_timeout(500)
-    popc = page.locator("[data-tags-popover] .ftag").count()
-    check(f"#9 hover popover lists all 9 tags ({popc})", popc == 9)
-    shot(page, "09-tags-plusN-hover")
-    page.mouse.move(5, 890); page.wait_for_timeout(500)
-    check("#9 popover closes", page.locator("[data-tags-popover]").count() == 0)
-    more.click(); page.wait_for_timeout(400)
-    check("#9 click opens popover", page.locator("[data-tags-popover]").count() == 1)
-    page.keyboard.press("Escape"); page.mouse.click(700, 60); page.wait_for_timeout(300)
-    page.set_viewport_size({"width": 1440, "height": 900})
-    page.evaluate("localStorage.setItem('dh_view', JSON.stringify('grid'))"); page.reload(); page.wait_for_selector("[data-file-tags]"); page.wait_for_timeout(600)
-    g = page.locator(f'[data-sel-path="{TMP}/f001.txt"] [data-file-tags]').first
-    check(f"#9 grid card tags single line (+{g.get_attribute('data-tags-more') or g.locator('[data-tags-more]').get_attribute('data-tags-more')})", g.bounding_box()["height"] <= 28 and g.locator("[data-tags-more]").count() == 1)
-    shot(page, "09-tags-grid")
-    page.evaluate("localStorage.setItem('dh_view', JSON.stringify('list'))"); page.reload(); page.wait_for_selector("#main"); page.wait_for_timeout(400)
+    # ---------- 1 grid cards + Esc cancel flies back ----------
+    open_dir(page, TMP, "grid")
+    card = page.locator(f'li[data-sel-path="{TMP}/charlie.txt"]').first
+    cb = card.bounding_box()
+    sx, sy = cb["x"] + cb["width"] / 2, cb["y"] + cb["height"] / 2
+    page.mouse.move(sx, sy); page.mouse.down()
+    glide(page, sx, sy, sx - 60, sy + 70, 10); page.wait_for_timeout(150)
+    g = lift_box(page); b0 = bin_info(page)
+    check(f"1 whole grid card lifts ({g and round(g['w'])} vs {round(cb['width'])})", bool(g) and abs(g["w"] - cb["width"]) < 2 and abs(g["h"] - cb["height"]) < 2)
+    exp_x = min(max(cb["x"] + cb["width"] + 56, 46), 1440 - 46)
+    check(f"1 bin spawns ~56px right of the card ({b0 and b0['x']} vs {round(exp_x)})", bool(b0) and abs(b0["x"] - exp_x) <= 2 and abs(b0["y"] - sy) <= 2)
+    check("1 card tilts with horizontal velocity", bool(g) and "rotate(" in g["tf"] and "rotate(0.00deg)" not in g["tf"])
+    shot(page, "1e-card-lifted-tilt")
+    page.keyboard.press("Escape"); page.mouse.up(); page.wait_for_timeout(80)
+    g4 = lift_box(page)
+    check(f"1 cancel: card flies back to its slot ({g4 and g4['out']})", (g4 is None) or g4["out"] in ("back", "drop"))
+    page.wait_for_timeout(500)
+    check("1 cancel leaves the file in place", page.locator(f'li[data-sel-path="{TMP}/charlie.txt"]').count() == 1 and bin_info(page) is None)
+    page.evaluate("() => localStorage.setItem('dh_view', JSON.stringify('list'))")
 
-    # ---------- #10 sidebar ----------
-    fl = page.locator("[data-favs-list]")
-    check(f"#10 favorites limited to 6 of 9 ({fl.get_attribute('data-favs-shown')})", fl.get_attribute("data-favs-shown") == "6" and fl.locator("[data-fav-item]").count() == 6)
-    sec_x = page.locator("[data-sec=favs]").bounding_box()["x"]; item_x = fl.locator("[data-fav-item]").first.bounding_box()["x"]
-    check(f"#10 favorites indented under section ({item_x - sec_x:.0f}px)", item_x - sec_x >= 10)
-    shot(page, "10-sidebar-favs-limited", clip={"x": 0, "y": 0, "width": 320, "height": 900})
-    page.locator("[data-favs-more]").click(); page.wait_for_timeout(400)
-    check("#10 show all favorites", page.locator("[data-favs-list] [data-fav-item]").count() == 9)
-    page.locator("[data-favs-more]").click(); page.wait_for_timeout(300)
-    t = page.locator("[data-files-toggle]")
-    check("#10 全部文件 expanded", t.get_attribute("aria-expanded") == "true")
-    t.click(); page.wait_for_timeout(500)
-    check("#10 全部文件 collapsed", t.get_attribute("aria-expanded") == "false" and page.locator("#nav-files[data-closed]").count() == 1)
-    shot(page, "10-sidebar-files-collapsed", clip={"x": 0, "y": 0, "width": 320, "height": 900})
-    page.reload(); page.wait_for_selector("#main"); page.wait_for_timeout(400)
-    check("#10 collapse persisted", page.locator("#nav-files[data-closed]").count() == 1)
-    page.locator("[data-files-toggle]").click(); page.wait_for_timeout(300)
+    # ---------- 2 audio track switch without flash ----------
+    open_file(page, "/示例/媒体/a1-钢琴.mp3")
+    page.wait_for_selector("[data-testid=audio-player]"); page.wait_for_timeout(800)
+    ntabs = page.locator("[role=tab]").count()
+    page.evaluate("""() => { const p = document.querySelector('[data-testid=audio-player]'); p.__r6 = 1; const panel = p.closest('.anim-in'); panel.__r6 = 1;
+      window.__r6s = []; const t0 = performance.now();
+      const tick = () => { const pp = document.querySelector('[data-testid=audio-player]'); const pn = pp && pp.closest('.anim-in');
+        window.__r6s.push({op: pn ? +getComputedStyle(pn).opacity : -1, same: !!(pp && pp.__r6), panel: !!(pn && pn.__r6), vinyl: !!document.querySelector('[data-testid=vinyl]')});
+        if (performance.now() - t0 < 1500) requestAnimationFrame(tick); };
+      window.__r6go = () => requestAnimationFrame(tick); }""")
+    page.evaluate("() => window.__r6go()")
+    page.get_by_test_id("playlist").get_by_role("button").nth(1).click()
+    page.wait_for_timeout(1600)
+    s = page.evaluate("() => window.__r6s")
+    check(f"2 player stays mounted across track switch ({len(s)} frames)", len(s) > 20 and all(f["same"] and f["panel"] for f in s))
+    check(f"2 no fade/blank frame (min panel opacity {min(f['op'] for f in s)})", min(f["op"] for f in s) >= 0.99 and all(f["vinyl"] for f in s))
+    check("2 now playing a2", "a2" in page.locator("[data-testid=audio-title]").inner_text() and page.locator("[data-testid=audio-player]").get_attribute("data-track").endswith("a2-小提琴.mp3"))
+    check(f"2 track switch replaces the tab ({ntabs} -> {page.locator('[role=tab]').count()})", page.locator("[role=tab]").count() == ntabs)
+    shot(page, "2-audio-switched")
 
-    # ---------- #1 share delete undo ----------
-    goto(page, "/shares", "[data-pager]")
-    check(f"#8 shares pager ({page.locator('[data-pager-range]').count()})", page.locator("[data-pager-range]").count() == 1)
-    shot(page, "08-shares-pager")
-    def del_first():
-        row = page.locator("tbody tr").first
-        name = row.locator("td").nth(0).inner_text().split("\n")[0]
-        row.get_by_role("button", name="删除").click(); page.wait_for_timeout(300)
-        page.get_by_role("dialog").get_by_role("button", name="删除").click(); page.wait_for_timeout(500)
-        return name
-    n0 = len(api(tok, "GET", "/api/shares"))
-    del_first()
-    check("#1 undo toast shown", page.locator(".toast-undo").count() == 1)
-    shot(page, "01-share-delete-undo-toast")
-    page.locator(".toast-undo").get_by_role("button", name="撤销").click(); page.wait_for_timeout(800)
-    check(f"#1 undo keeps the share ({len(api(tok, 'GET', '/api/shares'))} == {n0})", len(api(tok, "GET", "/api/shares")) == n0)
-    del_first(); page.mouse.move(700, 300); page.wait_for_timeout(7000)
-    check(f"#1 share deleted after undo window ({len(api(tok, 'GET', '/api/shares'))} == {n0 - 1})", len(api(tok, "GET", "/api/shares")) == n0 - 1)
+    # ---------- 3 video player ----------
+    open_file(page, "/示例/媒体/demo.mp4")
+    page.wait_for_selector("[data-testid=video-player] .mp"); page.wait_for_timeout(1000)
+    v = page.evaluate("""() => { const m = document.querySelector('[data-testid=video-player] .mp'); const p = m.closest('.anim-in');
+      const a = m.getBoundingClientRect(), b = p.getBoundingClientRect(), cs = getComputedStyle(m);
+      return {w: a.width, pw: b.width, h: a.height, bg: cs.backgroundColor, radius: cs.borderTopLeftRadius, pad: cs.paddingTop}; }""")
+    check(f"3 video fills the panel width, not a phone card ({v})", v["w"] >= v["pw"] * 0.85 and v["bg"] in ("rgb(0, 0, 0)",) and v["pad"] == "0px" and v["radius"] == "14px")
+    check("3 controls overlay present (seekbar + play)", page.get_by_test_id("seekbar").count() == 1)
+    page.locator("[data-testid=video-player] .mp").hover(); page.wait_for_timeout(300)
+    shot(page, "3-video-player")
 
-    # ---------- #3 stats layout ----------
-    goto(page, "/stats", "[data-stats-rows]")
-    ctl = page.locator("[data-stats-controls]"); scr = page.locator("[data-stats-scroll]")
-    y0 = ctl.bounding_box()["y"]
-    h = page.evaluate("() => { const s = document.querySelector('[data-stats-scroll]'); return [s.scrollHeight, s.clientHeight]; }")
-    check(f"#3 detail area scrolls internally {h}", h[0] > h[1])
-    page.evaluate("() => { const s = document.querySelector('[data-stats-scroll]'); s.scrollTop = s.scrollHeight; }"); page.wait_for_timeout(300)
-    main_scroll = page.evaluate("() => document.getElementById('main').scrollTop + document.scrollingElement.scrollTop")
-    check(f"#3 controls stay put (y {y0:.0f} → {ctl.bounding_box()['y']:.0f}, page scroll {main_scroll})", abs(ctl.bounding_box()["y"] - y0) < 1 and main_scroll == 0)
-    th = page.locator("[data-stats-rows] thead").bounding_box(); sb = scr.bounding_box()
-    check(f"#3 table header sticky ({th['y']:.0f} vs {sb['y']:.0f})", abs(th["y"] - sb["y"]) < 3)
-    pb = page.locator("[data-stats-pager]").bounding_box()
-    check(f"#3 pager pinned in viewport ({pb['y'] + pb['height']:.0f} <= 900)", pb["y"] + pb["height"] <= 900)
-    shot(page, "03-stats-details-scrolled")
-    hs = page.evaluate("() => [...document.querySelectorAll('[data-stats-filters] [role=combobox], [data-stats-filters] input')].map(e => Math.round(e.getBoundingClientRect().height))")
-    check(f"#2 stats filter controls all 32px {set(hs)}", hs and set(hs) == {32})
-    # filters
-    page.get_by_role("combobox", name="按地区筛选").click(); page.wait_for_timeout(250)
-    page.get_by_role("listbox").get_by_role("option").filter(has_text="中国（").first.click(); page.wait_for_timeout(300)
-    page.wait_for_timeout(700)
-    check("#4 region filter pill", page.locator("[data-active-filters]").inner_text().startswith("地区：中国"))
-    check(f"#4 province select appears", page.get_by_role("combobox", name="按省份筛选").count() == 1)
-    shot(page, "04-stats-filter-cn")
-    page.locator("[data-active-filters] button").first.click(); page.wait_for_timeout(500)
+    # ---------- 4 code / text toolbar ----------
+    for f, nm in [("/示例/文档/代码/uploads.ts", "4a-code-toolbar"), ("/示例/文档/报告.txt", "4b-text-toolbar")]:
+        open_file(page, f)
+        page.wait_for_selector("[data-testid=code-toolbar]")
+        m = page.evaluate("""() => { const t = document.querySelector('[data-testid=code-toolbar]'); const tb = t.getBoundingClientRect();
+          const els = [t.querySelector('[role=combobox]'), ...[...t.querySelectorAll('button')].filter(b => /换行|复制/.test(b.innerText))];
+          return {tb: [tb.top, tb.bottom], ctl: els.map(e => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return {h: r.height, cy: r.top + r.height / 2, top: r.top, bottom: r.bottom, rad: cs.borderTopLeftRadius, key: e.classList.contains('btn-key')}; })}; }""")
+        c = m["ctl"]
+        check(f"4 {f.rsplit('/',1)[1]}: select + 换行 + 复制 present ({len(c)})", len(c) == 3)
+        check(f"4 same height {[round(x['h']) for x in c]} / radius {[x['rad'] for x in c]} / key style", len({round(x["h"]) for x in c}) == 1 and round(c[0]["h"]) == 32 and len({x["rad"] for x in c}) == 1 and all(x["key"] for x in c))
+        check(f"4 same row: centers {[round(x['cy'],1) for x in c]} inside toolbar {[round(v) for v in m['tb']]}", max(x["cy"] for x in c) - min(x["cy"] for x in c) < 1 and all(x["top"] >= m["tb"][0] and x["bottom"] <= m["tb"][1] for x in c))
+        shot(page, nm)
+    tb = page.get_by_test_id("code-toolbar")
+    tb.get_by_role("combobox").click(); page.wait_for_timeout(250)
+    shot(page, "4c-format-select-open")
+    page.get_by_role("listbox").get_by_role("option", name="JavaScript", exact=True).click(); page.wait_for_timeout(300)
+    check("4 switching txt -> JavaScript works", page.locator("[data-code-viewer]").get_attribute("data-lang") == "javascript")
+    tb.get_by_role("button", name="换行").click(); page.wait_for_timeout(200)
+    check("4 wrap toggle pressed state", tb.get_by_role("button", name="换行").get_attribute("aria-pressed") == "true")
+    shot(page, "4d-text-as-js-wrap-on")
 
-    # ---------- #4 geo tab ----------
-    page.get_by_role("tab", name="地区与 IP").click(); page.wait_for_selector("[data-world-map]"); page.wait_for_timeout(1200)
-    bubbles = page.locator("[data-world-map] [data-bubble]").count()
-    check(f"#4 map bubbles ({bubbles})", bubbles >= 4 and page.locator('[data-bubble=LAN]').count() == 1)
-    check("#4 china province tiles", page.locator("[data-tile]:not([disabled])").count() >= 2)
-    check(f"#4 ip table rows ({page.locator('[data-ip-row]').count()})", page.locator("[data-ip-row]").count() >= 10)
-    check("#4 LAN ip labelled 局域网", "局域网" in page.locator('[data-ip-row="192.168.1.20"]').inner_text())
-    page.locator('[data-bubble=US] circle').last.hover(); page.wait_for_timeout(300)
-    check("#4 map tooltip", "美国" in (page.locator("[data-map-tip]").inner_text() if page.locator("[data-map-tip]").count() else ""))
-    shot(page, "04-stats-geo-map")
-    page.evaluate("() => { const s = document.querySelector('[data-stats-scroll]'); s.scrollTop = 600; }"); page.wait_for_timeout(300)
-    shot(page, "04-stats-geo-tiles-ips")
-    page.locator('[data-tile]:not([disabled])').first.click(); page.wait_for_timeout(900)
-    check("#4 province tile click filters", "中国 ·" in page.locator("[data-active-filters]").inner_text())
-    shot(page, "04-stats-geo-province")
-    page.locator("[data-active-filters] button").first.click(); page.wait_for_timeout(400)
-    page.get_by_role("tab", name="趋势与排行").click(); page.wait_for_timeout(600)
-    shot(page, "03-stats-trend")
-    page.set_viewport_size({"width": 390, "height": 844}); page.get_by_role("tab", name="地区与 IP").click(); page.wait_for_timeout(800)
-    shot(page, "04-stats-geo-mobile", full_page=False)
-    page.set_viewport_size({"width": 1440, "height": 900})
-
-    # ---------- #5 ACL ----------
-    for r in api(tok, "GET", "/api/acl/rules"):
-        if r["path"].startswith(TMP): api(tok, "DELETE", f"/api/acl/rules/{r['id']}")
-    page.goto(BASE + "/#/admin/acl?path=" + urllib.parse.quote(TMP)); page.wait_for_selector("[data-testid=acl-add]"); page.wait_for_timeout(600)
-    check(f"#5 four sub-tabs", all(page.get_by_role("tab", name=n).count() == 1 for n in ("按目录", "按成员", "权限检查", "使用说明")))
-    add = page.locator("[data-testid=acl-add]")
-    combo_pick(page, add.get_by_role("combobox", name="对象类型"), "所有登录用户")
-    add.locator("[data-acl-add-btn]").click(); page.wait_for_timeout(900)
-    combo_pick(page, add.get_by_role("combobox", name="对象类型"), "匿名访客")
-    combo_pick(page, add.get_by_role("combobox", name="新规则预设"), "禁止访问 — 看不到、也不能下载")
-    add.locator("[data-acl-add-btn]").click(); page.wait_for_timeout(900)
-    cards = page.locator("[data-testid=acl-matrix] [data-rule]")
-    check(f"#5 two member cards ({cards.count()})", cards.count() == 2)
-    shot(page, "05-acl-by-dir")
-    c0 = cards.filter(has_text="所有登录用户").first
-    combo_pick(page, c0.get_by_role("combobox", name="权限预设"), "读写 — 还可以上传、新建、编辑、整理")
-    page.wait_for_timeout(600)
-    rr = [r for r in api(tok, "GET", "/api/acl/rules") if r["path"] == TMP and r["subject"] == "logged_in"]
-    check(f"#5 preset dropdown → 读写 ({rr[0]['allow'] if rr else None})", rr and "upload" in rr[0]["allow"])
-    page.locator("[data-testid=acl-matrix] [data-rule]").filter(has_text="所有登录用户").first.locator("[data-acl-tune]").click(); page.wait_for_timeout(400)
-    fine = page.locator("[data-acl-fine]")
-    check("#5 fine-tune grouped by category", fine.count() == 1 and fine.locator("fieldset").count() >= 3)
-    fine.get_by_role("radiogroup", name="删除").get_by_role("radio", name="拒绝").click(); page.wait_for_timeout(800)
-    rr = [r for r in api(tok, "GET", "/api/acl/rules") if r["path"] == TMP and r["subject"] == "logged_in"]
-    check(f"#5 fine-tune deny 删除 ({rr[0]['deny'] if rr else None})", rr and "delete" in rr[0]["deny"])
-    check("#5 fine-tune panel stays open after a change", page.locator("[data-acl-fine]").count() == 1)
-    ov = page.evaluate("() => { const m = document.getElementById('main'); return [m.scrollWidth, m.clientWidth]; }")
-    check(f"#5 no horizontal scroll {ov}", ov[0] <= ov[1])
-    page.locator("[data-testid=acl-matrix] [data-rule]").filter(has_text="所有登录用户").first.locator("[data-acl-tune]").click(); page.wait_for_timeout(300)
-    page.locator("[data-testid=acl-matrix] [data-rule]").filter(has_text="所有登录用户").first.locator("[data-acl-tune]").click(); page.wait_for_timeout(300)
-    shot(page, "05-acl-fine-tune", full_page=True)
-    page.get_by_role("tab", name="按成员").click(); page.wait_for_timeout(500)
-    combo_pick(page, page.get_by_role("combobox", name="成员类型"), "所有登录用户")
-    check(f"#5 按成员 lists rules ({page.locator('[data-acl-member-rules] li').count()})", page.locator("[data-acl-member-rules] li").count() >= 1)
-    shot(page, "05-acl-by-member")
-    page.get_by_role("tab", name="权限检查").click(); page.wait_for_selector("[data-testid=acl-effective]"); page.wait_for_timeout(400)
-    check("#5 权限检查 shows effective + trace", page.locator("[data-testid=acl-effective]").count() == 1)
-    shot(page, "05-acl-check")
-    page.get_by_role("tab", name="使用说明").click(); page.wait_for_timeout(300)
-    check("#5 使用说明", page.locator("[data-acl-help]").count() == 1)
-    shot(page, "05-acl-help")
-    for r in api(tok, "GET", "/api/acl/rules"):
-        if r["path"] == TMP: api(tok, "DELETE", f"/api/acl/rules/{r['id']}")
-
-    # ---------- #2 titles + #7 native controls across pages ----------
-    pages = [("/files" + TMP, "[role=row]"), ("/shares", "h1"), ("/stats", "h1"), ("/search", "#main"), ("/admin", "h1"), ("/admin/users", "h1"), ("/admin/groups", "h1"), ("/admin/roles", "h1"),
-             ("/admin/acl", "h1"), ("/admin/audit", "h1"), ("/admin/mounts", "h1"), ("/admin/settings", "h1"), ("/account", "#main"), ("/tasks", "#main")]
-    natives, sizes = {}, {}
-    for h_, sel in pages:
-        goto(page, h_, sel)
-        natives[h_] = native_count(page)
-        if page.locator("main h1").count(): sizes[h_] = page.evaluate("() => getComputedStyle(document.querySelector('main h1')).fontSize")
-        btn_h = page.evaluate("() => [...document.querySelectorAll('main h1')].length ? [...document.querySelector('main h1').closest('div').parentElement.querySelectorAll(':scope > div:last-child button')].map(b => Math.round(b.getBoundingClientRect().height)) : []")
-        if btn_h and h_ not in ("/files" + TMP,): sizes[h_ + " btn"] = sorted(set(btn_h))
-    check(f"#7 no native select/checkbox/radio {natives}", all(v == 0 for v in natives.values()))
-    ts = {k: v for k, v in sizes.items() if not k.endswith(" btn")}
-    check(f"#2 page titles same size {set(ts.values())}", len(set(ts.values())) == 1)
-    bs = {k: v for k, v in sizes.items() if k.endswith(" btn")}
-    check(f"#2 header action buttons 32px {bs}", all(set(v) <= {32} for v in bs.values()))
-    goto(page, "/admin/audit", "h1")
-    check("#7 audit 只看拒绝 is a custom checkbox", page.get_by_role("checkbox", name="只看拒绝").count() == 1)
-    shot(page, "07-audit-controls")
-
-    page.goto(BASE + "/#/login"); page.wait_for_timeout(300)
-    real = [e for e in errors if "401" not in e and "Failed to load resource" not in e]
-    check(f"no page errors ({real[:3]})", not real)
-    for s in api(tok, "GET", "/api/shares"):
-        if str(s.get("name", "")).startswith("f0"): api(tok, "DELETE", f"/api/shares/{s['id']}")
+    bad = [e for e in errors if "favicon" not in e and "net::ERR_ABORTED" not in e and "status of 401" not in e]
+    check(f"no console/page errors ({bad[:3]})", not bad)
     br.close()
-
-print(f"\n{'ALL PASS' if not fails else 'FAILED: ' + str(len(fails))} ({len(fails)} fail)")
+    api(tok, "DELETE", f"/api/fs?path={TMP}")
+print(f"\n{len(fails)} failed" if fails else "\nALL PASS", flush=True)
 raise SystemExit(1 if fails else 0)
