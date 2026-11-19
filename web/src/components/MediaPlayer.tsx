@@ -314,7 +314,7 @@ export function VideoPlayer({ item, siblings }: { item: FsItem; siblings: FsItem
             <span className="ml-2 text-xs tabular-nums text-white/85">{clock(cur)} / {clock(dur)}</span>
             <span className="flex-1" />
             <div className="relative">
-              <button className="mp-btn !w-auto gap-1 px-2 text-[13px] font-medium" aria-label="倍速" aria-pressed={menu === "rate"} onClick={() => setMenu(menu === "rate" ? null : "rate")}>
+              <button className="mp-btn !w-auto grid-flow-col gap-1 px-2 text-[13px] font-medium" aria-label="倍速" aria-pressed={menu === "rate"} onClick={() => setMenu(menu === "rate" ? null : "rate")}>
                 <Gauge className="size-[18px]" /> {rate}×
               </button>
               {menu === "rate" && (

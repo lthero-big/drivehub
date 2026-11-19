@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import hljs from "highlight.js/lib/common";
 import { Check, Copy, WrapText } from "lucide-react";
 import { ext } from "../lib/util";
-import { Select, toast } from "../ui/ui";
+import { Button, Select, toast } from "../ui/ui";
 import { cx } from "../lib/util";
 
 const BY_EXT: Record<string, string> = {
@@ -85,20 +85,21 @@ export function CodeViewer({ name, text, truncated }: { name: string; text: stri
   };
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-panel-2" data-code-viewer data-lang={lang}>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-1.5 text-xs text-muted">
-        <span className="rounded-md bg-accent-soft px-2 py-0.5 font-medium text-accent" data-testid="code-lang">{langLabel(lang)}</span>
-        {lang !== auto && <button className="underline hover:text-fg" onClick={() => setLang(auto)}>恢复自动（{langLabel(auto)}）</button>}
-        <span>{lines.length} 行</span>
-        <span className="ml-auto flex items-center gap-1">
-          <Select value={lang} onChange={(e) => setLang(e.target.value)} className="h-7 text-xs" aria-label="语言">
+      {/* one toolbar row: every control is the same 32px key (Select sm / Button sm / IconButton sm) */}
+      <div role="toolbar" aria-label="代码工具栏" data-testid="code-toolbar" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel px-2.5 py-2 text-xs text-muted">
+        <span className="inline-flex h-8 items-center rounded-xl bg-accent-soft px-2.5 text-[13px] font-medium text-accent" data-testid="code-lang">{langLabel(lang)}</span>
+        <span className="inline-flex h-8 items-center tabular-nums">{lines.length} 行</span>
+        {lang !== auto && <Button size="sm" variant="ghost" onClick={() => setLang(auto)}>恢复自动（{langLabel(auto)}）</Button>}
+        <span className="ml-auto flex items-center gap-1.5">
+          <Select size="sm" value={lang} onChange={(e) => setLang(e.target.value)} aria-label="语言">
             {langs.map((l) => <option key={l} value={l}>{langLabel(l)}</option>)}
           </Select>
-          <button aria-pressed={wrap} onClick={() => setWrap(!wrap)} className={cx("flex h-7 items-center gap-1 rounded-md border border-line px-2 hover:bg-hover", wrap && "bg-active text-fg")}>
-            <WrapText className="size-3.5" /> 换行
-          </button>
-          <button onClick={copy} className="flex h-7 items-center gap-1 rounded-md border border-line px-2 hover:bg-hover">
-            {copied ? <Check className="size-3.5 text-ok" /> : <Copy className="size-3.5" />} 复制
-          </button>
+          <Button size="sm" aria-pressed={wrap} onClick={() => setWrap(!wrap)} className={cx(wrap && "is-on")}>
+            <WrapText className="size-4" /> 换行
+          </Button>
+          <Button size="sm" onClick={copy}>
+            {copied ? <Check className="size-4 text-ok" /> : <Copy className="size-4" />} 复制
+          </Button>
         </span>
       </div>
       <pre className={cx("code-pre scroll-thin min-h-0 flex-1 overflow-auto py-2 font-mono text-[12.5px] leading-5", wrap && "code-wrap")} dangerouslySetInnerHTML={{ __html: body }} />

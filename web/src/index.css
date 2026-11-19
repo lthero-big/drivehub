@@ -147,6 +147,7 @@ body {
 .btn-key:not(.btn-icon):not(.btn-ghost):hover:not(:disabled) { box-shadow: 0 1px 0 rgb(0 0 0 / 0.06), 0 6px 16px rgb(0 0 0 / 0.12); }
 .btn-key:active:not(:disabled) { transform: translateY(0) scale(0.96); box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.18); filter: brightness(0.94); transition-duration: 0.06s; }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-outline[aria-pressed="true"], .btn-outline.is-on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--accent); }
 .btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
 .btn-key:focus-visible, .check input:focus-visible ~ span { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }
 .field-input { transition: border-color 0.18s, box-shadow 0.18s; }

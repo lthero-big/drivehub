@@ -61,9 +61,10 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ 
   );
 });
 
-export function IconButton({ label, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+/** Size scale shared by every key-like control: sm = 32px (toolbars inside panels), md = 36/40px. */
+export function IconButton({ label, className, children, size = "md", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: "sm" | "md" }) {
   return (
-    <button aria-label={label} title={label} className={cx("btn-key btn-icon inline-flex size-9 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-hover hover:text-fg disabled:opacity-40", className)} {...rest}>
+    <button aria-label={label} title={label} className={cx("btn-key btn-icon inline-flex shrink-0 items-center", size === "sm" ? "size-8" : "size-9", "justify-center rounded-xl text-muted hover:bg-hover hover:text-fg disabled:opacity-40", className)} {...rest}>
       {children}
     </button>
   );
@@ -73,9 +74,9 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return <input ref={ref} className={cx("field-input h-10 w-full rounded-xl border border-line bg-panel px-3 text-sm outline-none placeholder:text-faint hover:border-faint/60 focus:border-accent", className)} {...rest} />;
 });
 
-type SelectProps = { value: string | undefined; required?: boolean; onChange: (e: { target: { value: string } }) => void; children: ReactNode; className?: string; "aria-label"?: string; disabled?: boolean };
+type SelectProps = { value: string | undefined; required?: boolean; onChange: (e: { target: { value: string } }) => void; children: ReactNode; className?: string; "aria-label"?: string; disabled?: boolean; size?: "sm" | "md" };
 /** Custom listbox. Keeps the native-select call shape: <Select value onChange={(e)=>e.target.value}><option value>…</option></Select>. */
-export function Select({ value, onChange, children, className, disabled, ...rest }: SelectProps) {
+export function Select({ value, onChange, children, className, disabled, size = "md", ...rest }: SelectProps) {
   const opts = useMemo(() => {
     const out: { value: string; label: ReactNode }[] = [];
     Children.forEach(children, (c) => {
@@ -130,7 +131,8 @@ export function Select({ value, onChange, children, className, disabled, ...rest
         aria-label={rest["aria-label"]}
         disabled={disabled}
         onClick={() => (setHi(Math.max(0, opts.findIndex((o) => o.value === value))), setOpen((o) => !o))}
-        className="btn-key field-input flex h-10 w-full min-w-28 items-center justify-between gap-2 rounded-xl border border-line bg-panel px-3 text-left text-sm hover:border-faint/60 disabled:opacity-50"
+        data-size={size}
+        className={cx("btn-key field-input flex w-full items-center justify-between gap-2 rounded-xl border border-line bg-panel text-left hover:border-faint/60 disabled:opacity-50", size === "sm" ? "h-8 min-w-24 px-2.5 text-[13px]" : "h-10 min-w-28 px-3 text-sm")}
       >
         <span className="truncate">{cur?.label ?? "请选择"}</span>
         <ChevronDown className={cx("size-4 shrink-0 text-faint transition-transform duration-200", open && "rotate-180")} />
