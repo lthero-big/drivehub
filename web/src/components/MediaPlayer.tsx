@@ -3,7 +3,7 @@
 // remembered position; audio: cover from ID3, waveform, playlist, loop/shuffle modes.
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { Captions, Maximize, Minimize, Music, Pause, PictureInPicture2, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX, Gauge, ListOrdered } from "lucide-react";
-import { MorphPlay } from "../ui/motion";
+import { MorphPlay, reducedMotion } from "../ui/motion";
 import { fileUrl, rawFetch, type FsItem } from "../lib/api";
 import { cx, ext, fmtSize, kindOf } from "../lib/util";
 import { ExternalPlayers } from "./PlayerIcons";
@@ -560,25 +560,32 @@ export function AudioPlayer({ item, siblings, onPick }: { item: FsItem; siblings
   const VolIcon = muted || vol === 0 ? VolumeX : vol < 0.5 ? Volume1 : Volume2;
   const title = meta.title || item.name.replace(/\.[^.]+$/, "");
   const modeInfo = MODES.find((m) => m.id === mode)!;
+  // track change: title / artist cross-fade 450 ms, content swaps at the midpoint
+  const sub = [meta.artist, meta.album].filter(Boolean).join(" · ") || fmtSize(item.size);
+  const [shown, setShown] = useState({ title, sub });
+  const [fade, setFade] = useState(false);
+  useEffect(() => {
+    if (shown.title === title && shown.sub === sub) return;
+    if (reducedMotion()) return setShown({ title, sub });
+    setFade(true);
+    const t = setTimeout(() => (setShown({ title, sub }), setFade(false)), 225);
+    return () => clearTimeout(t);
+  }, [title, sub]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 lg:flex-row" data-testid="audio-player" style={{ ["--ap-h" as string]: `hsl(${hue} 70% 55%)` }}>
-      <section className="ap flex shrink-0 flex-col gap-4 rounded-2xl border border-line p-5 shadow-card lg:w-[22rem]">
-        <div className="relative mx-auto aspect-square w-full max-w-[16rem]">
-          {meta.cover ? (
-            <img src={meta.cover} alt="专辑封面" data-testid="audio-cover" className={cx("size-full rounded-2xl object-cover shadow-pop", "transition-transform duration-500", playing && "scale-[1.02]")} />
-          ) : (
-            <div className="relative grid size-full place-items-center overflow-hidden rounded-2xl shadow-pop" style={{ background: `linear-gradient(135deg, hsl(${hue} 70% 58%), hsl(${(hue + 50) % 360} 70% 38%))` }}>
-              <div className={cx("grid size-[72%] place-items-center rounded-full bg-black/80 shadow-inner disc-spin", !playing && "paused")}>
-                <div className="grid size-[34%] place-items-center rounded-full" style={{ background: `hsl(${hue} 70% 55%)` }}><div className="size-2 rounded-full bg-black/80" /></div>
-              </div>
-              <Music className="absolute top-3 left-3 size-5 text-white/80" />
-            </div>
-          )}
+      <section className="ap relative mt-[98px] flex shrink-0 flex-col gap-4 rounded-[28px] border border-line p-5 pt-[14px] shadow-card lg:w-[22rem]" data-testid="music-player">
+        {/* music-player widget (21st smammar): half vinyl peeks out of the card, 7s/turn while playing */}
+        <div className="mp-disc-wrap" style={{ top: -98, height: 98, overflow: "hidden" }} aria-hidden>
+          <div data-testid="vinyl" data-playing={playing ? "" : undefined} className={cx("mp-disc spin", !playing && "paused")} style={{ ["--mp-a" as string]: `hsl(${hue} 70% 58%)`, ["--mp-b" as string]: `hsl(${(hue + 60) % 360} 70% 40%)` }}>
+            {meta.cover && <img src={meta.cover} alt="" data-testid="audio-cover" className="absolute inset-0 size-full rounded-full object-cover opacity-90" />}
+            <span className="absolute inset-0 rounded-full" style={{ background: "repeating-radial-gradient(circle, rgb(255 255 255 / .06) 0 2px, rgb(0 0 0 / .08) 2px 4px)" }} />
+          </div>
         </div>
-        <div className="min-w-0 text-center">
-          <p className="truncate text-base font-semibold" data-testid="audio-title">{title}</p>
-          <p className="truncate text-xs text-muted">{[meta.artist, meta.album].filter(Boolean).join(" · ") || fmtSize(item.size)}</p>
+        <div className={cx("mp-meta min-w-0", fade && "x")}>
+          <p className="truncate text-base font-semibold" data-testid="audio-title">{shown.title}</p>
+          <p className="truncate text-xs text-muted">{shown.sub}</p>
         </div>
+        <DotViz playing={playing} />
         <Wave peaks={peaks} seed={item.name} progress={dur ? cur / dur : 0} onSeek={(p) => seek(p * dur)} />
         <div className="-mt-3 flex justify-between text-xs tabular-nums text-muted"><span>{clock(cur)}</span><span>{clock(dur)}</span></div>
         <div className="flex items-center justify-center gap-2">
@@ -621,4 +628,23 @@ export function AudioPlayer({ item, siblings, onPick }: { item: FsItem; siblings
       </section>
     </div>
   );
+}
+
+/** 21-column dot visualizer (three mixed sines, 60 ms tick, 6–30 px); static when paused / reduced motion. */
+function DotViz({ playing }: { playing: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const dots = [...(ref.current?.children ?? [])] as HTMLElement[];
+    if (!playing || reducedMotion()) return void dots.forEach((d) => (d.style.height = "6px"));
+    let t = 0;
+    const id = setInterval(() => {
+      t += 0.06;
+      dots.forEach((d, i) => {
+        const v = Math.sin(t * 5 + i * 0.7) * 0.5 + Math.sin(t * 8.3 + i * 1.9) * 0.3 + Math.sin(t * 2.1 + i * 0.35) * 0.4;
+        d.style.height = `${6 + Math.max(0, v) * 24}px`;
+      });
+    }, 60);
+    return () => clearInterval(id);
+  }, [playing]);
+  return <div ref={ref} className="mp-viz" data-testid="dot-viz" aria-hidden>{Array.from({ length: 21 }, (_, i) => <span key={i} />)}</div>;
 }

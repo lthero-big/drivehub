@@ -20,6 +20,7 @@ import { DirPicker } from "./DirPicker";
 import { DetailsDialog } from "./FileDialogs";
 import { ShareDialog } from "./ShareDialog";
 import { TagDialog } from "./TagDialog";
+import { WavePlayerBar, WaveRowExtra } from "./WaveList";
 import { tagStore, useTags, type Tag } from "../lib/tags";
 import { usePrefs } from "../lib/prefs";
 import { ChipGroup, useHoverReveal } from "../ui/r5";
@@ -231,6 +232,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   };
   const selected = useMemo(() => list.filter((i) => sel.has(i.path)), [list, sel]);
   const images = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "image"), [list]);
+  const audios = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "audio"), [list]);
   const phs = useMemo(() => placeholdersFor(ups, path, new Set((items ?? []).map((i) => i.name)), Date.now()), [ups, path, items, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const last = Math.max(0, ...ups.filter((u) => u.status === "done").map((u) => u.doneAt ?? 0));
@@ -712,6 +714,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
                     <span className="block text-[11px] text-faint sm:hidden">{i.is_dir ? (i.mount_kind ? i.mount_kind.toUpperCase() : "文件夹") : `${fmtSize(i.size)} · ${fmtTime(i.modified_unix)}`}</span>
                   </span>
                   {tagPills(i)}
+                  {!i.is_dir && kindOf(i.name) === "audio" && <WaveRowExtra item={i} queue={audios} />}
                   {i.read_only && <span className="rounded bg-hover px-1 text-[10px] text-muted">只读</span>}
                 </span>
                 <span role="gridcell" className="hidden text-right text-xs text-muted tabular-nums sm:block">{i.is_dir ? "—" : fmtSize(i.size)}</span>
@@ -824,6 +827,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         }
       </ContextMenu>
       <ShareDialog items={sharing} onClose={() => setSharing([])} />
+      <WavePlayerBar />
       <DetailsDialog item={details} onClose={() => setDetails(null)} />
       {tagging && <TagDialog items={tagging} current={tagMap} onClose={() => setTagging(null)} onChanged={(m) => setTagMap((t) => ({ ...t, ...m }))} />}
       {hover.node && createPortal(hover.node, document.body)}
