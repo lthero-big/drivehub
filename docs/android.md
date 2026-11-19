@@ -33,3 +33,7 @@ cd android
 - `ApiClientTest`（MockWebServer：版本协商、426 映射、登录 / 2FA、refresh、Range 续传、续传上传、取件码 PIN）与 `VersionTest`（semver、协商规则）。
 - `LiveServerTest`：设置 `DRIVEHUB_TEST_BASE / _USER / _PW`（挂载 `/phone`）后对真实服务端跑核心流程与「不兼容版本」；未设置时自动跳过。
 - `scripts/smoke-android-api.sh`：对任意服务端实例用 App 的请求头跑 38 项 API 冒烟（版本协商含 426、登录 + 2FA、列目录、搜索、分块上传与续传、下载 Range、分享、取件码）。
+
+## 许可证
+
+Android App 与 DriveHub 其它部分一样以 AGPL-3.0-only 发布（见仓库根目录 `LICENSE` / `NOTICE`）。

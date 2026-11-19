@@ -26,7 +26,9 @@ FROM ${BASE_IMAGE}
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="DriveHub" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.source="https://github.com/lthero-big/drivehub"
+      org.opencontainers.image.source="https://github.com/lthero-big/drivehub" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+COPY LICENSE NOTICE THIRD_PARTY.md /usr/share/doc/drivehub/
 COPY --from=server /src/target/release/drivehub /usr/local/bin/drivehub
 COPY --from=web /web/dist /srv/web
 ENV DRIVEHUB_BIND=0.0.0.0:8470 DRIVEHUB_DATA_DIR=/data DRIVEHUB_WEB_DIR=/srv/web DRIVEHUB_CONFIG=/config/drivehub.toml

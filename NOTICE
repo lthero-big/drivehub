@@ -1,0 +1,26 @@
+DriveHub
+Copyright (C) 2026 Alex Wan and DriveHub contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License version 3 as published by
+the Free Software Foundation (see LICENSE). It is distributed WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+A PARTICULAR PURPOSE.
+
+Until 2026-11-19 DriveHub was released under the MIT License; from that date
+on (DEPTAI-481) the whole project is licensed under AGPL-3.0-only.
+
+-------------------------------------------------------------------------------
+Portions derived from OpenList
+-------------------------------------------------------------------------------
+The native cloud-drive drivers under server/crates/storage/src/drivers/
+(pikpak, p115) are Rust ports of the corresponding Go drivers of OpenList:
+
+  OpenList  https://github.com/OpenListTeam/OpenList
+  Copyright (C) OpenList contributors (OpenListTeam)
+  Copyright (C) AList contributors (alist-org), from which OpenList was forked
+  Licensed under the GNU Affero General Public License v3.0
+
+Reference revision: 7c26f1012c2951441233dce4ef309753fc76165d (2026-11-17).
+Ported files carry a header naming the upstream source file. See
+THIRD_PARTY.md for the full list of third-party components.
