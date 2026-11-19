@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useScrollTimeline } from "../../ui/r5";
 import { BellPlus, Download, RefreshCw, ShieldCheck, Trash2, Send } from "lucide-react";
 import { call, rawFetch } from "../../lib/api";
 import type { AuditEvent } from "../../lib/shares";
@@ -16,7 +17,7 @@ export function AuditPage() {
   const [f, setF] = useState({ user: "", action: "", channel: "", client: "", path: "", ip: "", q: "", share_id: "", from: "", to: "", denied: false });
   const [verify, setVerify] = useState<{ ok: boolean; checked: number; first_bad_id: number | null; reason: string | null } | null>(null);
   const [policy, setPolicy] = useState<number | null>(null);
-  const [view, setView] = useState<"table" | "timeline">("table");
+  const [view, setView] = useState<"table" | "timeline">("timeline");
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const query = () => {
     const q = new URLSearchParams({ limit: "500" });
@@ -55,11 +56,6 @@ export function AuditPage() {
       toast.err(errMsg(e));
     }
   };
-  const byDay = new Map<string, AuditEvent[]>();
-  for (const r of rows ?? []) {
-    const d = new Date(r.ts * 1000).toLocaleDateString();
-    byDay.set(d, [...(byDay.get(d) ?? []), r]);
-  }
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -96,8 +92,8 @@ export function AuditPage() {
         <div className="flex gap-1">
           <Button type="submit" variant="primary">查询</Button>
           <Select value={view} onChange={(e) => setView(e.target.value as "table")} aria-label="视图">
-            <option value="table">表格</option>
             <option value="timeline">时间线</option>
+            <option value="table">表格</option>
           </Select>
           <IconButton label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
         </div>
@@ -129,21 +125,7 @@ export function AuditPage() {
           </table>
         </div>
       )}
-      {rows && rows.length > 0 && view === "timeline" && (
-        <div className="space-y-4">
-          {[...byDay].map(([day, evs]) => (
-            <Card key={day} title={`${day} · ${evs.length} 条`}>
-              <ol className="space-y-1 border-l border-line pl-3 text-[12.5px]">
-                {evs.map((r) => (
-                  <li key={r.id} className={r.allowed ? "" : "text-danger"}>
-                    <span className="text-muted">{new Date(r.ts * 1000).toLocaleTimeString()}</span> <b>{r.username}</b> {r.action} <span className="font-mono">{r.path}</span> <span className="text-muted">({CLIENTS[r.client] ?? r.client} {r.ip})</span>
-                  </li>
-                ))}
-              </ol>
-            </Card>
-          ))}
-        </div>
-      )}
+      {rows && rows.length > 0 && view === "timeline" && <AuditTimeline rows={rows} />}
       <Card title="保留期策略">
         <div className="flex items-end gap-2">
           <Field label="保留天数（0 = 永久）"><Input type="number" min={0} value={policy ?? 0} onChange={(e) => setPolicy(Number(e.target.value))} /></Field>
@@ -229,5 +211,55 @@ function Alerts() {
         )}
       </Modal>
     </Card>
+  );
+}
+
+const ACTION_CN: Record<string, string> = {
+  login: "登录", login_failed: "登录失败", logout: "退出", download: "下载", preview: "预览", upload: "上传", mkdir: "新建文件夹", rename: "重命名", move: "移动", copy: "复制", delete: "删除",
+  share_create: "创建分享", share_update: "修改分享", share_revoke: "停用分享", share_visit: "访问分享", share_download: "分享下载", share_upload: "分享上传", share_direct: "直链下载", share_pin_fail: "提取码错误",
+  user_create: "创建用户", user_update: "修改用户", role_create: "创建角色", role_update: "修改角色", tag: "打标签",
+};
+
+/** Scroll-driven audit timeline (motion-timeline-scroll): the orange line grows with scrolling —
+ *  its tip stays 126px below the top of the scroller — and every event lights up over the next
+ *  22px of travel (ring → orange, inner dot 0 → 4px, text fades in from 16px right). */
+function AuditTimeline({ rows }: { rows: AuditEvent[] }) {
+  const root = useRef<HTMLDivElement>(null);
+  useScrollTimeline(root, [rows]);
+  let last = "";
+  return (
+    <div className="rounded-xl border border-line bg-panel px-3 py-4 sm:px-6" data-audit-timeline>
+      <div ref={root} className="tl">
+        <span className="tl-track" aria-hidden />
+        <span className="tl-line" aria-hidden />
+        <ol>
+          {rows.map((r) => {
+            const d = new Date(r.ts * 1000);
+            const dayKey = d.toLocaleDateString();
+            const head = dayKey !== last;
+            last = dayKey;
+            return (
+              <li key={r.id} className="tl-item" data-ev={r.id}>
+                <div className="tl-when">
+                  {head && <b className="block text-[13px] font-semibold">{d.toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" })}</b>}
+                  {d.toLocaleTimeString()}
+                </div>
+                <span className="tl-dot" data-bad={r.allowed ? undefined : ""} aria-hidden />
+                <div className="tl-body text-[13px]">
+                  <p className="flex flex-wrap items-center gap-1.5">
+                    <b className="font-semibold">{ACTION_CN[r.action] ?? r.action}</b>
+                    {!r.allowed && <Badge tone="danger">拒绝</Badge>}
+                    <Badge>{r.channel}</Badge>
+                    <span className="text-muted">{r.username || "匿名"} · {CLIENTS[r.client] ?? r.client} · <span className="font-mono">{r.ip}</span></span>
+                  </p>
+                  {r.path && <p className="truncate font-mono text-[12px] text-muted" title={r.path}>{r.path}</p>}
+                  {r.detail && <p className="truncate text-[12px] text-faint" title={r.detail}>{r.detail}{r.bytes ? ` · ${fmtSize(r.bytes)}` : ""}</p>}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    </div>
   );
 }

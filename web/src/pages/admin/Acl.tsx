@@ -3,7 +3,7 @@
 // quick presets for new rules, access gates, and the effective-permission viewer.
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, FolderSearch, FolderTree, Lock, Minus, Plus, ShieldCheck, Trash2, X } from "lucide-react";
-import { call, PERM_LABEL, PERMS, type Effective, type Gate, type Group, type Me, type Rule } from "../../lib/api";
+import { call, PERM_CATEGORIES, PERM_LABEL, PERMS, PATH_PERMS, permsOf, type Effective, type Gate, type Group, type Me, type Rule } from "../../lib/api";
 import { go } from "../../lib/router";
 import { cx, errMsg } from "../../lib/util";
 import { Badge, Button, Card, Field, IconButton, Input, Select, toast, Checkbox, PageHeader } from "../../ui/ui";
@@ -17,8 +17,8 @@ const GATE: Record<string, { label: string; hint: string }> = {
 };
 const PRESETS: { label: string; allow: string[]; deny: string[]; tone?: "danger" }[] = [
   { label: "只读", allow: ["read", "download"], deny: [] },
-  { label: "读写", allow: ["read", "download", "upload", "create", "edit"], deny: [] },
-  { label: "完全控制", allow: [...PERMS], deny: [] },
+  { label: "读写", allow: ["read", "download", "upload", "create", "edit", "rename", "move", "copy", "tag"], deny: [] },
+  { label: "完全控制", allow: [...PATH_PERMS], deny: [] },
   { label: "禁止访问", allow: [], deny: ["read", "download"], tone: "danger" },
 ];
 type Cell = "none" | "allow" | "deny";
@@ -38,6 +38,11 @@ function CellBtn({ state, onClick, label }: { state: Cell; onClick: () => void; 
 
 export function AclPage({ initialPath }: { initialPath: string }) {
   const [path, setPath] = useState(initialPath || "/");
+  // global (admin_*) permissions are only meaningful on root rules
+  const atRoot = norm(path) === "/";
+  const matrixCats = PERM_CATEGORIES.map((c) => ({ ...c, perms: permsOf(c.id, atRoot ? PERMS : PATH_PERMS) })).filter((c) => c.perms.length);
+  const matrixPerms = matrixCats.flatMap((c) => c.perms);
+  const firstOfCat = new Set(matrixCats.map((c) => c.perms[0]));
   const [rules, setRules] = useState<Rule[]>([]);
   const [gates, setGates] = useState<Gate[]>([]);
   const [users, setUsers] = useState<Me[]>([]);
@@ -147,19 +152,22 @@ export function AclPage({ initialPath }: { initialPath: string }) {
               <p className="rounded-xl border border-dashed border-line p-4 text-center text-[13px] text-muted">本目录还没有规则，权限完全继承自上级。下方添加第一条。</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-line">
-                <table className="w-full min-w-[640px] text-center text-xs" data-testid="acl-matrix">
+                <table className="w-full min-w-[960px] text-center text-xs" data-testid="acl-matrix">
                   <thead className="bg-panel-2 text-muted">
+                    <tr className="border-b border-line">
+                      <th rowSpan={2} className="px-3 py-2 text-left font-medium">对象</th>
+                      {matrixCats.map((c) => <th key={c.id} colSpan={c.perms.length} data-acl-cat={c.id} className="border-l border-line px-1 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-fg">{c.label}</th>)}
+                      <th rowSpan={2} className="w-10" />
+                    </tr>
                     <tr>
-                      <th className="px-3 py-2 text-left font-medium">对象</th>
-                      {PERMS.map((p) => <th key={p} className="px-1 py-2 font-medium">{PERM_LABEL[p]}</th>)}
-                      <th className="w-10" />
+                      {matrixCats.map((c) => c.perms.map((p, i) => <th key={p} className={cx("px-1 pb-2 font-medium", i === 0 && "border-l border-line")}>{PERM_LABEL[p]}</th>))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
                     {hereRules.map((r) => (
                       <tr key={r.id} data-rule={r.id}>
                         <td className="px-3 py-2 text-left"><Badge tone="accent">{SUBJ[r.subject]}</Badge>{subjName(r) && <span className="ml-1.5 text-[13px] font-medium">{subjName(r)}</span>}</td>
-                        {PERMS.map((p) => <td key={p} className="px-1 py-1.5"><CellBtn state={cellOf(r, p)} label={`${SUBJ[r.subject]}${subjName(r) ?? ""} ${PERM_LABEL[p]}`} onClick={() => setCell(r, p)} /></td>)}
+                        {matrixPerms.map((p) => <td key={p} className={cx("px-1 py-1.5", firstOfCat.has(p) && "border-l border-line")}><CellBtn state={cellOf(r, p)} label={`${SUBJ[r.subject]}${subjName(r) ?? ""} ${PERM_LABEL[p]}`} onClick={() => setCell(r, p)} /></td>)}
                         <td><IconButton label="删除规则" onClick={() => act(() => call("DELETE", `/api/acl/rules/${r.id}`), "规则已删除")}><Trash2 className="size-4" /></IconButton></td>
                       </tr>
                     ))}
@@ -222,7 +230,11 @@ export function AclPage({ initialPath }: { initialPath: string }) {
             {eff && (
               <div className="space-y-3 text-[13px]" data-testid="acl-effective">
                 <div className="flex flex-wrap gap-1">
-                  {PERMS.map((p) => <Badge key={p} tone={eff.permissions.includes(p) ? "ok" : "neutral"}>{eff.permissions.includes(p) ? "✓" : "✗"} {PERM_LABEL[p]}</Badge>)}
+                  {PERM_CATEGORIES.map((c) => (
+                    <div key={c.id} className="flex w-full flex-wrap items-center gap-1"><span className="w-16 text-xs text-faint">{c.label}</span>
+                      {permsOf(c.id).map((p) => <Badge key={p} tone={eff.permissions.includes(p) ? "ok" : "neutral"}>{eff.permissions.includes(p) ? "✓" : "✗"} {PERM_LABEL[p]}</Badge>)}
+                    </div>
+                  ))}
                 </div>
                 <p className="text-muted">{eff.reason}</p>
                 {eff.gate && <p>门槛 <span className="font-mono">{eff.gate.path}</span>：{eff.gate.modes.map((m) => GATE[m]?.label ?? m).join(" / ")} → {eff.gate.passed ? <Badge tone="ok">通过</Badge> : <Badge tone="danger">未通过</Badge>}</p>}

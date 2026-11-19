@@ -211,13 +211,40 @@ export type Effective = {
   gate: { path: string; modes: string[]; passed: boolean } | null;
   trace: { path: string; subject: string; subject_id: number | null; allow: string[]; deny: string[]; after: string[] }[];
 };
-export const PERMS = ["read", "download", "upload", "create", "edit", "delete", "share"] as const;
-export const PERM_LABEL: Record<string, string> = {
-  read: "浏览",
-  download: "下载",
-  upload: "上传",
-  create: "新建",
-  edit: "编辑",
-  delete: "删除",
-  share: "分享",
-};
+// Categorized permission catalog (DEPTAI-485 r5) — mirrors drivehub_core::acl::PERM_CATALOG
+// (also served by GET /api/acl/catalog). `global` ones only take effect at the root / via roles.
+export type PermDef = { name: string; category: "file" | "share" | "tag" | "admin"; label: string; hint: string; global?: boolean };
+export const PERM_CATEGORIES: { id: PermDef["category"]; label: string }[] = [
+  { id: "file", label: "文件" },
+  { id: "share", label: "分享" },
+  { id: "tag", label: "标签" },
+  { id: "admin", label: "管理后台" },
+];
+export const PERM_CATALOG: PermDef[] = [
+  { name: "read", category: "file", label: "浏览", hint: "列目录、预览、查看属性" },
+  { name: "download", category: "file", label: "下载", hint: "下载文件与打包下载" },
+  { name: "upload", category: "file", label: "上传", hint: "上传新文件到目录" },
+  { name: "create", category: "file", label: "新建", hint: "新建文件夹" },
+  { name: "edit", category: "file", label: "编辑", hint: "在线编辑、覆盖保存" },
+  { name: "rename", category: "file", label: "重命名", hint: "重命名文件与文件夹" },
+  { name: "move", category: "file", label: "移动", hint: "移动到其他目录（含拖拽）" },
+  { name: "copy", category: "file", label: "复制", hint: "复制到其他目录" },
+  { name: "delete", category: "file", label: "删除", hint: "删除文件与文件夹" },
+  { name: "share", category: "share", label: "创建分享", hint: "创建预览 / 下载分享链接" },
+  { name: "share_upload", category: "share", label: "收集分享", hint: "创建可上传的文件夹分享" },
+  { name: "share_manage", category: "share", label: "管理全部分享", hint: "查看 / 停用所有人的分享", global: true },
+  { name: "tag", category: "tag", label: "打标签", hint: "给文件与文件夹添加标签" },
+  { name: "admin_users", category: "admin", label: "用户", hint: "创建、编辑、禁用普通用户", global: true },
+  { name: "admin_groups", category: "admin", label: "用户组", hint: "管理用户组与成员", global: true },
+  { name: "admin_roles", category: "admin", label: "角色", hint: "管理角色（不能授予自己没有的管理权限）", global: true },
+  { name: "admin_acl", category: "admin", label: "目录权限", hint: "管理目录规则与访问门槛", global: true },
+  { name: "admin_mounts", category: "admin", label: "挂载点", hint: "管理存储挂载与重建索引", global: true },
+  { name: "admin_audit", category: "admin", label: "审计", hint: "查看审计日志与全部访问统计", global: true },
+  { name: "admin_settings", category: "admin", label: "系统设置", hint: "修改后台设置", global: true },
+];
+export const PERMS = PERM_CATALOG.map((p) => p.name);
+/** Per-path permissions (meaningful on any directory). */
+export const PATH_PERMS = PERM_CATALOG.filter((p) => !p.global).map((p) => p.name);
+export const PERM_LABEL: Record<string, string> = Object.fromEntries(PERM_CATALOG.map((p) => [p.name, p.label]));
+export const PERM_HINT: Record<string, string> = Object.fromEntries(PERM_CATALOG.map((p) => [p.name, p.hint]));
+export const permsOf = (cat: string, names = PERMS) => PERM_CATALOG.filter((p) => p.category === cat && names.includes(p.name)).map((p) => p.name);
