@@ -142,7 +142,7 @@ pub async fn create_user(
     match r {
         Ok(r) => {
             let id = r.last_insert_rowid();
-            crate::auth::set_level_role(&st.db, id, role.as_str()).await?;
+            crate::auth::set_level_role(&mut *st.db.acquire().await?, id, role.as_str()).await?;
             st.auth.reload_acl(&st.db).await?;
             Ok(id)
         }
