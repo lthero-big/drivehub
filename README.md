@@ -92,3 +92,10 @@ Web/API、WebDAV、搜索全部走同一个 `AppState::perms/authorize`（`serve
 | `DRIVEHUB_DAV_SPOOL` | WebDAV 上传暂存目录（默认系统 tmp） |
 
 冒烟：`BASE=http://127.0.0.1:8473 FILES=<fs root> ADMIN_PW=… scripts/smoke-m2.sh`（curl + rclone webdav）。
+
+## 许可证
+
+DriveHub 以 **GNU Affero General Public License v3.0**（`AGPL-3.0-only`）发布，全文见 [LICENSE](LICENSE)。
+自 2026-11-19 起由 MIT 改为 AGPL-3.0（DEPTAI-481），以便移植 [OpenList](https://github.com/OpenListTeam/OpenList)（AGPL-3.0）的 115 / PikPak 等网盘驱动。
+通过网络向用户提供修改版服务时，须按 AGPL-3.0 第 13 条向这些用户提供对应源码。
+第三方来源与版权声明见 [NOTICE](NOTICE) 与 [THIRD_PARTY.md](THIRD_PARTY.md)。
