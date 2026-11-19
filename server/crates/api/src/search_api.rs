@@ -55,6 +55,7 @@ struct VisibleTo<'a> {
 impl AclFilter for VisibleTo<'_> {
     fn allow(&self, mount: &str, path: &str) -> bool {
         self.mounts.contains(mount)
+            && !crate::share_api::is_room_path(path)
             && self
                 .st
                 .perms(self.p, &format!("{mount}/{path}"))

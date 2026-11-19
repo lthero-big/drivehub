@@ -1343,6 +1343,16 @@ pub async fn direct(
 
 // ---------------------------------------------------------------- drop rooms (DEPTAI-464r)
 
+/// Name of the hidden per-parent folder holding drop-room folders.
+pub const ROOMS_DIR: &str = ".droprooms";
+
+/// True for paths inside (or equal to) a drop-room container folder. The container is
+/// hidden from regular directory listings / WebDAV (by name) and everything in it from
+/// search; rooms are managed via the shares (rooms) UI.
+pub fn is_room_path(path: &str) -> bool {
+    path.split('/').any(|seg| seg == ROOMS_DIR)
+}
+
 /// Rejects an upload of `add` bytes that would exceed the room's file-count / size caps.
 pub fn check_room_caps(s: &Share, add: i64) -> ApiResult<()> {
     if s.max_uploads.is_some_and(|m| s.uploads >= m) {

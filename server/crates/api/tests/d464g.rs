@@ -294,3 +294,41 @@ async fn non_last_admin_changes_still_work() {
     assert_eq!(level_of(&t, carol).await, "user");
     t.adm("DELETE", &c, None).await;
 }
+
+async fn room_tok(t: &T, c: &str) -> String {
+    let r = t.anon(&format!("/api/s/{c}"), "7.0.0.1", &[]).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.text());
+    r.json()["token"].as_str().unwrap().to_string()
+}
+
+/// Drop-room folders are hidden from the owner's normal listing and search.
+#[tokio::test]
+async fn drop_room_folder_hidden_from_listing_and_search() {
+    let t = T::new().await;
+    let s = t.share(json!({"room": true, "paths": ["/local/docs"]})).await;
+    let folder = s["items"][0].as_str().unwrap().to_string();
+    assert!(folder.starts_with("/local/docs/.droprooms/"), "{folder}");
+    let fname = folder.rsplit('/').next().unwrap().to_string();
+    // a guest uploads into the room
+    let c = code(&s);
+    let tok = room_tok(&t, &c).await;
+    let r = t.raw(Request::put(format!("/api/s/{c}/upload?path=roomfile-zz.txt&t={tok}")).body(Body::from("zz")).unwrap()).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.text());
+    assert!(t._dir.path().join(format!("docs/.droprooms/{fname}/roomfile-zz.txt")).exists());
+    // owner's regular listing of the parent hides the container
+    let l = t.adm("GET", "/api/fs/list?path=/local/docs&refresh=true", None).await;
+    assert!(!l.text().contains(".droprooms"), "{}", l.text());
+    assert!(l.text().contains("x.md"), "{}", l.text());
+    // search does not surface room folders / files
+    t.adm("POST", "/api/search/reindex", None).await;
+    let q = t.adm("GET", "/api/search?q=roomfile", None).await;
+    assert_eq!(q.json()["hits"].as_array().unwrap().len(), 0, "{}", q.text());
+    let q = t.adm("GET", "/api/search?q=droprooms", None).await;
+    assert_eq!(q.json()["hits"].as_array().unwrap().len(), 0, "{}", q.text());
+    // sanity: normal files are still searchable
+    let q = t.adm("GET", "/api/search?q=y.txt", None).await;
+    assert!(!q.json()["hits"].as_array().unwrap().is_empty(), "{}", q.text());
+    // the room itself is still managed via my shares
+    let mine = t.adm("GET", "/api/shares", None).await.json();
+    assert!(mine.as_array().unwrap().iter().any(|x| x["code"] == c.as_str() && x["kind"] == "room"));
+}

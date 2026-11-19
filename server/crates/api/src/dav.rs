@@ -95,6 +95,7 @@ impl Backend for DavSession {
                     .map_err(map_api)?;
                 Ok(entries
                     .iter()
+                    .filter(|e| e.name != crate::share_api::ROOMS_DIR)
                     .filter(|e| {
                         self.st
                             .perms(&self.p, &format!("{}/{}", mount.cfg.name, e.path))
