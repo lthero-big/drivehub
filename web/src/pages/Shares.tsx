@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { LoadingButton } from "../ui/motion";
-import { BarChart3, Copy, Pencil, QrCode, RefreshCw, Trash2, XCircle } from "lucide-react";
+import { BarChart3, Copy, Inbox, Pencil, QrCode, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { call } from "../lib/api";
 import { useApp } from "../lib/app";
 import { abs, copy, PERM_NAMES, qrDataUrl, STATUS_NAMES, type Share } from "../lib/shares";
@@ -18,9 +18,15 @@ export function SharesPage() {
   const [qr, setQr] = useState<{ s: Share; img: string } | null>(null);
   const [stats, setStats] = useState<Share | null>(null);
   const [edit, setEdit] = useState<Share | null>(null);
+  const [newRoom, setNewRoom] = useState(false);
+  const [kind, setKind] = useState<"" | "share" | "room">("");
   const load = () => call<Share[]>("GET", `/api/shares${all ? "?all=true" : ""}`).then(setRows).catch((e) => toast.err(errMsg(e)));
   useEffect(() => void load(), [all]); // eslint-disable-line react-hooks/exhaustive-deps
-  const link = (s: Share) => abs(s.url_with_pin ?? s.url);
+  const link = (s: Share) => {
+    const u = s.kind === "room" && s.room_url ? s.room_url : s.url;
+    return abs(s.pin ? `${u}-${s.pin}` : u);
+  };
+  const shown = rows?.filter((s) => !kind || (s.kind ?? "share") === kind) ?? null;
   const act = async (f: () => Promise<unknown>) => {
     try {
       await f();
@@ -34,25 +40,29 @@ export function SharesPage() {
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="flex-1 text-xl font-semibold">我的分享</h1>
         <PickupBox compact />
+        <Select value={kind} onChange={(e) => setKind(e.target.value as "")} aria-label="分享类型"><option value="">全部类型</option><option value="share">普通分享</option><option value="room">快传房间</option></Select>
+        <Button variant="primary" onClick={() => setNewRoom(true)}><Inbox className="size-4" /> 新建快传房间</Button>
         {isAdmin && <Switch checked={all} onChange={setAll} label="全部用户" />}
         <IconButton label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
       </div>
       {rows && rows.length === 0 && <Empty title="还没有分享">在文件列表中选中文件后点击「分享」</Empty>}
-      {rows && rows.length > 0 && (
+      {shown && shown.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-line bg-panel">
           <table className="w-full min-w-[860px] text-left text-[12.5px]">
             <thead className="border-b border-line bg-panel-2 text-xs text-muted">
-              <tr>{["名称", "状态", "权限", "提取码", "访问", "下载", "到期", "创建", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
+              <tr>{["名称", "类型", "状态", "权限", "提取码", "访问", "下载", "上传", "到期", "创建", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {rows.map((s) => (
+              {shown.map((s) => (
                 <tr key={s.id} className="hover:bg-hover">
                   <td className="max-w-60 truncate px-3 py-1.5" title={s.items.join("\n")}>{s.name}{all && <span className="text-muted"> · {s.owner}</span>}</td>
+                  <td className="px-3 py-1.5">{s.kind === "room" ? <Badge tone="accent">快传房间</Badge> : <span className="text-muted">分享</span>}</td>
                   <td className="px-3 py-1.5"><Badge tone={tone(s.status)}>{STATUS_NAMES[s.status]}</Badge></td>
-                  <td className="px-3 py-1.5">{PERM_NAMES[s.perm]}</td>
+                  <td className="px-3 py-1.5">{s.kind === "room" ? [s.allow_upload ? "上传" : null, s.allow_download !== false ? "下载" : null].filter(Boolean).join(" + ") || "—" : PERM_NAMES[s.perm]}</td>
                   <td className="px-3 py-1.5 font-mono">{s.pin ?? "—"}</td>
                   <td className="px-3 py-1.5 tabular-nums">{s.visits}{s.max_visits ? ` / ${s.max_visits}` : ""}</td>
                   <td className="px-3 py-1.5 tabular-nums">{s.downloads}{s.max_downloads ? ` / ${s.max_downloads}` : ""}</td>
+                  <td className="px-3 py-1.5 tabular-nums whitespace-nowrap">{s.uploads}{s.max_uploads ? ` / ${s.max_uploads}` : ""}{s.kind === "room" && s.max_bytes ? <span className="text-muted"> · {fmtSize(s.up_bytes ?? 0)} / {fmtSize(s.max_bytes)}</span> : null}</td>
                   <td className="px-3 py-1.5 whitespace-nowrap">{s.expires_at ? fmtTime(s.expires_at) : "永久"}</td>
                   <td className="px-3 py-1.5 whitespace-nowrap text-muted">{fmtTime(s.created_at)}</td>
                   <td className="px-2 py-1 whitespace-nowrap">
@@ -100,6 +110,7 @@ export function SharesPage() {
           </div>
         )}
       </Modal>
+      {newRoom && <NewRoom onClose={() => setNewRoom(false)} onCreated={(s) => (setNewRoom(false), load(), copy(link(s)), toast.ok("房间已创建，链接已复制"))} />}
       {edit && <EditShare s={edit} onClose={() => setEdit(null)} onSaved={() => (setEdit(null), load())} />}
     </div>
   );
@@ -112,6 +123,11 @@ function EditShare({ s, onClose, onSaved }: { s: Share; onClose: () => void; onS
   const [pin, setPin] = useState(s.pin ?? "");
   const [perm, setPerm] = useState<string>(s.perm);
   const [login, setLogin] = useState(s.require_login);
+  const room = s.kind === "room";
+  const [allowUp, setAllowUp] = useState(!!s.allow_upload);
+  const [allowDl, setAllowDl] = useState(s.allow_download !== false);
+  const [maxUp, setMaxUp] = useState(s.max_uploads?.toString() ?? "");
+  const [maxMb, setMaxMb] = useState(s.max_bytes ? String(+(s.max_bytes / 2 ** 20).toFixed(1)) : "");
   const save = async () => {
     try {
       await call("PATCH", `/api/shares/${s.id}`, {
@@ -119,7 +135,7 @@ function EditShare({ s, onClose, onSaved }: { s: Share; onClose: () => void; onS
         max_visits: visits ? Number(visits) : null,
         max_downloads: downloads ? Number(downloads) : null,
         pin: pin || null,
-        perm,
+        ...(room ? { allow_upload: allowUp, allow_download: allowDl, max_uploads: maxUp ? Number(maxUp) : null, max_bytes: maxMb ? Math.round(Number(maxMb) * 2 ** 20) : null } : { perm }),
         require_login: login,
         revoked: false,
       });
@@ -138,10 +154,70 @@ function EditShare({ s, onClose, onSaved }: { s: Share; onClose: () => void; onS
           <Field label="最大下载"><Input type="number" min={0} placeholder="不限" value={downloads} onChange={(e) => setDownloads(e.target.value)} /></Field>
         </div>
         <Field label="提取码（留空 = 无）"><Input value={pin} onChange={(e) => setPin(e.target.value)} /></Field>
-        <Field label="权限">
-          <Select value={perm} onChange={(e) => setPerm(e.target.value)}>{Object.entries(PERM_NAMES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
-        </Field>
+        {room ? (
+          <>
+            <div className="flex gap-4"><Switch checked={allowUp} onChange={setAllowUp} label="允许上传" /><Switch checked={allowDl} onChange={setAllowDl} label="允许下载" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="最多上传文件数"><Input type="number" min={0} placeholder="不限" value={maxUp} onChange={(e) => setMaxUp(e.target.value)} /></Field>
+              <Field label="总大小上限（MB）"><Input type="number" min={0} placeholder="不限" value={maxMb} onChange={(e) => setMaxMb(e.target.value)} /></Field>
+            </div>
+          </>
+        ) : (
+          <Field label="权限">
+            <Select value={perm} onChange={(e) => setPerm(e.target.value)}>{Object.entries(PERM_NAMES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
+          </Field>
+        )}
         <Switch checked={login} onChange={setLogin} label="需要登录" />
+      </div>
+    </Modal>
+  );
+}
+
+/** Create a drop room (快传房间): a temporary folder share visitors can upload into / download from. */
+function NewRoom({ onClose, onCreated }: { onClose: () => void; onCreated: (s: Share) => void }) {
+  const [name, setName] = useState("");
+  const [parent, setParent] = useState("/");
+  const [hours, setHours] = useState("24");
+  const [usePin, setUsePin] = useState(false);
+  const [pin, setPin] = useState("");
+  const [allowUp, setAllowUp] = useState(true);
+  const [allowDl, setAllowDl] = useState(true);
+  const [visits, setVisits] = useState("");
+  const [maxUp, setMaxUp] = useState("");
+  const [maxMb, setMaxMb] = useState("");
+  const create = async () => {
+    try {
+      const s = await call<Share>("POST", "/api/shares", {
+        room: true,
+        paths: [parent || "/"],
+        name: name || null,
+        ...(hours ? { expires_in_secs: Math.round(Number(hours) * 3600) } : {}),
+        ...(usePin ? (pin ? { pin } : { random_pin: true }) : {}),
+        allow_upload: allowUp,
+        allow_download: allowDl,
+        max_visits: visits ? Number(visits) : null,
+        max_uploads: maxUp ? Number(maxUp) : null,
+        max_bytes: maxMb ? Math.round(Number(maxMb) * 2 ** 20) : null,
+      });
+      onCreated(s);
+    } catch (e) {
+      toast.err(errMsg(e));
+    }
+  };
+  return (
+    <Modal open onClose={onClose} title="新建快传房间" footer={<><Button variant="ghost" onClick={onClose}>取消</Button><LoadingButton variant="primary" onClick={create}>创建</LoadingButton></>}>
+      <div className="space-y-3">
+        <p className="text-xs text-muted">在所选目录下创建临时文件夹 <code>.droprooms/…</code>，通过 /r/&lt;code&gt; 链接让他人上传 / 下载；到期后房间及文件自动清理。</p>
+        <Field label="名称（可选）"><Input value={name} placeholder="快传房间" onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="存放位置" hint="例如 /local/inbox；需要该目录的上传 + 新建 + 分享权限"><Input value={parent} onChange={(e) => setParent(e.target.value)} /></Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="有效期（小时）" hint="留空 = 永久"><Input type="number" min={0} value={hours} onChange={(e) => setHours(e.target.value)} /></Field>
+          <Field label="最大访问次数"><Input type="number" min={0} placeholder="不限" value={visits} onChange={(e) => setVisits(e.target.value)} /></Field>
+          <Field label="最多上传文件数"><Input type="number" min={0} placeholder="不限" value={maxUp} onChange={(e) => setMaxUp(e.target.value)} /></Field>
+          <Field label="总大小上限（MB）"><Input type="number" min={0} placeholder="不限" value={maxMb} onChange={(e) => setMaxMb(e.target.value)} /></Field>
+        </div>
+        <div className="flex flex-wrap gap-4"><Switch checked={allowUp} onChange={setAllowUp} label="允许上传" /><Switch checked={allowDl} onChange={setAllowDl} label="允许下载" /><Switch checked={usePin} onChange={setUsePin} label="需要提取码" /></div>
+        {usePin && <Field label="提取码" hint="留空则随机生成 4 位"><Input value={pin} onChange={(e) => setPin(e.target.value)} /></Field>}
       </div>
     </Modal>
   );

@@ -20,8 +20,8 @@ fn now() -> i64 {
 }
 
 async fn role_json(st: &AppState, id: i64) -> ApiResult<Value> {
-    let r: (i64, String, String, i64, i64, i64) = sqlx::query_as(
-        "SELECT id, name, description, permissions, builtin, created_at FROM roles WHERE id = ?",
+    let r: (i64, String, String, i64, i64, i64, Option<String>) = sqlx::query_as(
+        "SELECT id, name, description, permissions, builtin, created_at, level FROM roles WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&st.db)
@@ -37,7 +37,7 @@ async fn role_json(st: &AppState, id: i64) -> ApiResult<Value> {
         .await?;
     Ok(json!({"id": r.0, "name": r.1, "description": r.2,
         "permissions": acl::bits_to_names(r.3 as u32), "builtin": r.4 != 0, "created_at": r.5,
-        "users": users, "groups": groups}))
+        "users": users, "groups": groups, "level": r.6}))
 }
 
 /// Roles (admin).
@@ -134,6 +134,13 @@ pub async fn delete_role(
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
     p.require_admin()?;
+    let builtin: Option<i64> = sqlx::query_scalar("SELECT builtin FROM roles WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&st.db)
+        .await?;
+    if builtin.ok_or_else(|| ApiError::not_found("no such role"))? != 0 {
+        return Err(ApiError::bad("builtin roles cannot be deleted"));
+    }
     for q in [
         "DELETE FROM user_roles WHERE role_id = ?",
         "DELETE FROM group_roles WHERE role_id = ?",
@@ -204,6 +211,7 @@ pub async fn patch_group(
                 .await?;
         }
     }
+    crate::auth::sync_levels(&st.db).await?;
     st.auth.reload_acl(&st.db).await?;
     st.audit(&p, CH_AUTH, "group_update", "", true, &format!("id={id}"));
     Ok(Json(group_json(&st, id).await?))

@@ -143,17 +143,22 @@ pub async fn patch_user(
 ) -> ApiResult<Json<Value>> {
     p.require_admin()?;
     let was_admin = is_admin_user(&st, id).await?;
-    let demote = b.role.as_deref().is_some_and(|r| r != "admin") || b.disabled == Some(true);
-    if was_admin && demote && admin_count(&st).await? <= 1 {
+    if was_admin && b.disabled == Some(true) && admin_count(&st).await? <= 1 {
         return Err(ApiError::bad("cannot demote/disable the last admin"));
     }
+    // Snapshot assignments so a change that would leave no admin can be rolled back.
+    let prev_roles: Vec<i64> = sqlx::query_scalar("SELECT role_id FROM user_roles WHERE user_id = ?")
+        .bind(id)
+        .fetch_all(&st.db)
+        .await?;
+    let prev_groups: Vec<i64> = sqlx::query_scalar("SELECT group_id FROM user_groups WHERE user_id = ?")
+        .bind(id)
+        .fetch_all(&st.db)
+        .await?;
     if let Some(r) = &b.role {
+        // Legacy "account type": mapped onto the builtin level role.
         Role::parse(r).ok_or_else(|| ApiError::bad("bad role"))?;
-        sqlx::query("UPDATE users SET role = ? WHERE id = ?")
-            .bind(r)
-            .bind(id)
-            .execute(&st.db)
-            .await?;
+        crate::auth::set_level_role(&st.db, id, r).await?;
     }
     if let Some(d) = b.disabled {
         sqlx::query("UPDATE users SET disabled = ? WHERE id = ?")
@@ -209,6 +214,13 @@ pub async fn patch_user(
                 .bind(r)
                 .execute(&st.db)
                 .await?;
+        }
+    }
+    if b.roles.is_some() || b.groups.is_some() || b.role.is_some() {
+        crate::auth::sync_levels(&st.db).await?;
+        if admin_count(&st).await? == 0 {
+            restore_assignments(&st, id, &prev_roles, &prev_groups).await?;
+            return Err(ApiError::bad("cannot demote/disable the last admin"));
         }
         st.auth.reload_acl(&st.db).await?;
     }
@@ -366,6 +378,7 @@ pub async fn delete_group(
     ] {
         sqlx::query(q).bind(id).execute(&st.db).await?;
     }
+    crate::auth::sync_levels(&st.db).await?;
     st.auth.reload_acl(&st.db).await?;
     st.audit(&p, CH_AUTH, "group_delete", "", true, &format!("id={id}"));
     Ok(Json(json!({"ok": true})))
@@ -630,4 +643,17 @@ pub async fn effective(
         "trace": e.trace.iter().map(|t| json!({"path": format!("/{}", t.path), "subject": t.subject.kind(), "subject_id": t.subject.id(),
             "allow": acl::bits_to_names(t.allow), "deny": acl::bits_to_names(t.deny), "after": acl::bits_to_names(t.bits_after)})).collect::<Vec<_>>(),
     })))
+}
+
+async fn restore_assignments(st: &AppState, id: i64, roles: &[i64], groups: &[i64]) -> ApiResult<()> {
+    sqlx::query("DELETE FROM user_roles WHERE user_id = ?").bind(id).execute(&st.db).await?;
+    sqlx::query("DELETE FROM user_groups WHERE user_id = ?").bind(id).execute(&st.db).await?;
+    for r in roles {
+        sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)").bind(id).bind(r).execute(&st.db).await?;
+    }
+    for g in groups {
+        sqlx::query("INSERT OR IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)").bind(id).bind(g).execute(&st.db).await?;
+    }
+    crate::auth::sync_levels(&st.db).await?;
+    Ok(())
 }

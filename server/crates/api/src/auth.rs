@@ -498,6 +498,9 @@ impl Auth {
         .fetch_all(db)
         .await?;
         for (i, (kind, sid, bits)) in role_rows.into_iter().enumerate() {
+            if bits == 0 {
+                continue; // e.g. builtin user/guest level roles: grant nothing extra
+            }
             if let Some(subject) = acl::Subject::parse(&kind, Some(sid)) {
                 rules.push(acl::Rule {
                     id: -(i as i64) - 1,
@@ -793,11 +796,12 @@ impl AppState {
                 .bind(id)
                 .fetch_all(&self.db)
                 .await?;
+        let level = derive_level(&self.db, id).await?.unwrap_or(role);
         Ok(Some(UserCtx {
             id,
             username,
             email,
-            role: Role::parse(&role).unwrap_or(Role::User),
+            role: Role::parse(&level).unwrap_or(Role::User),
             groups,
             root: drivehub_storage::norm(&root).unwrap_or_default(),
             visible_mounts: vis.and_then(|v| serde_json::from_str(&v).ok()),
@@ -1149,4 +1153,46 @@ mod tests {
         assert!(p.map_out("local/other").is_none());
         assert!(p.map_in("/../x").is_err());
     }
+}
+
+/// Effective account level ("admin" | "user" | "guest") derived from the builtin level roles
+/// assigned to the user directly or through any of their groups (admin > user > guest).
+/// `None` when the user holds no level role at all.
+pub async fn derive_level(db: &sqlx::SqlitePool, uid: i64) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT r.level FROM roles r WHERE r.level IS NOT NULL AND r.id IN ( \
+           SELECT role_id FROM user_roles WHERE user_id = ?1 \
+           UNION SELECT gr.role_id FROM group_roles gr JOIN user_groups ug ON ug.group_id = gr.group_id WHERE ug.user_id = ?1) \
+         ORDER BY CASE r.level WHEN 'admin' THEN 0 WHEN 'user' THEN 1 ELSE 2 END LIMIT 1",
+    )
+    .bind(uid)
+    .fetch_optional(db)
+    .await
+}
+
+/// Re-derives the cached `users.role` column for every user from their roles.
+pub async fn sync_levels(db: &sqlx::SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE users SET role = COALESCE((SELECT r.level FROM roles r WHERE r.level IS NOT NULL AND r.id IN ( \
+           SELECT role_id FROM user_roles WHERE user_id = users.id \
+           UNION SELECT gr.role_id FROM group_roles gr JOIN user_groups ug ON ug.group_id = gr.group_id WHERE ug.user_id = users.id) \
+         ORDER BY CASE r.level WHEN 'admin' THEN 0 WHEN 'user' THEN 1 ELSE 2 END LIMIT 1), role)",
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Replaces the user's builtin level role (admin/user/guest) keeping custom roles.
+pub async fn set_level_role(db: &sqlx::SqlitePool, uid: i64, level: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM user_roles WHERE user_id = ? AND role_id IN (SELECT id FROM roles WHERE level IS NOT NULL)")
+        .bind(uid)
+        .execute(db)
+        .await?;
+    sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE level = ?")
+        .bind(uid)
+        .bind(level)
+        .execute(db)
+        .await?;
+    sync_levels(db).await
 }

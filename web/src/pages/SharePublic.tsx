@@ -6,7 +6,7 @@ import { errMsg, fmtSize, fmtTime } from "../lib/util";
 import { Button, Card, Empty, Input, Spinner, toast } from "../ui/ui";
 
 type Item = { name: string; path: string; is_dir: boolean; size: number; modified_unix: number | null };
-type Opened = { id: number; name: string; owner: string; perm: string; expires_at: number | null; items: Item[]; token: string; visits_left: number | null; downloads_left: number | null };
+type Opened = { id: number; name: string; owner: string; perm: string; expires_at: number | null; items: Item[]; token: string; visits_left: number | null; downloads_left: number | null; kind?: string; allow_download?: boolean; allow_upload?: boolean; uploads_left?: number | null; bytes_left?: number | null };
 
 function headers(): Record<string, string> {
   const t = tokens.get();
@@ -59,6 +59,12 @@ export function SharePublicPage() {
       setShare(r.body);
       setList(r.body.items);
       setState("open");
+      // drop room: go straight into the room folder
+      if (r.body.kind === "room" && r.body.items[0]?.is_dir) {
+        const d = r.body.items[0].path;
+        const l = await getJson(`/api/s/${code}/list?${new URLSearchParams({ path: d, t: r.body.token })}`);
+        if (l.ok) (setDir(d), setList(l.body.items));
+      }
       return;
     }
     if (r.body.need_pin) {
@@ -104,10 +110,13 @@ export function SharePublicPage() {
     }
     browse(dir === "/" ? `/${share!.items[0]?.name}` : dir);
   };
+  const room = share?.kind === "room";
+  const canDl = share ? share.perm !== "preview" && share.allow_download !== false : false;
+  const roomDir = room && share ? share.items[0]?.path : null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-8">
-      <h1 className="text-lg font-semibold"><a href="/">DriveHub</a> · 分享</h1>
+      <h1 className="text-lg font-semibold"><a href="/">DriveHub</a> · {room ? "快传房间" : "分享"}</h1>
       {state === "loading" && <div className="flex justify-center py-16"><Spinner /></div>}
       {state === "error" && <Empty title={err}><a className="text-accent underline" href="/">返回首页</a></Empty>}
       {state === "pin" && (
@@ -127,10 +136,10 @@ export function SharePublicPage() {
       )}
       {state === "open" && share && (
         <Card
-          title={<span>{share.name} <span className="text-xs font-normal text-muted">来自 {share.owner} · {PERM_NAMES[share.perm]}{share.expires_at ? ` · ${fmtTime(share.expires_at)} 到期` : ""}</span></span>}
+          title={<span>{share.name} <span className="text-xs font-normal text-muted">来自 {share.owner} · {room ? [share.allow_upload ? "可上传" : null, share.allow_download !== false ? "可下载" : "不可下载", share.uploads_left != null ? `剩余 ${share.uploads_left} 个文件` : null, share.bytes_left != null ? `剩余 ${fmtSize(share.bytes_left)}` : null].filter(Boolean).join(" · ") : PERM_NAMES[share.perm]}{share.expires_at ? ` · ${fmtTime(share.expires_at)} 到期` : ""}</span></span>}
           actions={share.perm === "upload" && <><Button size="sm" onClick={() => fileInput.current?.click()}><Upload className="size-4" /> 上传文件</Button><input ref={fileInput} type="file" multiple hidden onChange={(e) => e.target.files && upload(e.target.files).catch((x) => toast.err(errMsg(x)))} /></>}
         >
-          {dir !== "/" && (
+          {dir !== "/" && dir !== roomDir && (
             <button className="mb-2 text-[13px] text-accent underline" onClick={() => browse(dir.split("/").slice(0, -1).join("/") || "/")}>← 返回上级 ({dir})</button>
           )}
           {!list ? <Spinner /> : list.length === 0 ? <Empty title="空文件夹" /> : (
@@ -142,9 +151,9 @@ export function SharePublicPage() {
                   <span className="text-xs text-muted tabular-nums">{i.is_dir ? "" : fmtSize(i.size)}</span>
                   {!i.is_dir && (
                     <>
-                      <a className="p-1" title="预览" href={url(i, true)} target="_blank" rel="noreferrer"><Eye className="size-4" /></a>
-                      {share.perm !== "preview" && <a className="p-1" title="下载" href={url(i, false)}><Download className="size-4" /></a>}
-                      {share.perm !== "preview" && <button className="p-1" title="复制直链" onClick={() => direct(i)}><Link2 className="size-4" /></button>}
+                      {share.allow_download !== false && <a className="p-1" title="预览" href={url(i, true)} target="_blank" rel="noreferrer"><Eye className="size-4" /></a>}
+                      {canDl && <a className="p-1" title="下载" href={url(i, false)}><Download className="size-4" /></a>}
+                      {canDl && <button className="p-1" title="复制直链" onClick={() => direct(i)}><Link2 className="size-4" /></button>}
                     </>
                   )}
                 </li>

@@ -91,7 +91,8 @@ pub async fn user_json(st: &AppState, uid: i64) -> ApiResult<Value> {
             .fetch_all(&st.db)
             .await?;
     Ok(json!({
-        "id": r.0, "username": r.1, "email": r.2, "role": r.3, "disabled": r.4 != 0,
+        // `role` is the derived account level (read-only; kept for API compatibility).
+        "id": r.0, "username": r.1, "email": r.2, "role": r.3, "level": r.3, "disabled": r.4 != 0,
         "email_verified": r.5 != 0, "totp_enabled": r.6.is_some(),
         "root_path": format!("/{}", r.7.trim_matches('/')),
         "visible_mounts": r.8.and_then(|v| serde_json::from_str::<Value>(&v).ok()),
@@ -139,7 +140,12 @@ pub async fn create_user(
     .execute(&st.db)
     .await;
     match r {
-        Ok(r) => Ok(r.last_insert_rowid()),
+        Ok(r) => {
+            let id = r.last_insert_rowid();
+            crate::auth::set_level_role(&st.db, id, role.as_str()).await?;
+            st.auth.reload_acl(&st.db).await?;
+            Ok(id)
+        }
         Err(sqlx::Error::Database(e)) if e.message().contains("UNIQUE") => Err(ApiError(
             StatusCode::CONFLICT,
             "username or email already registered".into(),

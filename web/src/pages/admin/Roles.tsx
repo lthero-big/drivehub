@@ -75,7 +75,7 @@ export function RolesPage() {
                 <p className="truncate text-xs text-muted">{r.description || "无描述"}</p>
               </div>
               <IconButton label={`编辑角色 ${r.name}`} onClick={() => setD({ id: r.id, name: r.name, description: r.description, permissions: r.permissions, builtin: r.builtin })}><Pencil className="size-4" /></IconButton>
-              <ConfirmButton iconOnly icon={<Trash2 />} label={`删除角色 ${r.name}`} confirmLabel="删除角色" onConfirm={async () => { try { await rbac.deleteRole(r.id); toast.ok("已删除"); load(); } catch (e) { toast.err(errMsg(e)); } }} />
+              {!r.builtin && <ConfirmButton iconOnly icon={<Trash2 />} label={`删除角色 ${r.name}`} confirmLabel="删除角色" onConfirm={async () => { try { await rbac.deleteRole(r.id); toast.ok("已删除"); load(); } catch (e) { toast.err(errMsg(e)); } }} />}
             </div>
             <div className="flex flex-wrap gap-1">
               {PERMS.map((p) => <Badge key={p} tone={r.permissions.includes(p) ? "ok" : "neutral"}>{r.permissions.includes(p) ? "✓" : "·"} {PERM_LABEL[p]}</Badge>)}

@@ -17,7 +17,7 @@ use axum::{
     Extension, Json,
 };
 use data_encoding::BASE64URL_NOPAD;
-use drivehub_core::acl::{DOWNLOAD, READ, SHARE, UPLOAD};
+use drivehub_core::acl::{CREATE, DOWNLOAD, READ, SHARE, UPLOAD};
 use futures::TryStreamExt;
 use hmac::{Hmac, Mac};
 use rand::Rng;
@@ -184,6 +184,11 @@ pub struct Share {
     pub revoked: bool,
     pub created_at: i64,
     pub last_access: Option<i64>,
+    pub kind: String,
+    pub allow_download: bool,
+    pub max_uploads: Option<i64>,
+    pub max_bytes: Option<i64>,
+    pub up_bytes: i64,
 }
 
 fn perm_level(p: &str) -> u8 {
@@ -343,6 +348,9 @@ pub fn share_json(st: &AppState, s: &Share) -> Value {
         "url_with_pin": s.pin.as_ref().map(|p| format!("{url}-{p}")),
         "pickup_code": pickup,
         "direct_url": direct,
+        "kind": s.kind, "allow_upload": s.perm == "upload", "allow_download": s.allow_download,
+        "max_uploads": s.max_uploads, "max_bytes": s.max_bytes, "up_bytes": s.up_bytes,
+        "room_url": (s.kind == "room").then(|| format!("{base}/r/{}", s.code)),
     })
 }
 
@@ -368,6 +376,18 @@ pub struct NewShare {
     pub random_pin: bool,
     #[serde(default)]
     pub require_login: bool,
+    /// Drop room (快传房间): `paths` = [parent folder]; a fresh folder
+    /// `<parent>/.droprooms/<rand>` is created and shared as a whole.
+    #[serde(default)]
+    pub room: bool,
+    /// Room: visitors may upload (default true).
+    pub allow_upload: Option<bool>,
+    /// Room / share: visitors may download (default true).
+    pub allow_download: Option<bool>,
+    /// Room: max number of uploaded files.
+    pub max_uploads: Option<i64>,
+    /// Room: max total uploaded bytes.
+    pub max_bytes: Option<i64>,
 }
 
 fn check_pin(pin: &str) -> ApiResult<()> {
@@ -392,6 +412,28 @@ pub async fn create(
     Json(b): Json<NewShare>,
 ) -> ApiResult<Json<Value>> {
     let u = p.require_user()?.clone();
+    sweep_rooms(&st).await;
+    let mut b = b;
+    if b.room {
+        let parent = b.paths.first().cloned().unwrap_or_else(|| "/".into());
+        let up = b.allow_upload.unwrap_or(true);
+        let preal = p.map_in(&parent)?;
+        st.authorize(&p, &preal, SHARE | READ | UPLOAD | CREATE, CH_SHARE, "room_create")?;
+        let base_real = format!("{}/.droprooms", preal.trim_end_matches('/'));
+        let (mount, base) = st.vfs.resolve_in(&base_real, true)?;
+        if mount.driver.stat(&base).await.is_err() {
+            mount.driver.mkdir(&base).await?;
+        }
+        let folder = rand_str(CODE_ALPHABET, 10);
+        mount.driver.mkdir(&format!("{base}/{folder}")).await?;
+        st.vfs.invalidate(&mount.cfg.name);
+        let vp = format!("{}/.droprooms/{folder}", parent.trim_end_matches('/'));
+        b.paths = vec![vp];
+        b.perm = Some(if up { "upload" } else { "download" }.into());
+        if b.name.as_deref().is_none_or(|n| n.trim().is_empty()) {
+            b.name = Some(format!("快传房间 {folder}"));
+        }
+    }
     let perm = b.perm.clone().unwrap_or_else(|| "download".into());
     check_perm(&perm)?;
     if b.paths.is_empty() {
@@ -450,7 +492,7 @@ pub async fn create(
     for _ in 0..5 {
         let code = rand_str(CODE_ALPHABET, 8);
         let r = sqlx::query(
-            "INSERT INTO shares (code, owner_id, owner_name, name, items, perm, pin, require_login, expires_at, max_visits, max_downloads, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO shares (code, owner_id, owner_name, name, items, perm, pin, require_login, expires_at, max_visits, max_downloads, created_at, kind, allow_download, max_uploads, max_bytes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(&code)
         .bind(u.id)
@@ -464,6 +506,10 @@ pub async fn create(
         .bind(b.max_visits.filter(|v| *v > 0))
         .bind(b.max_downloads.filter(|v| *v > 0))
         .bind(now())
+        .bind(if b.room { "room" } else { "share" })
+        .bind(b.allow_download.unwrap_or(true))
+        .bind(b.max_uploads.filter(|v| *v > 0))
+        .bind(b.max_bytes.filter(|v| *v > 0))
         .execute(&st.db)
         .await;
         if let Ok(r) = r {
@@ -643,9 +689,25 @@ pub async fn patch(
         s.visits = 0;
         s.downloads = 0;
     }
-    sqlx::query("UPDATE shares SET name=?, perm=?, pin=?, require_login=?, expires_at=?, max_visits=?, max_downloads=?, visits=?, downloads=?, revoked=? WHERE id=?")
+    // drop room settings (DEPTAI-464r)
+    if let Some(v) = o.get("allow_download").and_then(Value::as_bool) {
+        s.allow_download = v;
+    }
+    if s.kind == "room" {
+        if let Some(v) = o.get("allow_upload").and_then(Value::as_bool) {
+            s.perm = if v { "upload" } else { "download" }.into();
+        }
+        if o.contains_key("max_uploads") {
+            s.max_uploads = opt_i("max_uploads")?.filter(|v| *v > 0);
+        }
+        if o.contains_key("max_bytes") {
+            s.max_bytes = opt_i("max_bytes")?.filter(|v| *v > 0);
+        }
+    }
+    sqlx::query("UPDATE shares SET name=?, perm=?, pin=?, require_login=?, expires_at=?, max_visits=?, max_downloads=?, visits=?, downloads=?, revoked=?, allow_download=?, max_uploads=?, max_bytes=? WHERE id=?")
         .bind(&s.name).bind(&s.perm).bind(&s.pin).bind(s.require_login).bind(s.expires_at)
-        .bind(s.max_visits).bind(s.max_downloads).bind(s.visits).bind(s.downloads).bind(s.revoked).bind(id)
+        .bind(s.max_visits).bind(s.max_downloads).bind(s.visits).bind(s.downloads).bind(s.revoked)
+        .bind(s.allow_download).bind(s.max_uploads).bind(s.max_bytes).bind(id)
         .execute(&st.db).await?;
     let keys: Vec<&str> = o
         .keys()
@@ -704,6 +766,9 @@ pub async fn delete(
         .bind(id)
         .execute(&st.db)
         .await?;
+    if s.kind == "room" {
+        remove_room_folder(&st, &s).await;
+    }
     st.audit_ev(
         AuditEvent::new(
             &p,
@@ -891,6 +956,9 @@ pub async fn open_share(
         "visits_left": s.max_visits.map(|m| (m - s.visits).max(0)),
         "downloads_left": s.max_downloads.map(|m| (m - s.downloads).max(0)),
         "items": items, "token": token,
+        "kind": s.kind, "allow_download": s.allow_download, "allow_upload": s.perm == "upload",
+        "uploads_left": s.max_uploads.map(|m| (m - s.uploads).max(0)),
+        "bytes_left": s.max_bytes.map(|m| (m - s.up_bytes).max(0)),
     }))
     .into_response()
 }
@@ -986,6 +1054,9 @@ async fn visitor(st: &AppState, p: &Principal, code: &str, t: Option<&str>) -> A
     let s = load_by_code(st, &code)
         .await?
         .ok_or_else(|| ApiError::not_found("share not found"))?;
+    if s.kind == "room" && s.expires_at.is_some_and(|e| e <= now()) {
+        sweep_rooms(st).await;
+    }
     s.check_use()?;
     let ok = t
         .and_then(|t| read_token(st, t))
@@ -1099,6 +1170,9 @@ pub async fn visit_download(
 ) -> ApiResult<Response> {
     let s = visitor(&st, &p, &code, q.t.as_deref()).await?;
     let inline = q.inline.unwrap_or(false);
+    if !s.allow_download {
+        return Err(ApiError::forbidden("downloads are disabled for this room"));
+    }
     if !inline && perm_level(&s.perm) < 2 {
         st.audit_ev(
             AuditEvent::new(
@@ -1128,7 +1202,7 @@ pub async fn visit_direct(
     Query(q): Query<VisitQuery>,
 ) -> ApiResult<Json<Value>> {
     let s = visitor(&st, &p, &code, q.t.as_deref()).await?;
-    if perm_level(&s.perm) < 2 {
+    if perm_level(&s.perm) < 2 || !s.allow_download {
         return Err(ApiError::forbidden("this share is preview only"));
     }
     let rel = drivehub_storage::norm(q.path.as_deref().unwrap_or(""))?;
@@ -1152,6 +1226,7 @@ pub async fn visit_upload(
     Extension(p): Extension<Principal>,
     Path(code): Path<String>,
     Query(q): Query<VisitQuery>,
+    headers: HeaderMap,
     body: Body,
 ) -> ApiResult<Json<Value>> {
     let s = visitor(&st, &p, &code, q.t.as_deref()).await?;
@@ -1182,11 +1257,33 @@ pub async fn visit_upload(
     if mount.driver.stat(&mrel).await.is_ok() {
         return Err(ApiError(StatusCode::CONFLICT, "file exists".into()));
     }
+    let declared: Option<i64> = headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok());
+    check_room_caps(&s, declared.unwrap_or(0))?;
     let stream = body.into_data_stream().map_err(std::io::Error::other);
     let n = mount
         .driver
         .write_stream(&mrel, Box::pin(stream), &|_| {})
         .await?;
+    // Atomically reserve the slot; roll the file back when a cap was exceeded meanwhile.
+    let ok = sqlx::query(
+        "UPDATE shares SET up_bytes = up_bytes + ?1 WHERE id = ?2 \
+         AND (max_uploads IS NULL OR uploads < max_uploads) \
+         AND (max_bytes IS NULL OR up_bytes + ?1 <= max_bytes)",
+    )
+    .bind(n as i64)
+    .bind(s.id)
+    .execute(&st.db)
+    .await?
+    .rows_affected()
+        == 1;
+    if !ok {
+        let _ = mount.driver.delete(&mrel).await;
+        st.vfs.invalidate(&mount.cfg.name);
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "room upload limit reached".into()));
+    }
     st.vfs.invalidate(&mount.cfg.name);
     if let Ok(e) = mount.driver.stat(&mrel).await {
         st.index_upsert(&mount.cfg.name, &e).await;
@@ -1242,4 +1339,46 @@ pub async fn direct(
     }
     let real = s.resolve(&rel)?.ok_or_else(|| ApiError::bad("bad link"))?;
     serve_shared(&st, &p, &s, &real, &headers, false, "share_direct").await
+}
+
+// ---------------------------------------------------------------- drop rooms (DEPTAI-464r)
+
+/// Rejects an upload of `add` bytes that would exceed the room's file-count / size caps.
+pub fn check_room_caps(s: &Share, add: i64) -> ApiResult<()> {
+    if s.max_uploads.is_some_and(|m| s.uploads >= m) {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "room file limit reached".into()));
+    }
+    if s.max_bytes.is_some_and(|m| s.up_bytes + add > m) {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "room size limit reached".into()));
+    }
+    Ok(())
+}
+
+async fn remove_room_folder(st: &AppState, s: &Share) {
+    for real in s.items() {
+        if !real.contains("/.droprooms/") && !real.starts_with(".droprooms/") {
+            continue; // safety: only ever delete dedicated room folders
+        }
+        if let Ok((mount, rel)) = st.vfs.resolve_in(&real, true) {
+            let _ = mount.driver.delete(&rel).await;
+            st.vfs.invalidate(&mount.cfg.name);
+        }
+    }
+}
+
+/// Deletes expired drop rooms (row + backing folder). Returns the number removed.
+pub async fn sweep_rooms(st: &AppState) -> usize {
+    let rows: Vec<Share> = sqlx::query_as(
+        "SELECT * FROM shares WHERE kind = 'room' AND expires_at IS NOT NULL AND expires_at <= ?",
+    )
+    .bind(now())
+    .fetch_all(&st.db)
+    .await
+    .unwrap_or_default();
+    for s in &rows {
+        remove_room_folder(st, s).await;
+        let _ = sqlx::query("DELETE FROM shares WHERE id = ?").bind(s.id).execute(&st.db).await;
+        tracing::info!(code = %s.code, "expired drop room removed");
+    }
+    rows.len()
 }
