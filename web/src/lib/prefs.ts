@@ -7,11 +7,15 @@ export type Prefs = {
   /** Collapsed sidebar sections. */
   favsCollapsed: boolean;
   adminCollapsed: boolean;
+  /** "全部文件" tree (mount list) collapsed (r6 #10). */
+  filesCollapsed: boolean;
+  /** Favorites: show every entry (scroll area) instead of the first FAV_LIMIT. */
+  favsShowAll: boolean;
   /** Hover preview of images in the file list. */
   hoverPreview: boolean;
 };
 const KEY = "dh_prefs";
-const DEF: Prefs = { openInPlace: false, favsCollapsed: false, adminCollapsed: false, hoverPreview: true };
+const DEF: Prefs = { openInPlace: false, favsCollapsed: false, adminCollapsed: false, filesCollapsed: false, favsShowAll: false, hoverPreview: true };
 let cur: Prefs = (() => {
   try {
     return { ...DEF, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };

@@ -3,6 +3,7 @@ import { Cloud, HardDrive, Pencil, Plus, RefreshCw, Server, Trash2, Terminal } f
 import { call, client, ok, type MountConfig } from "../../lib/api";
 import { errMsg } from "../../lib/util";
 import { ConfirmButton, Badge, Button, Card, Empty, Field, IconButton, Input, Modal, Select, Switch, toast, PageHeader, Pager, usePaged } from "../../ui/ui";
+import { SkCards } from "../../ui/r6";
 
 type Kind = "fs" | "s3" | "webdav" | "rclone" | "openlist";
 const KINDS: { k: Kind; label: string; desc: string; icon: typeof HardDrive }[] = [
@@ -73,6 +74,7 @@ export function MountsPage() {
           <Plus className="size-4" /> 添加存储
         </Button>
       </>} />
+      {mounts === null && <SkCards n={3} />}
       {mounts?.length === 0 && <Empty icon={<HardDrive className="size-10" />} title="还没有挂载点">添加一个本地目录、S3 或 WebDAV 存储开始使用</Empty>}
       <div className="grid gap-3 md:grid-cols-2">
         {pm.slice.map((m) => (

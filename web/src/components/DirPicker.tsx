@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { ChevronRight, CornerLeftUp } from "lucide-react";
 import { client, ok, type FsItem } from "../lib/api";
 import { errMsg, parentOf } from "../lib/util";
-import { Button, Modal, Spinner } from "../ui/ui";
+import { Button, Modal } from "../ui/ui";
 import { FileIcon } from "./FileIcon";
+import { Sk, SkWrap } from "../ui/r6";
 
 /** Folder chooser for move / copy targets. */
 export function DirPicker({ open, title, start, onClose, onPick, allowRoot }: { open: boolean; title: string; start: string; onClose: () => void; onPick: (dir: string) => void; allowRoot?: boolean }) {
@@ -43,7 +44,7 @@ export function DirPicker({ open, title, start, onClose, onPick, allowRoot }: { 
           </button>
         )}
         {err && <p className="text-sm text-danger">{err}</p>}
-        {!items && !err && <Spinner />}
+        {!items && !err && <SkWrap label="正在加载文件夹" className="space-y-1 px-2 py-1">{Array.from({ length: 6 }, (_, i) => <span key={i} className="flex items-center gap-2 py-1.5"><Sk className="size-4 rounded" /><Sk className="h-3 rounded" style={{ width: `${35 + ((i * 23) % 40)}%` }} /></span>)}</SkWrap>}
         {items?.length === 0 && <p className="px-2 py-6 text-center text-[13px] text-faint">没有子文件夹</p>}
         <ul>
           {items?.map((i) => (

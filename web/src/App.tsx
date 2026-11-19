@@ -3,7 +3,8 @@ import { call, client, CLIENT_HEADERS, ok, tokens, type AuthStatus, type Version
 import { Ctx } from "./lib/app";
 import { useRoute } from "./lib/router";
 import { useTheme } from "./lib/theme";
-import { Button, Overlays, Spinner } from "./ui/ui";
+import { Button, Overlays } from "./ui/ui";
+import { AppSkeleton, PageSkeleton, routeSkeleton, SkFileRows } from "./ui/r6";
 import { AuthPage, TokenPage } from "./pages/Auth";
 import { Layout } from "./components/Layout";
 import { FilesArea } from "./components/Editor";
@@ -106,7 +107,7 @@ export default function App() {
   if (location.pathname.startsWith("/s/"))
     return (
       <>
-        <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}>
+        <Suspense fallback={<div className="mx-auto max-w-3xl p-6"><SkFileRows rows={5} /></div>}>
           <SharePublicPage />
         </Suspense>
         <Overlays />
@@ -121,9 +122,7 @@ export default function App() {
     );
   if (!status || !ctx)
     return (
-      <div className="flex h-full items-center justify-center">
-        {failed ? <p className="text-sm text-danger">无法连接服务器，请稍后刷新</p> : <Spinner />}
-      </div>
+      failed ? <div className="flex h-full items-center justify-center"><p className="text-sm text-danger">无法连接服务器，请稍后刷新</p></div> : <AppSkeleton />
     );
   if (!status.initialized || oauthTicket || (!me && !guest))
     return (
@@ -174,7 +173,7 @@ export default function App() {
         {banner}
         <div className="min-h-0 flex-1">
           <Layout route={route} theme={theme} setTheme={setTheme} serverVersion={ver?.server_version}>
-            <Suspense fallback={<div className="flex justify-center py-20"><Spinner /></div>}><div key={route.name === "admin" ? `admin/${route.rest.split("/")[0]}` : route.name} className="page-in h-full">{page}</div></Suspense>
+            <Suspense fallback={<PageSkeleton kind={routeSkeleton(route.name, route.rest)} />}><div key={route.name === "admin" ? `admin/${route.rest.split("/")[0]}` : route.name} className="page-in h-full">{page}</div></Suspense>
           </Layout>
         </div>
       </div>

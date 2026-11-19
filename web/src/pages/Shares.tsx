@@ -4,10 +4,12 @@ import { ArrowRight, BarChart3, Copy, Inbox, Link2, Pencil, QrCode, RefreshCw, T
 import { call, type FsItem } from "../lib/api";
 import { go } from "../lib/router";
 import { useApp } from "../lib/app";
+import { shareTrash, undoableDelete } from "../lib/trash";
 import { abs, copy, PERM_NAMES, qrDataUrl, STATUS_NAMES, type Share } from "../lib/shares";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { Badge, Button, confirmDlg, Empty, Field, IconButton, Input, Modal, Select, Switch, toast } from "../ui/ui";
+import { Badge, Button, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Pager, Select, Switch, toast, usePaged } from "../ui/ui";
 import { PickupBox } from "./SharePublic";
+import { SkTable } from "../ui/r6";
 
 const tone = (s: string) => (s === "active" ? "ok" : s === "revoked" ? "danger" : "warn") as "ok";
 
@@ -22,13 +24,28 @@ export function SharesPage() {
   const [edit, setEdit] = useState<Share | null>(null);
   const [newRoom, setNewRoom] = useState(false);
   const [kind, setKind] = useState<"" | "share" | "room">("");
+  const [gone, setGone] = useState<Set<string>>(new Set());
   const load = () => call<Share[]>("GET", `/api/shares${all ? "?all=true" : ""}`).then(setRows).catch((e) => toast.err(errMsg(e)));
   useEffect(() => void load(), [all]); // eslint-disable-line react-hooks/exhaustive-deps
   const link = (s: Share) => {
     const u = s.kind === "room" && s.room_url ? s.room_url : s.url;
     return abs(s.pin ? `${u}-${s.pin}` : u);
   };
-  const shown = rows?.filter((s) => !kind || (s.kind ?? "share") === kind) ?? null;
+  const shown = rows?.filter((s) => !gone.has(String(s.id)) && (!kind || (s.kind ?? "share") === kind)) ?? null;
+  /** Same delete-with-undo flow as files (lib/trash): hide → undo toast → DELETE when it ends. */
+  const removeShares = (its: Share[]) =>
+    undoableDelete({
+      items: its,
+      key: (x) => String(x.id),
+      name: (x) => x.name,
+      noun: "分享",
+      hide: (ks) => setGone((g) => new Set([...g, ...ks])),
+      unhide: (ks) => setGone((g) => new Set([...g].filter((k) => !ks.includes(k)))),
+      exec: shareTrash.exec,
+      beacon: shareTrash.beacon,
+      after: () => load(),
+    });
+  const ps = usePaged(shown ?? [], 20, `${kind}${all}`, "shares");
   const act = async (f: () => Promise<unknown>) => {
     try {
       await f();
@@ -39,16 +56,16 @@ export function SharesPage() {
   };
   return (
     <div className="mx-auto max-w-6xl space-y-4 py-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="flex-1 text-xl font-semibold">我的分享</h1>
+      <PageHeader title="我的分享" desc={rows ? `${rows.length} 个分享 · 删除后 5 秒内可撤销` : undefined} actions={<>
         <PickupBox compact />
-        <Select value={kind} onChange={(e) => setKind(e.target.value as "")} aria-label="分享类型"><option value="">全部类型</option><option value="share">普通分享</option><option value="room">快传房间</option></Select>
-        <Button variant="primary" onClick={() => setNewRoom(true)}><Inbox className="size-4" /> 新建快传房间</Button>
-        {canAll && <label className="flex items-center gap-1 text-[13px] text-muted"><Switch checked={all} onChange={setAll} label="全部用户" />全部用户</label>}
-        <Button variant="ghost" onClick={() => go("#/stats")}><BarChart3 className="size-4" /> 访问统计总览</Button>
-        <IconButton label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
-      </div>
-      {rows && rows.length === 0 && <Empty title="还没有分享">在文件列表中选中文件后点击「分享」</Empty>}
+        <Select size="sm" value={kind} onChange={(e) => setKind(e.target.value as "")} aria-label="分享类型"><option value="">全部类型</option><option value="share">普通分享</option><option value="room">快传房间</option></Select>
+        {canAll && <label className="flex items-center gap-1"><Switch checked={all} onChange={setAll} label="全部用户" /><span className="ctl-label">全部用户</span></label>}
+        <Button size="sm" variant="ghost" onClick={() => go("#/stats")}><BarChart3 className="size-4" /> 访问统计</Button>
+        <Button size="sm" variant="primary" onClick={() => setNewRoom(true)}><Inbox className="size-4" /> 新建快传房间</Button>
+        <IconButton size="sm" label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
+      </>} />
+      {rows === null && <SkTable cols={[1, 3, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3]} rows={6} label="正在加载分享" />}
+      {shown && shown.length === 0 && <Empty title={rows?.length ? "没有匹配的分享" : "还没有分享"}>在文件列表中选中文件后点击「分享」</Empty>}
       {shown && shown.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-line bg-panel">
           <table className="w-full min-w-[860px] text-left text-[12.5px]">
@@ -56,7 +73,7 @@ export function SharesPage() {
               <tr>{["生效", "名称", "类型", "状态", "权限", "提取码", "访问", "下载", "上传", "到期", "创建", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {shown.map((s) => (
+              {ps.slice.map((s) => (
                 <tr key={s.id} className="hover:bg-hover" data-share-row={s.id}>
                   <td className="px-2 py-0.5"><Switch checked={!s.revoked} onChange={(on) => act(() => call("PATCH", `/api/shares/${s.id}`, { revoked: !on }).then(() => toast.ok(on ? "分享已生效" : "分享已失效")))} label={s.revoked ? `启用分享 ${s.name}` : `停用分享 ${s.name}`} /></td>
                   <td className="max-w-60 truncate px-3 py-1.5" title={s.items.join("\n")}>{s.name}{all && <span className="text-muted"> · {s.owner}</span>}</td>
@@ -75,7 +92,7 @@ export function SharesPage() {
                     <IconButton label="二维码" onClick={async () => setQr({ s, img: await qrDataUrl(link(s)) })}><QrCode className="size-4" /></IconButton>
                     <IconButton label="访问统计" onClick={() => call<Share>("GET", `/api/shares/${s.id}`).then(setStats)}><BarChart3 className="size-4" /></IconButton>
                     <IconButton label="修改限制" onClick={() => setEdit(s)}><Pencil className="size-4" /></IconButton>
-                    <IconButton label="删除" onClick={async () => (await confirmDlg(`删除分享「${s.name}」？`, { danger: true })) && act(() => call("DELETE", `/api/shares/${s.id}`))}><Trash2 className="size-4" /></IconButton>
+                    <IconButton label="删除" onClick={async () => (await confirmDlg(`删除分享「${s.name}」？`, { label: "链接会立即失效。5 秒内可以撤销。", confirm: "删除", danger: true })) && removeShares([s])}><Trash2 className="size-4" /></IconButton>
                   </td>
                 </tr>
               ))}
@@ -83,6 +100,7 @@ export function SharesPage() {
           </table>
         </div>
       )}
+      <Pager {...ps} />
       <Modal open={!!qr} onClose={() => setQr(null)} title={qr?.s.name ?? ""}>
         {qr && (
           <div className="space-y-2 text-center text-[13px]">

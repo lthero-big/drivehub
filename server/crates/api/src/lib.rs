@@ -6,6 +6,7 @@ pub mod auth_api;
 pub mod dav;
 pub mod error;
 pub mod fs_api;
+pub mod geoip;
 pub mod roles_api;
 pub mod search_api;
 pub mod settings;
@@ -66,6 +67,7 @@ impl AppState {
             data_dir.map(|d| d.join("index")).as_deref(),
         )?);
         let auth = Arc::new(auth::Auth::load(&db).await?);
+        geoip::init(data_dir);
         let upload_dir = data_dir.map(|d| d.join("uploads")).unwrap_or_else(|| {
             std::env::temp_dir().join(format!(
                 "drivehub-uploads-{}-{:x}",
@@ -280,6 +282,7 @@ impl AppState {
         share_api::visit_direct,
         share_api::visit_upload,
         stats_api::access,
+        stats_api::ips,
         tags_api::list,
         tags_api::create,
         tags_api::patch,
@@ -532,6 +535,7 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
         .route("/shares/{id}/revoke", post(share_api::revoke))
         // DEPTAI-485 r4: access statistics + tags
         .route("/stats/access", get(stats_api::access))
+        .route("/stats/ips", get(stats_api::ips))
         .route("/tags", get(tags_api::list).post(tags_api::create))
         .route("/tags/assign", post(tags_api::assign))
         .route("/tags/of", get(tags_api::of))

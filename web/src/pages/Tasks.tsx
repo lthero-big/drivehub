@@ -3,6 +3,7 @@ import { ArrowRight, ListChecks, RefreshCw } from "lucide-react";
 import { client, ok, type TaskInfo } from "../lib/api";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
 import { Badge, Empty, IconButton, Input, PageHeader, Pager, Progress, Select, usePaged } from "../ui/ui";
+import { SkTable } from "../ui/r6";
 
 const TONE: Record<string, "ok" | "danger" | "accent" | "neutral"> = { done: "ok", failed: "danger", running: "accent", pending: "neutral" };
 const LABEL: Record<string, string> = { done: "完成", failed: "失败", running: "进行中", pending: "排队" };
@@ -44,6 +45,7 @@ export function TasksPage() {
         </IconButton>
       </>} />
       {err && <p className="text-sm text-danger">{err}</p>}
+      {tasks === null && <SkTable cols={[4, 4, 2, 2, 1]} rows={5} label="正在加载任务" />}
       {tasks?.length === 0 && <Empty icon={<ListChecks className="size-10" />} title="暂无任务">跨存储复制 / 移动会在这里显示进度，服务重启后自动续跑</Empty>}
       <ul className="space-y-2">
         {pt.slice.map((t) => (

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { call } from "../../lib/api";
 import { fmtSize } from "../../lib/util";
-import { Card } from "../../ui/ui";
+import { Card, Select } from "../../ui/ui";
+import { SkChart, SkStats, SkTable } from "../../ui/r6";
 
 type Dash = {
   totals: { events: number; denied: number; failed_logins: number; active_users: number; download_bytes: number; upload_bytes: number };
@@ -16,15 +17,15 @@ export function AuditDash() {
   const [d, setD] = useState<Dash | null>(null);
   const [days, setDays] = useState(7);
   useEffect(() => void call<Dash>("GET", `/api/admin/audit/dashboard?days=${days}`).then(setD).catch(() => {}), [days]);
-  if (!d) return null;
+  if (!d) return <div className="space-y-4"><SkStats n={4} /><div className="grid gap-4 lg:grid-cols-2"><div className="rounded-2xl border border-line bg-panel p-5"><SkChart h={128} /></div><SkTable cols={[3, 2, 2]} rows={5} /></div></div>;
   const max = Math.max(1, ...d.traffic.map((t) => t.download_bytes + t.upload_bytes));
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h2 className="flex-1 text-base font-semibold">审计概览</h2>
-        <select className="rounded border border-line bg-panel px-2 py-1 text-[13px]" value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="时间范围">
-          {[1, 7, 30, 90].map((n) => <option key={n} value={n}>近 {n} 天</option>)}
-        </select>
+      <div className="ctl-sm flex items-center gap-2">
+        <h2 className="flex-1 text-[15px] font-semibold tracking-tight">审计概览</h2>
+        <Select size="sm" value={String(days)} onChange={(e) => setDays(Number(e.target.value))} aria-label="时间范围">
+          {[1, 7, 30, 90].map((n) => <option key={n} value={String(n)}>近 {n} 天</option>)}
+        </Select>
       </div>
       <p className="text-[13px] text-muted">
         事件 {d.totals.events} · 活跃用户 {d.totals.active_users} · 下载 {fmtSize(d.totals.download_bytes)} · 上传 {fmtSize(d.totals.upload_bytes)} · 拒绝 {d.totals.denied} · 登录失败 {d.totals.failed_logins}

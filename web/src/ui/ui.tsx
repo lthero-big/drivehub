@@ -61,20 +61,27 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ 
   );
 });
 
-/** Size scale shared by every key-like control: sm = 32px (toolbars inside panels), md = 36/40px. */
-export function IconButton({ label, className, children, size = "md", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: "sm" | "md" }) {
+/** Control sizes (DEPTAI-485 r6 #2) — one scale for every input-like control:
+ *  - "md" (h-10, 14px): form fields stacked under a <Field> label (dialogs, settings forms)
+ *  - "sm" (h-8, 13px): controls placed *beside* text — page-header actions, filter bars, card headers, toolbars
+ *  - "xs" (h-7, 12px): dense chrome such as the code-viewer header
+ *  Labels next to an sm control use 13px text so label and control share one baseline. */
+export type CtlSize = "xs" | "sm" | "md";
+export const CTL_H: Record<CtlSize, string> = { xs: "h-7 rounded-lg px-2 text-xs", sm: "h-8 rounded-xl px-2.5 text-[13px]", md: "h-10 rounded-xl px-3 text-sm" };
+
+export function IconButton({ label, className, children, size = "md", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: CtlSize }) {
   return (
-    <button aria-label={label} title={label} className={cx("btn-key btn-icon inline-flex shrink-0 items-center", size === "sm" ? "size-8" : "size-9", "justify-center rounded-xl text-muted hover:bg-hover hover:text-fg disabled:opacity-40", className)} {...rest}>
+    <button aria-label={label} title={label} className={cx("btn-key btn-icon inline-flex shrink-0", size === "md" ? "size-9" : size === "sm" ? "size-8 [&>svg]:size-4" : "size-7 [&>svg]:size-3.5", "items-center justify-center rounded-xl text-muted hover:bg-hover hover:text-fg disabled:opacity-40", className)} {...rest}>
       {children}
     </button>
   );
 }
 
-export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
-  return <input ref={ref} className={cx("field-input h-10 w-full rounded-xl border border-line bg-panel px-3 text-sm outline-none placeholder:text-faint hover:border-faint/60 focus:border-accent", className)} {...rest} />;
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { ctl?: CtlSize }>(function Input({ className, ctl = "md", ...rest }, ref) {
+  return <input ref={ref} className={cx("field-input w-full border border-line bg-panel outline-none", CTL_H[ctl], " placeholder:text-faint hover:border-faint/60 focus:border-accent", className)} {...rest} />;
 });
 
-type SelectProps = { value: string | undefined; required?: boolean; onChange: (e: { target: { value: string } }) => void; children: ReactNode; className?: string; "aria-label"?: string; disabled?: boolean; size?: "sm" | "md" };
+type SelectProps = { value: string | undefined; required?: boolean; onChange: (e: { target: { value: string } }) => void; children: ReactNode; className?: string; "aria-label"?: string; disabled?: boolean; size?: CtlSize };
 /** Custom listbox. Keeps the native-select call shape: <Select value onChange={(e)=>e.target.value}><option value>…</option></Select>. */
 export function Select({ value, onChange, children, className, disabled, size = "md", ...rest }: SelectProps) {
   const opts = useMemo(() => {
@@ -132,10 +139,10 @@ export function Select({ value, onChange, children, className, disabled, size = 
         disabled={disabled}
         onClick={() => (setHi(Math.max(0, opts.findIndex((o) => o.value === value))), setOpen((o) => !o))}
         data-size={size}
-        className={cx("btn-key field-input flex w-full items-center justify-between gap-2 rounded-xl border border-line bg-panel text-left hover:border-faint/60 disabled:opacity-50", size === "sm" ? "h-8 min-w-24 px-2.5 text-[13px]" : "h-10 min-w-28 px-3 text-sm")}
+        className={cx("btn-key field-input flex w-full items-center justify-between gap-2 border border-line bg-panel text-left hover:border-faint/60 disabled:opacity-50", CTL_H[size], size === "md" ? "min-w-28" : "min-w-20")}
       >
         <span className="truncate">{cur?.label ?? "请选择"}</span>
-        <ChevronDown className={cx("size-4 shrink-0 text-faint transition-transform duration-200", open && "rotate-180")} />
+        <ChevronDown className={cx(size === "md" ? "size-4" : "size-3.5", "shrink-0 text-faint transition-transform duration-200", open && "rotate-180")} />
       </button>
       {open &&
         createPortal(
@@ -201,26 +208,72 @@ export function Tabs<T extends string>({ tabs, value, onChange, className }: { t
   );
 }
 
-export function usePaged<T>(items: T[], size = 20, resetKey: unknown = "") {
+const PAGE_SIZES = [10, 20, 50, 100];
+const sizeKey = (k: string) => `dh_pagesize_${k}`;
+/** Client-side paging. `key` persists the chosen page size per list (localStorage). */
+export function usePaged<T>(items: T[], size = 20, resetKey: unknown = "", key?: string) {
   const [page, setPage] = useState(1);
-  const pages = Math.max(1, Math.ceil(items.length / size));
-  useEffect(() => setPage(1), [resetKey, size]);
+  const [sz, setSz] = useState(() => (key && Number(localStorage.getItem(sizeKey(key)))) || size);
+  const pages = Math.max(1, Math.ceil(items.length / sz));
+  useEffect(() => setPage(1), [resetKey, sz]);
   const p = Math.min(page, pages);
-  return { page: p, pages, setPage, total: items.length, slice: items.slice((p - 1) * size, p * size), size };
+  const setSize = (n: number) => (setSz(n), key && localStorage.setItem(sizeKey(key), String(n)));
+  const sizes = [...new Set([size, ...PAGE_SIZES])].sort((x, y) => x - y);
+  return { page: p, pages, setPage, total: items.length, slice: items.slice((p - 1) * sz, p * sz), size: sz, setSize, sizes };
 }
 
-export function Pager({ page, pages, setPage, total, size }: { page: number; pages: number; setPage: (n: number) => void; total: number; size: number }) {
-  if (total <= size) return total > 0 ? <p className="px-1 pt-3 text-xs text-faint">共 {total} 条</p> : null;
+/** Page numbers with ellipsis: 1 … 4 5 [6] 7 8 … 20 */
+export function pageList(page: number, pages: number): (number | "…")[] {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  const out: (number | "…")[] = [1];
+  const lo = Math.max(2, Math.min(page - 1, pages - 4));
+  const hi = Math.min(pages - 1, Math.max(page + 1, 5));
+  if (lo > 2) out.push("…");
+  for (let i = lo; i <= hi; i++) out.push(i);
+  if (hi < pages - 1) out.push("…");
+  out.push(pages);
+  return out;
+}
+
+/** Unified pagination (DEPTAI-485 r6 #8): range label · page size · numbered pages · jump to page.
+ *  Works for client lists (usePaged) and server lists (pass total / size / setPage / setSize). */
+export function Pager({ page, pages, setPage, total, size, setSize, sizes = PAGE_SIZES, unit = "条" }: { page: number; pages: number; setPage: (n: number) => void; total: number; size: number; setSize?: (n: number) => void; sizes?: number[]; unit?: string }) {
+  const [jump, setJump] = useState("");
+  const minSize = Math.min(...sizes);
+  if (total <= 0) return null;
+  if (total <= size && (!setSize || total <= minSize)) return <p className="px-1 pt-3 text-xs text-faint" data-pager="single">共 {total} {unit}</p>;
   const from = (page - 1) * size + 1;
   const to = Math.min(total, page * size);
+  const go = (n: number) => setPage(Math.max(1, Math.min(pages, n)));
   return (
-    <nav aria-label="分页" className="flex flex-wrap items-center justify-between gap-2 pt-3 text-[13px] text-muted">
-      <span>{from}–{to} / 共 {total} 条</span>
-      <span className="flex items-center gap-1">
-        <IconButton label="上一页" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="size-4" /></IconButton>
-        <span className="min-w-16 text-center tabular-nums">{page} / {pages}</span>
-        <IconButton label="下一页" disabled={page >= pages} onClick={() => setPage(page + 1)}><ChevronRight className="size-4" /></IconButton>
+    <nav aria-label="分页" data-pager className="ctl-sm flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-3 text-[13px] text-muted">
+      <span className="flex items-center gap-2">
+        <span className="tabular-nums" data-pager-range>{from}–{to} / 共 {total} {unit}</span>
+        {setSize && (
+          <Select size="sm" value={String(size)} onChange={(e) => (setSize(Number(e.target.value)), setPage(1))} aria-label="每页条数">
+            {[...new Set([...sizes, size])].sort((a, b) => a - b).map((n) => <option key={n} value={String(n)}>{n} {unit}/页</option>)}
+          </Select>
+        )}
       </span>
+      {pages > 1 && (
+        <span className="flex flex-wrap items-center gap-1">
+          <IconButton size="sm" label="上一页" disabled={page <= 1} onClick={() => go(page - 1)}><ChevronLeft className="size-4" /></IconButton>
+          {pageList(page, pages).map((n, i) =>
+            n === "…" ? <span key={`e${i}`} className="w-6 text-center text-faint">…</span> : (
+              <button key={n} type="button" aria-current={n === page ? "page" : undefined} aria-label={`第 ${n} 页`} onClick={() => go(n)}
+                className={cx("btn-key h-8 min-w-8 rounded-lg px-2 tabular-nums", n === page ? "bg-accent font-semibold text-accent-fg" : "hover:bg-hover hover:text-fg")}>{n}</button>
+            ),
+          )}
+          <IconButton size="sm" label="下一页" disabled={page >= pages} onClick={() => go(page + 1)}><ChevronRight className="size-4" /></IconButton>
+          {pages > 5 && (
+            <form className="ml-1 flex items-center gap-1" onSubmit={(e) => (e.preventDefault(), jump && go(Number(jump)), setJump(""))}>
+              <span className="ctl-label">跳至</span>
+              <Input ctl="sm" className="w-14 text-center tabular-nums" inputMode="numeric" aria-label="跳转页码" placeholder={String(page)} value={jump} onChange={(e) => setJump(e.target.value.replace(/\D/g, ""))} />
+              <span className="ctl-label">页</span>
+            </form>
+          )}
+        </span>
+      )}
     </nav>
   );
 }
@@ -232,7 +285,7 @@ export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: 
         <h1 className="text-[26px] leading-tight font-semibold tracking-tight">{title}</h1>
         {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="ctl-sm flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -293,7 +346,7 @@ export function Card({ title, actions, children, className }: { title?: ReactNod
       {(title || actions) && (
         <header className="flex items-center justify-between gap-2 border-b border-line px-5 py-3.5">
           <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
-          <div className="flex items-center gap-2">{actions}</div>
+          <div className="ctl-sm flex items-center gap-2">{actions}</div>
         </header>
       )}
       <div className="p-5">{children}</div>

@@ -13,6 +13,7 @@ import { ContextMenu, IconButton, Menu, MenuItem, MenuSep, Spinner, toast } from
 import { FileBrowser } from "./FileBrowser";
 import { DetailsDialog, ShareDialog } from "./FileDialogs";
 import { FileIcon, FolderIcon } from "./FileIcon";
+import { Sk, SkPreview, SkWrap } from "../ui/r6";
 
 const FileBody = lazy(() => import("./Preview"));
 
@@ -141,7 +142,7 @@ function FileView({ tab }: { tab: Tab }) {
           >
             {(close) => (
               <div className="max-h-80">
-                {files.length === 0 && <p className="px-3 py-2 text-xs text-faint">加载中…</p>}
+                {files.length === 0 && <SkWrap label="正在加载文件" className="space-y-2 px-3 py-2">{Array.from({ length: 5 }, (_, i) => <Sk key={i} className="h-3 rounded" style={{ width: `${45 + ((i * 19) % 40)}%` }} />)}</SkWrap>}
                 {files.map((f) => (
                   <MenuItem key={f.path} icon={<FileIcon name={f.name} isDir={false} className="size-4" />} onClick={() => (close(), tabs.open(f))}>
                     <span className={cx(f.path === tab.path && "font-semibold text-accent")}>{f.name}</span>
@@ -164,7 +165,7 @@ function FileView({ tab }: { tab: Tab }) {
         </span>
       </div>
       <div key={panelKey} ref={panel} className="anim-in relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-panel-2/60 p-2 sm:p-4">
-        <Suspense fallback={<div className="flex h-64 items-center justify-center"><Spinner /></div>}>
+        <Suspense fallback={<SkPreview kind="code" />}>
           <FileBody item={item} siblings={siblings} onPick={(i) => tabs.open(i, isAudio && kindOf(i.name) === "audio" ? true : undefined)} />
         </Suspense>
       </div>

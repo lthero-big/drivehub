@@ -8,14 +8,15 @@ import { ApiError, client, fileUrl, ok, pathPassword, rawFetch, zipUrl, type FsI
 import { favorites, useFavorites } from "../lib/favs";
 import { appLink, copyText } from "../lib/links";
 import { tabs } from "../lib/tabs";
-import { trash } from "../lib/trash";
+import { fsTrash as trash, undoableDelete } from "../lib/trash";
+import { SkFileGrid, SkFileRows, TagRow } from "../ui/r6";
 import { liftEnd, liftOutcome, liftStart } from "../lib/dragGhost";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
 import { fromDataTransfer, fromFileList, uploads, useUploads } from "../lib/uploads";
 import { hasExternalFiles, INTERNAL_MIME, isInternalDrag, PhCard, PhRow, placeholdersFor, setUploadOrigin, TrashZone } from "./DragUpload";
 import { baseName, cx, errMsg, fmtSize, fmtTime, joinPath, kindOf } from "../lib/util";
-import { ask, Button, Checkbox, ConfirmButton, confirmDlg, ContextMenu, Empty, IconButton, Input, Menu, MenuItem, MenuSep, Pager, Spinner, toast } from "../ui/ui";
+import { ask, Button, Checkbox, ConfirmButton, confirmDlg, ContextMenu, Empty, IconButton, Input, Menu, MenuItem, MenuSep, Pager, toast } from "../ui/ui";
 import { SegmentedDrag } from "../ui/motion";
 import { DirPicker } from "./DirPicker";
 import { DetailsDialog } from "./FileDialogs";
@@ -38,7 +39,8 @@ function scroller(el: HTMLElement | null): HTMLElement {
 
 type View = "list" | "grid" | "gallery";
 type Sort = { by: "name" | "size" | "modified"; desc: boolean };
-const PAGE = 60;
+const PAGE_SIZES = [30, 60, 100, 200];
+const pageSize0 = () => Number(localStorage.getItem("dh_pagesize_files")) || 60;
 
 function useStored<T>(key: string, init: T): [T, (v: T) => void] {
   const [v, set] = useState<T>(() => {
@@ -143,6 +145,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   const [items, setItems] = useState<FsItem[] | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [PAGE, setPAGE] = useState(pageSize0);
   const [err, setErr] = useState<{ msg: string; status: number } | null>(null);
   const [view, setView] = useStored<View>("dh_view", "list");
   const [sort, setSort] = useStored<Sort>("dh_sort", { by: "name", desc: false });
@@ -185,7 +188,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         setItems([]);
       }
     },
-    [path, sort.by, sort.desc, me],
+    [path, sort.by, sort.desc, me, PAGE],
   );
 
   useEffect(() => {
@@ -229,9 +232,10 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
     if (!tagFilter.length) return setTagElsewhere([]);
     tagStore.files(tagFilter.map(Number), tagMode).then((r) => setTagElsewhere(r.filter((x) => (x.path.slice(0, x.path.lastIndexOf("/")) || "/") !== path)), () => setTagElsewhere([]));
   }, [tagFilter, tagMode, path, tagMap]);
-  const tagPills = (i: FsItem) => {
+  /** Tags stay on one line (+N overflow chip), so a heavily tagged file never makes its row taller. */
+  const tagPills = (i: FsItem, grid = false) => {
     const ts = tagMap[i.path];
-    return ts?.length ? <span className="flex shrink-0 flex-wrap gap-1" data-file-tags>{ts.slice(0, 3).map((t) => <span key={t.id} className="ftag"><i className={`tc-${t.color}`} />{t.name}</span>)}{ts.length > 3 && <span className="ftag">+{ts.length - 3}</span>}</span> : null;
+    return ts?.length ? <TagRow tags={ts} className={grid ? "mt-1 w-full" : "max-w-[45%] min-w-12"} /> : null;
   };
   const selected = useMemo(() => list.filter((i) => sel.has(i.path)), [list, sel]);
   const images = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "image"), [list]);
@@ -307,18 +311,22 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   };
   /** Delete with undo: hide now, commit after the toast's undo window (dialog → toast morph). */
   const scheduleDelete = (its: FsItem[]) => {
-    const paths = its.map((i) => i.path);
-    setGone((g) => new Set([...g, ...paths]));
     setSel(new Set());
-    const unhide = () => setGone((g) => new Set([...g].filter((p) => !paths.includes(p))));
-    const job = trash.schedule(paths, (failed) => {
-      failed.forEach((f) => toast.err(`${baseName(f.path)}：${f.err}`));
-      tabs.forget(paths.filter((p) => !failed.some((f) => f.path === p)));
-      favorites.forget(paths.filter((p) => !failed.some((f) => f.path === p)));
-      load(true).then(unhide);
-      bumpFs();
+    undoableDelete({
+      items: its,
+      key: (i) => i.path,
+      name: (i) => i.name,
+      hide: (ps) => setGone((g) => new Set([...g, ...ps])),
+      unhide: (ps) => setGone((g) => new Set([...g].filter((p) => !ps.includes(p)))),
+      exec: trash.exec,
+      beacon: trash.beacon,
+      after: (ok) => {
+        tabs.forget(ok);
+        favorites.forget(ok);
+        bumpFs();
+        return load(true);
+      },
     });
-    toast.undo(its.length === 1 ? `已删除「${its[0].name}」` : `已删除 ${its.length} 项`, { onUndo: () => (job.undo(), unhide()), onCommit: () => job.commit() });
   };
   const remove = async (its: FsItem[]) => {
     if (!its.length) return;
@@ -655,11 +663,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
       </div>
 
       <div ref={areaRef} onMouseDown={onAreaDown} data-testid="file-area" className={cx("min-h-[55vh] flex-1 py-3", band && "sel-none")}>
-        {items === null && (
-          <div className="flex justify-center py-20">
-            <Spinner />
-          </div>
-        )}
+        {items === null && (view === "grid" ? <SkFileGrid /> : <SkFileRows />)}
         {err && (
           <Empty icon={err.status === 401 || err.status === 403 ? <Lock className="size-10" /> : undefined} title={err.status === 401 ? "需要登录或目录密码" : err.status === 403 ? "没有访问权限" : "加载失败"}>
             <p>{err.msg}</p>
@@ -743,7 +747,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px]">{i.name}</span>
                       <span className="block text-[11px] text-faint">{i.is_dir ? "文件夹" : fmtSize(i.size)}</span>
-                      {tagPills(i)}
+                      {tagPills(i, true)}
                     </span>
                     <ItemMenu i={i} />
                   </div>
@@ -778,7 +782,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           </>
         )}
 
-        {items && !err && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total - (items ? items.length - all.length : 0)} size={PAGE} setPage={(n) => (setSel(new Set()), load(false, n))} />}
+        {items && !err && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total - (items ? items.length - all.length : 0)} size={PAGE} sizes={PAGE_SIZES} unit="项" setSize={(n) => (localStorage.setItem("dh_pagesize_files", String(n)), setPAGE(n))} setPage={(n) => (setSel(new Set()), load(false, n))} />}
         {readme && <Readme item={readme} />}
       </div>
 

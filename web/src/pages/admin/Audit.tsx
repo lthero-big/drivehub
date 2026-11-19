@@ -4,7 +4,8 @@ import { BellPlus, Download, RefreshCw, ShieldCheck, Trash2, Send } from "lucide
 import { call, rawFetch } from "../../lib/api";
 import type { AuditEvent } from "../../lib/shares";
 import { errMsg, fmtSize, fmtTime } from "../../lib/util";
-import { Badge, Button, Card, confirmDlg, Empty, Field, IconButton, Input, Modal, Select, toast } from "../../ui/ui";
+import { Badge, Button, Card, Checkbox, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Pager, Select, toast, usePaged } from "../../ui/ui";
+import { SkTable } from "../../ui/r6";
 
 type Alert = { id: number; name: string; kind: string; actions: string; threshold: number; window_secs: number; sink: string; target: string; enabled: boolean };
 type AlertEv = { id: number; time: string; ts: number; rule: string; user: string; ip: string; message: string; sink: string; delivered: boolean; error: string };
@@ -18,6 +19,7 @@ export function AuditPage() {
   const [verify, setVerify] = useState<{ ok: boolean; checked: number; first_bad_id: number | null; reason: string | null } | null>(null);
   const [policy, setPolicy] = useState<number | null>(null);
   const [view, setView] = useState<"table" | "timeline">("timeline");
+  const pr = usePaged(rows ?? [], 50, rows, "audit");
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const query = () => {
     const q = new URLSearchParams({ limit: "500" });
@@ -58,18 +60,17 @@ export function AuditPage() {
   };
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="flex-1 text-xl font-semibold">审计日志</h1>
-        <Button onClick={doVerify}><ShieldCheck className="size-4" /> 校验哈希链</Button>
-        <Button onClick={() => exportAs("csv")}><Download className="size-4" /> CSV</Button>
-        <Button onClick={() => exportAs("json")}><Download className="size-4" /> JSON</Button>
-      </div>
+      <PageHeader title="审计日志" desc="所有 API / WebDAV / 分享 / 登录操作，哈希链防篡改" actions={<>
+        <Button size="sm" onClick={doVerify}><ShieldCheck className="size-4" /> 校验哈希链</Button>
+        <Button size="sm" onClick={() => exportAs("csv")}><Download className="size-4" /> CSV</Button>
+        <Button size="sm" onClick={() => exportAs("json")}><Download className="size-4" /> JSON</Button>
+      </>} />
       {verify && (
         <p className={`rounded-lg px-3 py-2 text-[13px] ${verify.ok ? "bg-ok/10 text-ok" : "bg-danger/10 text-danger"}`}>
           {verify.ok ? `哈希链完整：已校验 ${verify.checked} 条记录` : `发现篡改！记录 #${verify.first_bad_id}：${verify.reason}`}
         </p>
       )}
-      <form className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6" onSubmit={(e) => (e.preventDefault(), load())}>
+      <form className="ctl-sm grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6" onSubmit={(e) => (e.preventDefault(), load())}>
         <Input placeholder="用户" value={f.user} onChange={set("user")} aria-label="用户" />
         <Input placeholder="动作 (逗号分隔)" value={f.action} onChange={set("action")} aria-label="动作" />
         <Input placeholder="路径前缀" value={f.path} onChange={set("path")} aria-label="路径" />
@@ -86,9 +87,7 @@ export function AuditPage() {
         </Select>
         <Input type="datetime-local" value={f.from} onChange={set("from")} aria-label="开始时间" />
         <Input type="datetime-local" value={f.to} onChange={set("to")} aria-label="结束时间" />
-        <label className="flex items-center gap-1.5 text-[13px]">
-          <input type="checkbox" className="accent-[var(--accent)]" checked={f.denied} onChange={(e) => setF({ ...f, denied: e.target.checked })} /> 只看拒绝
-        </label>
+        <Checkbox checked={f.denied} onChange={(v) => setF({ ...f, denied: v })} className="justify-start" label="只看拒绝"><span className="ctl-label">只看拒绝</span></Checkbox>
         <div className="flex gap-1">
           <Button type="submit" variant="primary">查询</Button>
           <Select value={view} onChange={(e) => setView(e.target.value as "table")} aria-label="视图">
@@ -98,6 +97,7 @@ export function AuditPage() {
           <IconButton label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
         </div>
       </form>
+      {rows === null && <SkTable cols={[2, 1, 2, 1, 1, 2, 4, 1, 1, 1, 3]} rows={8} label="正在加载审计日志" />}
       {rows && rows.length === 0 && <Empty title="没有记录" />}
       {rows && rows.length > 0 && view === "table" && (
         <div className="overflow-x-auto rounded-xl border border-line bg-panel">
@@ -106,7 +106,7 @@ export function AuditPage() {
               <tr>{["时间", "用户", "IP", "客户端", "通道", "动作", "路径", "结果", "字节", "分享", "详情"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {rows.map((r) => (
+              {pr.slice.map((r) => (
                 <tr key={r.id} className="hover:bg-hover">
                   <td className="px-3 py-1.5 whitespace-nowrap text-muted">{fmtTime(r.ts)}</td>
                   <td className="px-3 py-1.5">{r.username}</td>
@@ -125,6 +125,7 @@ export function AuditPage() {
           </table>
         </div>
       )}
+      {rows && rows.length > 0 && view === "table" && <Pager {...pr} />}
       {rows && rows.length > 0 && view === "timeline" && <AuditTimeline rows={rows} />}
       <Card title="保留期策略">
         <div className="flex items-end gap-2">
@@ -206,7 +207,7 @@ function Alerts() {
               </Select>
             </Field>
             {edit.sink !== "log" && <Field label={edit.sink === "email" ? "邮箱" : "Webhook URL"}><Input value={edit.target ?? ""} onChange={(e) => setEdit({ ...edit, target: e.target.value })} /></Field>}
-            <label className="flex items-center gap-1.5 text-[13px]"><input type="checkbox" checked={edit.enabled ?? true} onChange={(e) => setEdit({ ...edit, enabled: e.target.checked })} /> 启用</label>
+            <Checkbox checked={edit.enabled ?? true} onChange={(v) => setEdit({ ...edit, enabled: v })} className="justify-start">启用</Checkbox>
           </div>
         )}
       </Modal>

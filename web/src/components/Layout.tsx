@@ -43,6 +43,9 @@ function ThemeSwitch({ theme, setTheme }: { theme: ThemePref; setTheme: (t: Them
   );
 }
 
+/** Favorites shown before "查看全部" (the rest live in a scroll area once expanded). */
+const FAV_LIMIT = 6;
+
 const useCollapsed = (): [boolean, (v: boolean) => void] => {
   const [v, set] = useState(() => localStorage.getItem("dh_sidebar_collapsed") === "1");
   return [v, (x) => (set(x), localStorage.setItem("dh_sidebar_collapsed", x ? "1" : "0"))];
@@ -89,16 +92,28 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         {!mini && <button className="rounded-md p-1 text-muted hover:bg-hover lg:hidden" aria-label="关闭菜单" onClick={() => setDrawer(false)}><X className="size-4" /></button>}
       </div>
       <div className="space-y-0.5">
-        <NavLink mini={mini} href="#/files" icon={<FolderOpen />} active={at("files", "")} onClick={toFolder}>全部文件</NavLink>
-        {mounts.map((m) => {
-          const on = filesPath === m.path || filesPath.startsWith(m.path + "/");
-          return (
-            <a key={m.path} href={filesHref(m.path)} onClick={toFolder} title={m.name} aria-label={mini ? m.name : undefined} aria-current={on ? "page" : undefined} className={cx("nav-item flex min-h-9 items-center gap-2.5 rounded-xl py-1.5 text-[13px]", mini ? "justify-center" : "pr-2.5 pl-7", on ? "bg-hover font-medium text-fg" : "text-muted hover:bg-hover hover:text-fg")}>
-              <FileIcon name={m.name} isDir mountKind={m.mount_kind} className="size-4" />
-              {!mini && <span className="truncate">{m.name}</span>}
-            </a>
-          );
-        })}
+        <div data-sec="files">
+          <div className="relative">
+            <NavLink mini={mini} href="#/files" icon={<FolderOpen />} active={at("files", "")} onClick={toFolder}>全部文件</NavLink>
+            {!mini && mounts.length > 0 && (
+              <button type="button" aria-expanded={!pf.filesCollapsed} aria-controls="nav-files" aria-label={pf.filesCollapsed ? "展开全部文件" : "收起全部文件"} data-files-toggle
+                onClick={() => prefs.set({ filesCollapsed: !pf.filesCollapsed })} className="absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg text-faint hover:bg-active hover:text-fg">
+                <ChevronRight className={cx("size-3.5 transition-transform duration-200", !pf.filesCollapsed && "rotate-90")} />
+              </button>
+            )}
+          </div>
+          <div id="nav-files" className="sec-body" data-closed={pf.filesCollapsed && !mini ? "" : undefined}><div className={cx("min-h-0 space-y-0.5 overflow-hidden", !mini && "nav-tree")}>
+          {mounts.map((m) => {
+            const on = filesPath === m.path || filesPath.startsWith(m.path + "/");
+            return (
+              <a key={m.path} href={filesHref(m.path)} onClick={toFolder} title={m.name} tabIndex={pf.filesCollapsed && !mini ? -1 : undefined} aria-label={mini ? m.name : undefined} aria-current={on ? "page" : undefined} className={cx("nav-item flex min-h-9 items-center gap-2.5 rounded-xl py-1.5 text-[13px]", mini ? "justify-center" : "pr-2.5 pl-3", on ? "bg-hover font-medium text-fg" : "text-muted hover:bg-hover hover:text-fg")}>
+                <FileIcon name={m.name} isDir mountKind={m.mount_kind} className="size-4" />
+                {!mini && <span className="truncate">{m.name}</span>}
+              </a>
+            );
+          })}
+          </div></div>
+        </div>
         <NavLink mini={mini} href="#/search" icon={<Search />} active={at("search")}>搜索</NavLink>
         <NavLink mini={mini} href="#/tasks" icon={<ListChecks />} active={at("tasks")}>任务中心</NavLink>
         {me && <NavLink mini={mini} href="#/shares" icon={<Share2 />} active={at("shares")}>我的分享</NavLink>}
@@ -112,20 +127,28 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
               <ChevronRight className={cx("size-3 transition-transform duration-200", !pf.favsCollapsed && "rotate-90")} /><Star className="size-3" /> 收藏 <span className="ml-auto font-normal tabular-nums">{favs.length}</span>
             </button>
           ) : <div className="mx-3 h-px bg-line" />}
-          <div id="nav-favs" className="sec-body" data-closed={pf.favsCollapsed && !mini ? "" : undefined}><div className="min-h-0 space-y-0.5 overflow-hidden">
-          {favs.map((f) => (
+          <div id="nav-favs" className="sec-body" data-closed={pf.favsCollapsed && !mini ? "" : undefined}><div className="min-h-0 overflow-hidden">
+          <div className={cx("space-y-0.5", !mini && "nav-tree", !mini && pf.favsShowAll && favs.length > FAV_LIMIT && "scroll-thin max-h-72 overflow-y-auto")} data-favs-list data-favs-shown={mini || pf.favsShowAll ? favs.length : Math.min(FAV_LIMIT, favs.length)}>
+          {(mini || pf.favsShowAll ? favs : favs.slice(0, FAV_LIMIT)).map((f) => (
             <a
               key={f.path}
               href={f.is_dir ? filesHref(f.path) : filesHref(f.path.slice(0, f.path.lastIndexOf("/")) || "/")}
               onClick={() => (f.is_dir ? toFolder() : tabs.open({ ...f, size: 0, is_dir: false }))}
               title={f.path}
               tabIndex={pf.favsCollapsed && !mini ? -1 : undefined}
+              data-fav-item
               className={cx("nav-item flex min-h-9 items-center gap-2.5 rounded-xl py-1.5 text-[13px] text-muted hover:bg-hover hover:text-fg", mini ? "justify-center" : "pr-2.5 pl-3")}
             >
               <FileIcon name={f.name} isDir={f.is_dir} className="size-4" />
               {!mini && <span className="truncate">{f.name}</span>}
             </a>
           ))}
+          </div>
+          {!mini && favs.length > FAV_LIMIT && (
+            <button type="button" data-favs-more tabIndex={pf.favsCollapsed ? -1 : undefined} onClick={() => prefs.set({ favsShowAll: !pf.favsShowAll })} className="ml-7 flex min-h-8 items-center gap-1 rounded-lg px-2 text-[12px] text-accent hover:bg-hover">
+              {pf.favsShowAll ? "收起" : `查看全部 ${favs.length} 个`}
+            </button>
+          )}
           </div></div>
         </div>
       )}

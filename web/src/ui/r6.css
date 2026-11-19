@@ -1,0 +1,18 @@
+/* DEPTAI-485 round 6 */
+.ftag-more { cursor: pointer; color: var(--accent); background: var(--accent-soft); font-weight: 600; border: 0; }
+.ftag-more:hover, .ftag-more[aria-expanded="true"] { background: var(--accent); color: var(--accent-fg); }
+
+/* skeletons: one shimmer for every placeholder */
+.sk { background: linear-gradient(90deg, var(--hover) 0%, color-mix(in srgb, var(--hover) 45%, var(--panel)) 40%, var(--hover) 80%); background-size: 300% 100%; animation: sk-shimmer 1.4s ease-in-out infinite; }
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+.sk-wrap { animation: sk-in 0.2s ease-out both; }
+@keyframes sk-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* sidebar tree (#10): children of 全部文件 / 收藏 are indented one level with a guide line */
+.nav-tree { margin-left: 1.3rem; padding-left: 0.4rem; border-left: 1px solid var(--line); }
+
+/* stats map (#4): gentle pulse on hotspot halos */
+.map-pulse { transform-box: fill-box; transform-origin: center; animation: map-pulse 2.4s ease-out infinite; }
+@keyframes map-pulse { 0% { transform: scale(0.6); opacity: 0.35; } 100% { transform: scale(1.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .map-pulse { animation: none; } }

@@ -5,12 +5,14 @@ import { call, rbac, type Group, type Me, type Role } from "../../lib/api";
 import { useApp } from "../../lib/app";
 import { errMsg, fmtSize, fmtTime } from "../../lib/util";
 import { ConfirmButton, ask, Badge, Button, Card, Field, IconButton, Input, Checkbox, Modal, PageHeader, Pager, Select, Switch, toast, usePaged } from "../../ui/ui";
+import { SkTable } from "../../ui/r6";
 
 type Edit = { u: Me; email: string; role: string; disabled: boolean; email_verified: boolean; root_path: string; all_mounts: boolean; visible: string[]; quota_gb: string; groups: number[]; roles: number[]; password: string; reset_totp: boolean };
 
 export function UsersPage() {
   const { me } = useApp();
   const [users, setUsers] = useState<Me[]>([]);
+  const [ready, setReady] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [mounts, setMounts] = useState<string[]>([]);
@@ -23,6 +25,7 @@ export function UsersPage() {
       const [u, g, m, r] = await Promise.all([call<Me[]>("GET", "/api/admin/users"), rbac.groups(), call<{ name: string }[]>("GET", "/api/mounts"), rbac.roles()]);
       setRoles(r);
       setUsers(u);
+      setReady(true);
       setGroups(g);
       setMounts(m.map((x) => x.name));
     } catch (e) {
@@ -77,7 +80,7 @@ export function UsersPage() {
           </Button>
         </>
       } />
-      <div className="overflow-x-auto rounded-2xl border border-line bg-panel shadow-card">
+      {!ready ? <SkTable cols={[3, 2, 2, 2, 2, 2, 1]} rows={6} label="正在加载用户" /> : <div className="overflow-x-auto rounded-2xl border border-line bg-panel shadow-card">
         <table className="w-full min-w-[640px] text-left text-[13px]">
           <thead className="border-b border-line bg-panel-2 text-xs text-muted">
             <tr>
@@ -118,7 +121,7 @@ export function UsersPage() {
           </tbody>
         </table>
         {fu.length === 0 && <p className="p-6 text-center text-sm text-muted">没有匹配的用户</p>}
-      </div>
+      </div>}
       <Pager {...pu} />
 
       <Modal open={!!creating} onClose={() => setCreating(null)} title="新建用户" footer={<><Button onClick={() => setCreating(null)}>取消</Button><Button variant="primary" onClick={() => creating && act(async () => { await call("POST", "/api/admin/users", { ...creating, email: creating.email || null, password: creating.password || null }); setCreating(null); }, "已创建")}>创建</Button></>}>
