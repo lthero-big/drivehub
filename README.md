@@ -12,6 +12,8 @@ Monorepo（DEPTAI-464）：
 | `web/` | React + TS + Vite + Tailwind |
 | `deploy/` | base / runtime 分层 Dockerfile、compose、build.sh |
 | `api/openapi.json` | 提交的 API 契约，CI 校验 |
+| `VERSION` | 统一版本号（server / web / app / docker），`scripts/bump-version.sh` 同步、`scripts/check-version.sh` 校验 |
+| `docs/deploy.md` | 部署（compose / 二进制）、升级回滚、发布流程；变更见 `CHANGELOG.md` |
 
 ## 本地运行
 
