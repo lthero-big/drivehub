@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type
 import { createPortal } from "react-dom";
 import {
   ArrowDownAZ, Check, CheckSquare, ChevronRight, ClipboardCopy, Copy, Download, ExternalLink, Eye, FileArchive, FolderInput, FolderPlus, FolderUp, Grid2x2, Images, Info, KeyRound, Link2, List,
-  MoreHorizontal, Pencil, RefreshCw, Share2, Shield, Star, StarOff, Trash2, Upload, X, Lock,
+  MoreHorizontal, Pencil, RefreshCw, Share2, Shield, Star, StarOff, Trash2, Upload, X, Lock, Tag as TagIcon,
 } from "lucide-react";
 import { ApiError, client, fileUrl, ok, pathPassword, rawFetch, zipUrl, type FsItem } from "../lib/api";
 import { favorites, useFavorites } from "../lib/favs";
@@ -19,6 +19,10 @@ import { SegmentedDrag } from "../ui/motion";
 import { DirPicker } from "./DirPicker";
 import { DetailsDialog } from "./FileDialogs";
 import { ShareDialog } from "./ShareDialog";
+import { TagDialog } from "./TagDialog";
+import { tagStore, useTags, type Tag } from "../lib/tags";
+import { usePrefs } from "../lib/prefs";
+import { ChipGroup, useHoverReveal } from "../ui/r5";
 import { FileIcon, FolderIcon } from "./FileIcon";
 
 /** nearest vertically scrollable ancestor (rubber-band auto-scroll). */
@@ -123,7 +127,16 @@ function DockBtn({ icon, label, onClick, danger, className }: { icon: ReactNode;
 }
 
 export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }) {
-  const { fsVersion, bumpFs, isAdmin } = useApp();
+  const { fsVersion, bumpFs, isAdmin, me } = useApp();
+  const pf = usePrefs();
+  const myTags = useTags();
+  const [tagMap, setTagMap] = useState<Record<string, Tag[]>>({});
+  const [tagBar, setTagBar] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [tagMode, setTagMode] = useState<"any" | "all">("any");
+  const [tagging, setTagging] = useState<FsItem[] | null>(null);
+  const [tagElsewhere, setTagElsewhere] = useState<{ path: string; name: string; tags: Tag[] }[]>([]);
+  const hover = useHoverReveal();
   useFavorites();
   const [items, setItems] = useState<FsItem[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -162,12 +175,13 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         setTotal(r.total);
         setPage(pg);
         setItems(r.items);
+        if (me) tagStore.ofDir(path).then(setTagMap, () => setTagMap({}));
       } catch (e) {
         setErr({ msg: errMsg(e), status: e instanceof ApiError ? e.status : 0 });
         setItems([]);
       }
     },
-    [path, sort.by, sort.desc],
+    [path, sort.by, sort.desc, me],
   );
 
   useEffect(() => {
@@ -195,7 +209,26 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   const [q, setQ] = useState("");
   useEffect(() => setQ(""), [path]);
   const all = useMemo(() => (items ?? []).filter((i) => !gone.has(i.path)), [items, gone]);
-  const list = useMemo(() => (q.trim() ? all.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())) : all), [all, q]);
+  const list = useMemo(() => {
+    let l = q.trim() ? all.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())) : all;
+    if (tagFilter.length) {
+      const want = tagFilter.map(Number);
+      l = l.filter((i) => {
+        const has = (tagMap[i.path] ?? []).map((t) => t.id);
+        return tagMode === "all" ? want.every((w) => has.includes(w)) : want.some((w) => has.includes(w));
+      });
+    }
+    return l;
+  }, [all, q, tagFilter, tagMode, tagMap]);
+  useEffect(() => setTagFilter([]), [path]);
+  useEffect(() => {
+    if (!tagFilter.length) return setTagElsewhere([]);
+    tagStore.files(tagFilter.map(Number), tagMode).then((r) => setTagElsewhere(r.filter((x) => (x.path.slice(0, x.path.lastIndexOf("/")) || "/") !== path)), () => setTagElsewhere([]));
+  }, [tagFilter, tagMode, path, tagMap]);
+  const tagPills = (i: FsItem) => {
+    const ts = tagMap[i.path];
+    return ts?.length ? <span className="flex shrink-0 flex-wrap gap-1" data-file-tags>{ts.slice(0, 3).map((t) => <span key={t.id} className="ftag"><i className={`tc-${t.color}`} />{t.name}</span>)}{ts.length > 3 && <span className="ftag">+{ts.length - 3}</span>}</span> : null;
+  };
   const selected = useMemo(() => list.filter((i) => sel.has(i.path)), [list, sel]);
   const images = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "image"), [list]);
   const phs = useMemo(() => placeholdersFor(ups, path, new Set((items ?? []).map((i) => i.name)), Date.now()), [ups, path, items, tick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -514,6 +547,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         {many.length === 1 && <MenuItem icon={<ClipboardCopy />} onClick={run(() => copy(i.path, "路径"))}>复制路径</MenuItem>}
         <MenuSep />
         {many.length === 1 && <MenuItem icon={fav ? <StarOff /> : <Star />} onClick={run(() => (favorites.toggle(i), toast.ok(fav ? "已取消收藏" : "已收藏，可在侧栏找到")))}>{fav ? "取消收藏" : "收藏"}</MenuItem>}
+        {me && !isRoot && <MenuItem icon={<TagIcon />} onClick={run(() => setTagging(many))}>标签…</MenuItem>}
         {many.length === 1 && <MenuItem icon={<Info />} onClick={run(() => setDetails(i))}>属性</MenuItem>}
         {isAdmin && many.length === 1 && <MenuItem icon={<Shield />} onClick={run(() => go(`#/admin/acl?path=${encodeURIComponent(i.path)}`))}>权限设置</MenuItem>}
         {!isRoot && (
@@ -584,11 +618,34 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
               ))
             }
           </Menu>
+          {me && (
+            <IconButton label={tagFilter.length ? `按标签筛选（已选 ${tagFilter.length}）` : "按标签筛选"} aria-pressed={tagBar} onClick={() => setTagBar(!tagBar)} className={cx(tagFilter.length > 0 && "text-accent")}>
+              <TagIcon className="size-4" />
+            </IconButton>
+          )}
           <SegmentedDrag<View> label="视图" size="sm" iconOnly value={view} onChange={setView} options={[{ value: "list", icon: <List className="size-4" />, title: "列表" }, { value: "grid", icon: <Grid2x2 className="size-4" />, title: "网格" }, { value: "gallery", icon: <Images className="size-4" />, title: "相册" }]} />
           <IconButton label="刷新" onClick={() => load(true)}>
             <RefreshCw className="size-4" />
           </IconButton>
         </div>
+        {tagBar && me && (
+          <div className="anim-in basis-full space-y-2 pt-1" data-tag-filter>
+            {myTags.length === 0 ? <p className="text-[12.5px] text-faint">还没有标签：右键文件 →「标签…」创建第一个标签</p> : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[12px] font-medium text-muted">按标签筛选</span>
+                  <span className="ml-auto inline-flex rounded-lg border border-line p-0.5 text-[12px]" role="radiogroup" aria-label="匹配方式">
+                    {(["any", "all"] as const).map((m) => <button key={m} type="button" role="radio" aria-checked={tagMode === m} onClick={() => setTagMode(m)} className={cx("rounded-md px-2 py-0.5", tagMode === m ? "bg-hover text-fg" : "text-muted")}>{m === "any" ? "任一" : "全部"}</button>)}
+                  </span>
+                </div>
+                <ChipGroup label="标签" options={myTags.map((t) => ({ value: String(t.id), label: `${t.name}${t.count ? ` ${t.count}` : ""}`, color: t.color }))} value={tagFilter} onChange={setTagFilter} maxVisible={6} />
+                {tagElsewhere.length > 0 && (
+                  <p className="text-[12px] text-muted" data-tag-elsewhere>其他目录还有 {tagElsewhere.length} 项：{tagElsewhere.slice(0, 6).map((x) => <a key={x.path} className="mr-2 text-accent hover:underline" href={filesHref(x.path.slice(0, x.path.lastIndexOf("/")) || "/")} title={x.path}>{x.name}</a>)}{tagElsewhere.length > 6 && "…"}</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => (e.target.files && addFiles(fromFileList(e.target.files, path)), (e.target.value = ""))} />
         <input ref={dirInput} type="file" hidden {...({ webkitdirectory: "" } as object)} onChange={(e) => (e.target.files && addFiles(fromFileList(e.target.files, path)), (e.target.value = ""))} />
       </div>
@@ -640,6 +697,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
                 onClick={(e) => click(e, i, idx)}
                 onDoubleClick={() => open(i)}
                 onContextMenu={(e) => onItemContext(e, i)}
+                {...hover.bind(pf.hoverPreview && !i.is_dir && kindOf(i.name) === "image" ? fileUrl(i.path) : null)}
                 className={cx("group grid cursor-default grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 border-b border-line px-3 py-1.5 last:border-b-0 sm:grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover", dragCls(i))}
               >
                 <span role="gridcell" onClick={(e) => e.stopPropagation()}>
@@ -653,6 +711,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
                     </a>
                     <span className="block text-[11px] text-faint sm:hidden">{i.is_dir ? (i.mount_kind ? i.mount_kind.toUpperCase() : "文件夹") : `${fmtSize(i.size)} · ${fmtTime(i.modified_unix)}`}</span>
                   </span>
+                  {tagPills(i)}
                   {i.read_only && <span className="rounded bg-hover px-1 text-[10px] text-muted">只读</span>}
                 </span>
                 <span role="gridcell" className="hidden text-right text-xs text-muted tabular-nums sm:block">{i.is_dir ? "—" : fmtSize(i.size)}</span>
@@ -679,6 +738,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px]">{i.name}</span>
                       <span className="block text-[11px] text-faint">{i.is_dir ? "文件夹" : fmtSize(i.size)}</span>
+                      {tagPills(i)}
                     </span>
                     <ItemMenu i={i} />
                   </div>
@@ -765,6 +825,8 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
       </ContextMenu>
       <ShareDialog items={sharing} onClose={() => setSharing([])} />
       <DetailsDialog item={details} onClose={() => setDetails(null)} />
+      {tagging && <TagDialog items={tagging} current={tagMap} onClose={() => setTagging(null)} onChanged={(m) => setTagMap((t) => ({ ...t, ...m }))} />}
+      {hover.node && createPortal(hover.node, document.body)}
     </div>
   );
 }
