@@ -208,7 +208,7 @@ export function OtpField({ value, onChange, onComplete, status = "idle", length 
   );
 }
 
-/* ───────── Scroll timeline: line tip pinned 126px below the scroller top; q = eOut((L − dotY)/22) ───────── */
+/* ───────── Scroll timeline: line tip pinned max(126px, 50% viewport) below the scroller top; q = eOut((L − dotY)/22) ───────── */
 export function useScrollTimeline(root: RefObject<HTMLElement | null>, deps: unknown[], tip = 126, ramp = 22) {
   useEffect(() => {
     const el = root.current;
@@ -220,7 +220,10 @@ export function useScrollTimeline(root: RefObject<HTMLElement | null>, deps: unk
       const top = el.getBoundingClientRect().top;
       const vt = scroller === document.documentElement ? 0 : scroller.getBoundingClientRect().top;
       const all = reduced();
-      const L = vt + tip - top; // line length in timeline coordinates
+      // tip sits 126px below the scroller top, but never above the middle of the visible area,
+      // so the first screen of events is already lit when the page opens
+      const tipY = Math.max(tip, (scroller === document.documentElement ? innerHeight : scroller.clientHeight) * 0.5);
+      const L = vt + tipY - top; // line length in timeline coordinates
       const len = clamp(L, 0, el.scrollHeight);
       // if the timeline ends above the tip, light everything
       const bottomGap = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;

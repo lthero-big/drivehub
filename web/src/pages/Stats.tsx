@@ -119,7 +119,7 @@ export function StatsPage() {
           <Field label="分享">
             <Select value={share} onChange={(e) => setShare(e.target.value)} aria-label="按分享筛选">
               <option value="">全部分享</option>
-              {shares.map((x) => <option key={x.id} value={x.id}>{x.name}{isAdmin && x.owner ? ` · ${x.owner}` : ""}</option>)}
+              {shares.map((x) => <option key={x.id} value={String(x.id)}>{x.name}{isAdmin && x.owner ? ` · ${x.owner}` : ""}</option>)}
             </Select>
           </Field>
           <Field label="文件 / 目录"><Input placeholder="/local/docs 或具体文件" value={path} onChange={(e) => setPath(e.target.value)} aria-label="按文件筛选" /></Field>

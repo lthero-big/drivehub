@@ -9,7 +9,7 @@ import type { ThemePref } from "../lib/theme";
 import { cx, fmtSize } from "../lib/util";
 import { FileIcon } from "./FileIcon";
 
-/** Fuzzy rank (interior command palette): all query chars must appear in order; first char,
+/** Fuzzy rank (interior command palette; nav items also match English / pinyin-initial keywords): all query chars must appear in order; first char,
  *  word-boundary and consecutive hits score higher, gaps cost a little. -1 = no match. */
 export function fuzzyScore(label: string, query: string): number {
   const l = label.toLowerCase(), q = query.toLowerCase().replace(/\s+/g, "");
@@ -28,7 +28,7 @@ export function fuzzyScore(label: string, query: string): number {
   return score - l.length * 0.01;
 }
 
-type Item = { id: string; label: string; hint?: string; icon: ReactNode; run: () => void; group: string };
+type Item = { id: string; label: string; hint?: string; kw?: string; icon: ReactNode; run: () => void; group: string };
 
 /** ⌘K / Ctrl+K command palette: navigation, actions, and live file search. */
 export function CommandPalette({ open, onClose, setTheme }: { open: boolean; onClose: () => void; setTheme: (t: ThemePref) => void }) {
@@ -59,35 +59,35 @@ export function CommandPalette({ open, onClose, setTheme }: { open: boolean; onC
 
   const items = useMemo<Item[]>(() => {
     const nav: Item[] = [
-      { id: "files", group: "跳转", label: "全部文件", icon: <FolderOpen />, run: () => go("#/files") },
+      { id: "files", group: "跳转", label: "全部文件", kw: "files qbwj", icon: <FolderOpen />, run: () => go("#/files") },
       ...mounts.map((m) => ({ id: `m:${m.path}`, group: "跳转", label: m.name, hint: m.mount_kind ?? "", icon: <HardDrive />, run: () => go(filesHref(m.path)) })),
-      { id: "search", group: "跳转", label: "高级搜索", icon: <Search />, run: () => go(`#/search?q=${encodeURIComponent(q)}`) },
-      { id: "tasks", group: "跳转", label: "任务中心", icon: <ListChecks />, run: () => go("#/tasks") },
+      { id: "search", group: "跳转", label: "高级搜索", kw: "search gjss", icon: <Search />, run: () => go(`#/search?q=${encodeURIComponent(q)}`) },
+      { id: "tasks", group: "跳转", label: "任务中心", kw: "tasks rwzx", icon: <ListChecks />, run: () => go("#/tasks") },
       ...(me
         ? [
-            { id: "shares", group: "跳转", label: "我的分享", icon: <Share2 />, run: () => go("#/shares") },
-            { id: "stats", group: "跳转", label: "访问统计", icon: <BarChart3 />, run: () => go("#/stats") },
-            { id: "account", group: "跳转", label: "账户与安全", icon: <User />, run: () => go("#/account") },
-            { id: "prefs", group: "跳转", label: "界面偏好（原地打开文件等）", icon: <SlidersHorizontal />, run: () => go("#/account/prefs") },
+            { id: "shares", group: "跳转", label: "我的分享", kw: "shares wdfx", icon: <Share2 />, run: () => go("#/shares") },
+            { id: "stats", group: "跳转", label: "访问统计", kw: "stats fwtj", icon: <BarChart3 />, run: () => go("#/stats") },
+            { id: "account", group: "跳转", label: "账户与安全", kw: "account security zhyaq", icon: <User />, run: () => go("#/account") },
+            { id: "prefs", group: "跳转", label: "界面偏好（原地打开文件等）", kw: "prefs settings jmph", icon: <SlidersHorizontal />, run: () => go("#/account/prefs") },
           ]
         : []),
-      ...(isAdmin ? [{ id: "dash", group: "管理", label: "仪表盘", icon: <LayoutDashboard />, run: () => go("#/admin/dashboard") }] : []),
-      ...(can("admin_mounts") ? [{ id: "mounts", group: "管理", label: "挂载点", icon: <HardDrive />, run: () => go("#/admin/mounts") }] : []),
-      ...(can("admin_users") ? [{ id: "users", group: "管理", label: "用户", icon: <User />, run: () => go("#/admin/users") }] : []),
-      ...(can("admin_groups") ? [{ id: "groups", group: "管理", label: "用户组", icon: <Users />, run: () => go("#/admin/groups") }] : []),
-      ...(can("admin_roles") ? [{ id: "roles", group: "管理", label: "角色与权限", icon: <BadgeCheck />, run: () => go("#/admin/roles") }] : []),
-      ...(can("admin_acl") ? [{ id: "acl", group: "管理", label: "目录权限 (ACL)", icon: <Shield />, run: () => go("#/admin/acl") }] : []),
-      ...(can("admin_audit") ? [{ id: "audit", group: "管理", label: "审计日志", icon: <ScrollText />, run: () => go("#/admin/audit") }] : []),
-      ...(can("admin_settings") ? [{ id: "settings", group: "管理", label: "全局设置", icon: <Settings />, run: () => go("#/admin/settings") }] : []),
-      { id: "t-light", group: "外观", label: "浅色模式", icon: <Sun />, run: () => setTheme("light") },
-      { id: "t-dark", group: "外观", label: "深色模式", icon: <Moon />, run: () => setTheme("dark") },
-      { id: "t-sys", group: "外观", label: "跟随系统", icon: <Monitor />, run: () => setTheme("system") },
+      ...(isAdmin ? [{ id: "dash", group: "管理", label: "仪表盘", kw: "dashboard ybp", icon: <LayoutDashboard />, run: () => go("#/admin/dashboard") }] : []),
+      ...(can("admin_mounts") ? [{ id: "mounts", group: "管理", label: "挂载点", kw: "mounts gzd", icon: <HardDrive />, run: () => go("#/admin/mounts") }] : []),
+      ...(can("admin_users") ? [{ id: "users", group: "管理", label: "用户", kw: "users yh", icon: <User />, run: () => go("#/admin/users") }] : []),
+      ...(can("admin_groups") ? [{ id: "groups", group: "管理", label: "用户组", kw: "groups yhz", icon: <Users />, run: () => go("#/admin/groups") }] : []),
+      ...(can("admin_roles") ? [{ id: "roles", group: "管理", label: "角色与权限", kw: "roles permissions jsyqx", icon: <BadgeCheck />, run: () => go("#/admin/roles") }] : []),
+      ...(can("admin_acl") ? [{ id: "acl", group: "管理", label: "目录权限 (ACL)", kw: "acl mlqx", icon: <Shield />, run: () => go("#/admin/acl") }] : []),
+      ...(can("admin_audit") ? [{ id: "audit", group: "管理", label: "审计日志", kw: "audit sjrz", icon: <ScrollText />, run: () => go("#/admin/audit") }] : []),
+      ...(can("admin_settings") ? [{ id: "settings", group: "管理", label: "全局设置", kw: "settings qjsz", icon: <Settings />, run: () => go("#/admin/settings") }] : []),
+      { id: "t-light", group: "外观", label: "浅色模式", kw: "light theme qsms", icon: <Sun />, run: () => setTheme("light") },
+      { id: "t-dark", group: "外观", label: "深色模式", kw: "dark theme ssms", icon: <Moon />, run: () => setTheme("dark") },
+      { id: "t-sys", group: "外观", label: "跟随系统", kw: "system theme gsxt", icon: <Monitor />, run: () => setTheme("system") },
     ];
     const s = q.trim();
     // empty query → original order; otherwise rank by fuzzy score (label, then hint)
     const filtered = s
       ? nav
-          .map((i) => ({ i, sc: Math.max(fuzzyScore(i.label, s), fuzzyScore(i.hint ?? "", s) - 3) }))
+          .map((i) => ({ i, sc: Math.max(fuzzyScore(i.label, s), fuzzyScore(i.hint ?? "", s) - 3, ...(i.kw ?? "").split(" ").map((w) => fuzzyScore(w, s) - 1)) }))
           .filter((x) => x.sc >= 0)
           .sort((a, b) => b.sc - a.sc)
           .map((x) => ({ ...x.i, group: "命令" }))
