@@ -228,6 +228,7 @@ pub fn build_driver(kind: &str, opts: &HashMap<String, String>) -> Result<Box<dy
             }
             Ok(Box::new(OpendalDriver::new("webdav", Operator::new(b)?)))
         }
+        "p115" | "115" => Ok(Box::new(drivers::p115::P115Driver::new(opts)?)),
         "pikpak" => Ok(Box::new(drivers::pikpak::PikPakDriver::new(opts)?)),
         other => Err(StorageError::Unsupported(format!(
             "storage kind '{other}' (supported: fs, s3, webdav; onedrive/gdrive/115/pikpak via rclone/OpenList webdav bridge)"

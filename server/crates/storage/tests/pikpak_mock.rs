@@ -475,3 +475,73 @@ fn pikpak_helpers() {
     assert_eq!(s, expect);
     assert!(build_driver("pikpak", &HashMap::new()).is_err());
 }
+
+/// Live PikPak test; runs only with DRIVEHUB_TEST_PIKPAK_USER / _PASS (optional _PLATFORM).
+/// Works under a scratch folder `drivehub-live-test/` and cross-copies to a local fs mount.
+#[tokio::test]
+async fn pikpak_live_if_configured() {
+    let (Ok(u), Ok(p)) = (
+        std::env::var("DRIVEHUB_TEST_PIKPAK_USER"),
+        std::env::var("DRIVEHUB_TEST_PIKPAK_PASS"),
+    ) else {
+        return;
+    };
+    let mut o = HashMap::from([("username".to_string(), u), ("password".to_string(), p)]);
+    if let Ok(pl) = std::env::var("DRIVEHUB_TEST_PIKPAK_PLATFORM") {
+        o.insert("platform".into(), pl);
+    }
+    let drv = build_driver("pikpak", &o).unwrap();
+    drv.list("").await.unwrap();
+    let root = "drivehub-live-test";
+    drv.delete(root).await.unwrap();
+    drv.mkdir(root).await.unwrap();
+    let data: Vec<u8> = (0..2_000_000u32).map(|i| (i % 251) as u8).collect();
+    drv.write(&format!("{root}/a.bin"), Bytes::from(data.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        drv.stat(&format!("{root}/a.bin")).await.unwrap().size,
+        data.len() as u64
+    );
+    let part = collect(
+        drv.read(
+            &format!("{root}/a.bin"),
+            Some(ByteRange {
+                start: 1000,
+                end: Some(1100),
+            }),
+        )
+        .await
+        .unwrap(),
+    )
+    .await;
+    assert_eq!(part, &data[1000..1100]);
+    drv.copy(&format!("{root}/a.bin"), &format!("{root}/b.bin"))
+        .await
+        .unwrap();
+    drv.rename(&format!("{root}/b.bin"), &format!("{root}/c.bin"))
+        .await
+        .unwrap();
+    // cross-storage copy pikpak -> fs
+    let tmp = tempfile::tempdir().unwrap();
+    let fs = build_driver(
+        "fs",
+        &HashMap::from([("root".to_string(), tmp.path().to_string_lossy().to_string())]),
+    )
+    .unwrap();
+    let s = drv.read(&format!("{root}/c.bin"), None).await.unwrap();
+    assert_eq!(
+        fs.write_stream("c.bin", s, &|_| {}).await.unwrap(),
+        data.len() as u64
+    );
+    // fs -> pikpak
+    let s = fs.read("c.bin", None).await.unwrap();
+    drv.write_stream(&format!("{root}/d.bin"), s, &|_| {})
+        .await
+        .unwrap();
+    assert_eq!(
+        drv.stat(&format!("{root}/d.bin")).await.unwrap().size,
+        data.len() as u64
+    );
+    drv.delete(root).await.unwrap();
+}

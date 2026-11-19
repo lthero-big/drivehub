@@ -9,6 +9,7 @@
 - **许可证由 MIT 改为 AGPL-3.0-only**（DEPTAI-481）：LICENSE 全文替换，Cargo workspace / 各 crate、web/package.json、Android、Docker 镜像 label 同步；新增 `NOTICE` 与 `THIRD_PARTY.md`，保留 OpenList（AGPL-3.0）版权与来源说明，为移植其 115 / PikPak 驱动做准备。
 
 ### Added
+- 原生网盘驱动（DEPTAI-481，移植 OpenList）：`pikpak`（登录/刷新/captcha、列目录、Range 下载、mkdir/rename/move/copy/delete、GCID+OSS 上传）与 `p115` 预览版（Cookie、列目录、m115 下载+Range、mkdir/rename/move/copy/delete；上传未支持），Web 挂载页可选，见 `docs/native-drivers.md`；挂载列表同时隐藏 `cookie` 类选项。
 - Android App 一期（DEPTAI-477）：`android/`（Kotlin + Compose M3），版本协商 / 登录（密码、2FA、OAuth）/ 浏览搜索预览 / WorkManager 断点续传上传下载 / 分享与取件码 / 离线目录缓存，release.yml 产出 APK，bump/check-version 覆盖 android；见 `docs/android.md`。
 - 统一发布（DEPTAI-478）：根目录 `VERSION` 单一版本来源，`scripts/bump-version.sh` / `scripts/check-version.sh`，
   CI 版本一致性检查，`v*` tag 触发的发布流水线（server 二进制、web dist、docker 镜像、SHA256SUMS），

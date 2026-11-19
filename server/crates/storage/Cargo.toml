@@ -12,9 +12,10 @@ base64 = "0.22"
 hmac = "0.12"
 httpdate = "1"
 md5 = { version = "0.10", package = "md-5" }
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls", "stream"] }
 serde_json.workspace = true
 sha1 = "0.10"
+num-bigint = "0.4"
 opendal = { version = "0.59.5", features = ["services-fs", "services-s3", "services-webdav"] }
 serde.workspace = true
 thiserror.workspace = true

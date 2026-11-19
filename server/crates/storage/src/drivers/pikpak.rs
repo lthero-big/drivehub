@@ -5,7 +5,8 @@
 //! Protocol constants (client ids, captcha-sign algorithms, endpoints) follow upstream.
 //!
 //! Options: username, password, platform (web|android|pc, default web), refresh_token,
-//! captcha_token, device_id, root_id (default ""), and for tests / proxies
+//! captcha_token, device_id, root_id (default ""), skip_verification (true = ignore the
+//! human-verification URL like upstream; may trigger risk control), and for tests / proxies
 //! user_endpoint, api_endpoint, oss_endpoint (override `https://{bucket}.{endpoint}`).
 use crate::{norm, ByteRange, ByteStream, Entry, Result, StorageDriver, StorageError};
 use async_trait::async_trait;
@@ -169,6 +170,7 @@ pub struct PikPakDriver {
     user_ep: String,
     api_ep: String,
     oss_ep: Option<String>,
+    skip_verification: bool,
     tok: Mutex<Tokens>,
     inited: Mutex<bool>,
 }
@@ -266,6 +268,7 @@ impl PikPakDriver {
             user_ep: get("user_endpoint").unwrap_or_else(|| "https://user.mypikpak.net".into()),
             api_ep: get("api_endpoint").unwrap_or_else(|| "https://api-drive.mypikpak.net".into()),
             oss_ep: get("oss_endpoint"),
+            skip_verification: get("skip_verification").is_some_and(|v| v == "true" || v == "1"),
             tok: Mutex::new(Tokens {
                 refresh,
                 captcha,
@@ -426,7 +429,7 @@ impl PikPakDriver {
         if let Some(u) = v
             .get("url")
             .and_then(|x| x.as_str())
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.is_empty() && !self.skip_verification)
         {
             return Err(be(format!(
                 "need human verification: {u} (set captcha_token)"
