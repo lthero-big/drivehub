@@ -1,7 +1,7 @@
 // DEPTAI-485 round 6 components.
 //   TagRow    — tags on one line, overflow collapses into a "+N" chip with a hover / click popover (#9)
 //   Skeleton* — shape-matched loading placeholders replacing spinners (#6)
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../lib/util";
 import { usePopoverPos } from "./ui";
@@ -41,7 +41,8 @@ export function TagRow({ tags, className }: { tags: TagLike[]; className?: strin
     ro.observe(el);
     return () => ro.disconnect();
   }, [key]);
-  const anchor = open && plusRef.current ? { el: plusRef.current } : null;
+  // stable anchor object — a fresh one each render would re-run the positioning effect forever
+  const anchor = useMemo(() => (open && plusRef.current ? { el: plusRef.current } : null), [open]);
   const pos = usePopoverPos(open, anchor, pop, { align: "right" });
   useEffect(() => {
     if (!open) return;

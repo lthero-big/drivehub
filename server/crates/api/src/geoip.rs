@@ -206,7 +206,8 @@ fn parse_region(raw: &str) -> Geo {
     let f: Vec<&str> = raw.split('|').map(|x| if x == "0" { "" } else { x.trim() }).collect();
     let get = |i: usize| f.get(i).copied().unwrap_or("").to_string();
     if get(0) == "Reserved" {
-        return lan("局域网");
+        // private ranges never reach here (classified above); this is e.g. TEST-NET / benchmark space
+        return Geo { kind: "reserved", label: "保留地址".into(), ..Default::default() };
     }
     // current format: country|province|city|isp|iso ; legacy: country|area|province|city|isp
     let (country, region, city, isp, mut code) = if f.len() >= 5 && f[4].len() == 2 && f[4].chars().all(|c| c.is_ascii_uppercase()) {
