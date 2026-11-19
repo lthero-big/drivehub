@@ -317,5 +317,6 @@ body {
 .ctl-sm input.field-input { padding-inline: 0.625rem; }
 .ctl-sm button.field-input { padding-inline: 0.625rem; min-width: 5rem; }
 .ctl-sm button.btn-key:not(.btn-icon):not(.field-input):not([aria-pressed]) { height: 2rem; font-size: 13px; padding-inline: 0.75rem; border-radius: 0.5rem; }
+.ctl-sm button[role=switch] { height: 2rem; }
 .ctl-sm .btn-icon { width: 2rem; height: 2rem; border-radius: 0.5rem; }
 .ctl-sm .ctl-label { font-size: 13px; line-height: 2rem; color: var(--muted); white-space: nowrap; }

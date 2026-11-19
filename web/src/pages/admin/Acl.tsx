@@ -103,7 +103,9 @@ function ByDir({ rules, gates, users, groups, act, subjName, path, setPath }: Ct
   }, [rules, gates]);
   const shown = configured.filter((c) => !filter.trim() || c.path.toLowerCase().includes(filter.trim().toLowerCase()));
   const pg = usePaged(shown, 10, filter, "acl_dirs");
-  const hereRules = rules.filter((r) => norm(r.path) === here);
+  // Stable order (member kind, then name): editing a rule re-creates it with a new id, so ordering by id would make the card jump.
+  const subjKey = (r: Rule) => `${Object.keys(SUBJ).indexOf(r.subject)}|${subjName(r) ?? r.subject_id ?? ""}`;
+  const hereRules = rules.filter((r) => norm(r.path) === here).sort((a, b) => subjKey(a).localeCompare(subjKey(b), "zh"));
   const inherited = rules.filter((r) => norm(r.path) !== here && (norm(r.path) === "/" || here.startsWith(norm(r.path) + "/")));
   const myGate = gates.find((g) => norm(g.path) === here);
   return (
@@ -150,7 +152,7 @@ function ByDir({ rules, gates, users, groups, act, subjName, path, setPath }: Ct
             <p className="rounded-xl border border-dashed border-line p-4 text-center text-[13px] text-muted">本目录还没有自己的规则，权限完全继承自上级。在下方添加成员。</p>
           ) : (
             <ul className="space-y-2" data-testid="acl-matrix">
-              {hereRules.map((r) => <RuleCard key={r.id} r={r} atRoot={here === "/"} name={subjName(r)} act={act} />)}
+              {hereRules.map((r) => <RuleCard key={`${r.subject}:${r.subject_id ?? ""}`} r={r} atRoot={here === "/"} name={subjName(r)} act={act} />)}
             </ul>
           )}
           <AddRule here={here} users={users} groups={groups} act={act} />
