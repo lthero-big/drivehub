@@ -8,7 +8,7 @@ import { filesHref, go } from "../lib/router";
 import { parentOf, tabs, useTabs, type Tab } from "../lib/tabs";
 import { dock, useDock } from "../lib/dock";
 import { dockRect, genie, GenieDock } from "../ui/motion";
-import { cx, fmtSize, fmtTime } from "../lib/util";
+import { cx, fmtSize, fmtTime, kindOf } from "../lib/util";
 import { ContextMenu, IconButton, Menu, MenuItem, MenuSep, Spinner, toast } from "../ui/ui";
 import { FileBrowser } from "./FileBrowser";
 import { DetailsDialog, ShareDialog } from "./FileDialogs";
@@ -99,6 +99,10 @@ function FileView({ tab }: { tab: Tab }) {
   const [details, setDetails] = useState<FsItem | null>(null);
   const parts = tab.path.split("/").filter(Boolean);
   const panel = useRef<HTMLDivElement>(null);
+  // switching tracks inside the music player keeps the same panel + player mounted (no remount /
+  // fade-in flash, r6 #2); every other file still gets a fresh panel. Track changes replace the tab.
+  const isAudio = kindOf(tab.name) === "audio";
+  const panelKey = isAudio ? `audio:${dir}` : tab.path;
   const minimize = async () => {
     if (panel.current) await genie(panel.current, dockRect(tab.path), "min");
     dock.minimize(tab.path);
@@ -159,9 +163,9 @@ function FileView({ tab }: { tab: Tab }) {
           <IconButton label="关闭标签" onClick={() => tabs.close(tab.path)}><X className="size-[18px]" /></IconButton>
         </span>
       </div>
-      <div key={tab.path} ref={panel} className="anim-in relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-panel-2/60 p-2 sm:p-4">
+      <div key={panelKey} ref={panel} className="anim-in relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-line bg-panel-2/60 p-2 sm:p-4">
         <Suspense fallback={<div className="flex h-64 items-center justify-center"><Spinner /></div>}>
-          <FileBody item={item} siblings={siblings} onPick={(i) => tabs.open(i)} />
+          <FileBody item={item} siblings={siblings} onPick={(i) => tabs.open(i, isAudio && kindOf(i.name) === "audio" ? true : undefined)} />
         </Suspense>
       </div>
       <ShareDialog item={share} onClose={() => setShare(null)} />

@@ -314,7 +314,7 @@ export function VideoPlayer({ item, siblings }: { item: FsItem; siblings: FsItem
             <span className="ml-2 text-xs tabular-nums text-white/85">{clock(cur)} / {clock(dur)}</span>
             <span className="flex-1" />
             <div className="relative">
-              <button className="mp-btn !w-auto gap-1 px-2 text-[13px] font-medium" aria-label="倍速" aria-pressed={menu === "rate"} onClick={() => setMenu(menu === "rate" ? null : "rate")}>
+              <button className="mp-btn !w-auto grid-flow-col gap-1 px-2 text-[13px] font-medium" aria-label="倍速" aria-pressed={menu === "rate"} onClick={() => setMenu(menu === "rate" ? null : "rate")}>
                 <Gauge className="size-[18px]" /> {rate}×
               </button>
               {menu === "rate" && (
@@ -492,16 +492,21 @@ export function AudioPlayer({ item, siblings, onPick }: { item: FsItem; siblings
   const [meta, setMeta] = useState<Meta>({});
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const resumed = usePos(item.path, a);
-  const hue = hueOf(item.name);
-
+  // track change: keep showing the previous track's cover / title / waveform / colour until the new ones
+  // are decoded, then swap once (no blank frame in between — r6 #2 "切歌闪一下")
+  const [metaFor, setMetaFor] = useState(item.path);
+  const hue = hueOf(metaFor.slice(metaFor.lastIndexOf("/") + 1));
   useEffect(() => {
     let live = true;
-    setMeta({});
-    setPeaks(null);
-    readId3(item.path).then((m) => live && setMeta(m), () => {});
-    peaksOf(item.path, item.size, 140).then((p) => live && setPeaks(p), () => {});
+    const done = (m: Meta) => live && ((live = false), setMeta(m), setMetaFor(item.path));
+    let peaksLive = true;
+    readId3(item.path).then(done, () => done({}));
+    const t = setTimeout(() => done({}), 1500); // slow / huge file: fall back to the file name
+    peaksOf(item.path, item.size, 140).then((p) => peaksLive && setPeaks(p), () => peaksLive && setPeaks(null));
     return () => {
       live = false;
+      peaksLive = false;
+      clearTimeout(t);
     };
   }, [item.path, item.size]);
   useEffect(() => {
@@ -558,10 +563,11 @@ export function AudioPlayer({ item, siblings, onPick }: { item: FsItem; siblings
     return () => window.removeEventListener("keydown", onKey);
   }, [toggle, step]);
   const VolIcon = muted || vol === 0 ? VolumeX : vol < 0.5 ? Volume1 : Volume2;
-  const title = meta.title || item.name.replace(/\.[^.]+$/, "");
+  const ready = metaFor === item.path;
+  const title = meta.title || (ready ? item.name : list.find((x) => x.path === metaFor)?.name ?? item.name).replace(/\.[^.]+$/, "");
   const modeInfo = MODES.find((m) => m.id === mode)!;
   // track change: title / artist cross-fade 450 ms, content swaps at the midpoint
-  const sub = [meta.artist, meta.album].filter(Boolean).join(" · ") || fmtSize(item.size);
+  const sub = [meta.artist, meta.album].filter(Boolean).join(" · ") || fmtSize((ready ? item : list.find((x) => x.path === metaFor) ?? item).size);
   const [shown, setShown] = useState({ title, sub });
   const [fade, setFade] = useState(false);
   useEffect(() => {
@@ -572,12 +578,12 @@ export function AudioPlayer({ item, siblings, onPick }: { item: FsItem; siblings
     return () => clearTimeout(t);
   }, [title, sub]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 lg:flex-row" data-testid="audio-player" style={{ ["--ap-h" as string]: `hsl(${hue} 70% 55%)` }}>
+    <div className="ap-root mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col gap-4 lg:flex-row" data-testid="audio-player" data-track={metaFor} style={{ ["--ap-h" as string]: `hsl(${hue} 70% 55%)` }}>
       <section className="ap relative mt-[98px] flex shrink-0 flex-col gap-4 rounded-[28px] border border-line p-5 pt-[14px] shadow-card lg:w-[22rem]" data-testid="music-player">
         {/* music-player widget (21st smammar): half vinyl peeks out of the card, 7s/turn while playing */}
         <div className="mp-disc-wrap" style={{ top: -98, height: 98, overflow: "hidden" }} aria-hidden>
           <div data-testid="vinyl" data-playing={playing ? "" : undefined} className={cx("mp-disc spin", !playing && "paused")} style={{ ["--mp-a" as string]: `hsl(${hue} 70% 58%)`, ["--mp-b" as string]: `hsl(${(hue + 60) % 360} 70% 40%)` }}>
-            {meta.cover && <img src={meta.cover} alt="" data-testid="audio-cover" className="absolute inset-0 size-full rounded-full object-cover opacity-90" />}
+            {meta.cover && <img key={meta.cover} src={meta.cover} alt="" data-testid="audio-cover" className="mp-cover absolute inset-0 size-full rounded-full object-cover opacity-90" />}
             <span className="absolute inset-0 rounded-full" style={{ background: "repeating-radial-gradient(circle, rgb(255 255 255 / .06) 0 2px, rgb(0 0 0 / .08) 2px 4px)" }} />
           </div>
         </div>
