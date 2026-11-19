@@ -94,7 +94,11 @@ export function RolesPage() {
               <IconButton label={`编辑角色 ${r.name}`} onClick={() => setD({ id: r.id, name: r.name, description: r.description, permissions: r.permissions, builtin: r.builtin })}><Pencil className="size-4" /></IconButton>
               {!r.builtin && <ConfirmButton iconOnly icon={<Trash2 />} label={`删除角色 ${r.name}`} confirmLabel="删除角色" onConfirm={async () => { try { await rbac.deleteRole(r.id); toast.ok("已删除"); load(); } catch (e) { toast.err(errMsg(e)); } }} />}
             </div>
+            {r.level === "admin" ? (
+              <p className="rounded-lg bg-accent-soft px-2.5 py-2 text-xs text-accent" data-role-level="admin">账号级别 admin：拥有全部权限（含管理后台），不受目录权限规则限制</p>
+            ) : (
             <div className="space-y-1.5">
+              {r.level === "guest" && <p className="text-xs text-warn" data-role-level="guest">账号级别 guest：无论规则如何，最多只读 + 下载</p>}
               {PERM_CATEGORIES.map((c) => {
                 const ps = permsOf(c.id);
                 const got = ps.filter((p) => r.permissions.includes(p));
@@ -106,6 +110,7 @@ export function RolesPage() {
                 );
               })}
             </div>
+            )}
             <p className="text-xs text-faint">{r.users} 个用户 · {r.groups} 个用户组 已分配</p>
           </li>
         ))}
