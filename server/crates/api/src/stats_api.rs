@@ -3,7 +3,7 @@
 #![allow(clippy::type_complexity)]
 use crate::auth::Principal;
 use crate::error::ApiResult;
-use crate::AppState;
+use crate::{geoip, AppState};
 use axum::{
     extract::{Query, State},
     Extension, Json,
@@ -52,6 +52,16 @@ pub struct StatsQuery {
     pub per_page: Option<i64>,
     /// Admin: include every user's shares (default true for admin).
     pub all: Option<bool>,
+    /// Visitor region filter (r6 #4): ISO country code ("CN", "US"…) or "LAN" for private networks
+    pub country: Option<String>,
+    /// Visitor province / state within `country`, e.g. "广东省"
+    pub region: Option<String>,
+    /// `/api/stats/ips` ordering: count (default) | last | bytes
+    pub sort: Option<String>,
+    /// Resolved IP allow-list for the region filter (internal).
+    #[serde(skip)]
+    #[param(ignore)]
+    pub ip_in: Option<Vec<String>>,
 }
 
 fn in_list(b: &mut QueryBuilder<Sqlite>, col: &str, vals: &[&str]) {
@@ -86,6 +96,18 @@ fn push_where(b: &mut QueryBuilder<Sqlite>, f: &StatsQuery, scope: &str, owner: 
     }
     if let Some(ip) = f.ip.as_ref().filter(|v| !v.trim().is_empty()) {
         b.push(" AND ip = ").push_bind(ip.trim().to_string());
+    }
+    if let Some(ips) = &f.ip_in {
+        if ips.is_empty() {
+            b.push(" AND 0");
+        } else {
+            b.push(" AND ip IN (");
+            let mut s = b.separated(", ");
+            for ip in ips {
+                s.push_bind(ip.clone());
+            }
+            b.push(")");
+        }
     }
     if let Some(p) = f.path.as_ref().filter(|v| !v.trim_matches('/').is_empty()) {
         let p = format!("/{}", p.trim().trim_matches('/'));
@@ -157,23 +179,9 @@ fn count_of(by: &[(String, i64)], set: &[&str]) -> i64 {
 pub async fn access(
     State(st): State<AppState>,
     Extension(p): Extension<Principal>,
-    Query(f): Query<StatsQuery>,
+    Query(mut f): Query<StatsQuery>,
 ) -> ApiResult<Json<Value>> {
-    let u = p.require_user()?;
-    let admin = st.has_cap(&p, drivehub_core::acl::ADMIN_AUDIT);
-    let manage = admin || st.has_cap(&p, drivehub_core::acl::SHARE_MANAGE);
-    let scope = match f.scope.as_deref() {
-        Some("files") if admin => "files",
-        Some("all") if admin => "all",
-        _ => "shares",
-    };
-    // admins see everyone's shares unless all=false; users only their own
-    let owner = if manage && f.all.unwrap_or(true) {
-        None
-    } else {
-        Some(u.id)
-    };
-    st.audit_log.flush().await;
+    let (scope, owner) = prelude(&st, &p, &mut f).await?;
     let per = f.per_page.unwrap_or(50).clamp(1, 500);
     let page = f.page.unwrap_or(1).max(1);
 
@@ -223,13 +231,12 @@ pub async fn access(
     .build_query_as()
     .fetch_all(&st.db)
     .await?;
-    let top_ips: Vec<(String, i64)> = q(
-        "SELECT ip, COUNT(*)",
-        " GROUP BY ip ORDER BY 2 DESC LIMIT 10",
-    )
-    .build_query_as()
-    .fetch_all(&st.db)
-    .await?;
+    let per_ip: Vec<(String, i64)> = q("SELECT ip, COUNT(*)", " GROUP BY ip ORDER BY 2 DESC")
+        .build_query_as()
+        .fetch_all(&st.db)
+        .await?;
+    let top_ips: Vec<&(String, i64)> = per_ip.iter().take(10).collect();
+    let geo = geo_summary(&per_ip);
     let rows: Vec<crate::audit::AuditRow> = q(&format!("SELECT {}", crate::audit::COLS), "")
         .push(" ORDER BY id DESC LIMIT ")
         .push_bind(per)
@@ -271,8 +278,145 @@ pub async fn access(
             "by_day": by_day.iter().rev().map(|(d, n)| json!({"day": d, "count": n})).collect::<Vec<_>>(),
             "top_shares": top_shares.iter().map(|(i, n)| json!({"share_id": i, "name": name_of(Some(*i)), "count": n})).collect::<Vec<_>>(),
             "top_paths": top_paths.iter().map(|(p, n)| json!({"path": p, "count": n})).collect::<Vec<_>>(),
-            "top_ips": top_ips.iter().map(|(p, n)| json!({"ip": p, "count": n})).collect::<Vec<_>>(),
+            "top_ips": top_ips.iter().map(|(p, n)| json!({"ip": p, "count": n, "geo": geoip::lookup(p)})).collect::<Vec<_>>(),
+            "geo": geo,
         },
-        "rows": rows.iter().map(|r| { let mut v = r.json(); v["share_name"] = json!(name_of(r.share_id)); if let Some(o) = v.as_object_mut() { o.remove("prev_hash"); o.remove("hash"); } v }).collect::<Vec<_>>(),
+        "rows": rows.iter().map(|r| { let mut v = r.json(); v["share_name"] = json!(name_of(r.share_id)); v["geo"] = json!(geoip::lookup(&r.ip).label); if let Some(o) = v.as_object_mut() { o.remove("prev_hash"); o.remove("hash"); } v }).collect::<Vec<_>>(),
+    })))
+}
+
+/// Scope / ownership resolution shared by every stats endpoint; also resolves the region filter
+/// (`country` / `region`) into an IP allow-list, since regions are not stored in the log.
+async fn prelude(st: &AppState, p: &Principal, f: &mut StatsQuery) -> ApiResult<(&'static str, Option<i64>)> {
+    let u = p.require_user()?;
+    let admin = st.has_cap(p, drivehub_core::acl::ADMIN_AUDIT);
+    let manage = admin || st.has_cap(p, drivehub_core::acl::SHARE_MANAGE);
+    let scope = match f.scope.as_deref() {
+        Some("files") if admin => "files",
+        Some("all") if admin => "all",
+        _ => "shares",
+    };
+    // admins see everyone's shares unless all=false; users only their own
+    let owner = if manage && f.all.unwrap_or(true) { None } else { Some(u.id) };
+    st.audit_log.flush().await;
+    let country = f.country.clone().filter(|c| !c.trim().is_empty());
+    let region = f.region.clone().filter(|c| !c.trim().is_empty());
+    if country.is_some() || region.is_some() {
+        f.ip_in = None;
+        let mut b: QueryBuilder<Sqlite> = QueryBuilder::new("SELECT DISTINCT ip");
+        push_where(&mut b, f, scope, owner);
+        let ips: Vec<String> = b.build_query_scalar().fetch_all(&st.db).await?;
+        let keep = ips
+            .into_iter()
+            .filter(|ip| {
+                let g = geoip::lookup(ip);
+                country.as_deref().is_none_or(|c| geo_key(&g).eq_ignore_ascii_case(c.trim()))
+                    && region.as_deref().is_none_or(|r| g.region == r.trim())
+            })
+            .collect();
+        f.ip_in = Some(keep);
+    }
+    Ok((scope, owner))
+}
+
+/// Country bucket of a lookup: ISO code, "LAN" for private networks, "??" when unknown.
+fn geo_key(g: &geoip::Geo) -> String {
+    match g.kind {
+        "lan" | "loopback" => "LAN".into(),
+        _ if !g.code.is_empty() => g.code.clone(),
+        _ if !g.country.is_empty() => g.country.clone(),
+        _ => "??".into(),
+    }
+}
+
+/// Visitor geography: events / distinct IPs per country and per province (state).
+fn geo_summary(per_ip: &[(String, i64)]) -> Value {
+    #[derive(Default)]
+    struct Acc {
+        name: String,
+        count: i64,
+        ips: i64,
+    }
+    let mut countries: HashMap<String, Acc> = HashMap::new();
+    let mut regions: HashMap<(String, String), Acc> = HashMap::new();
+    for (ip, n) in per_ip {
+        let g = geoip::lookup(ip);
+        let k = geo_key(&g);
+        let name = match k.as_str() {
+            "LAN" => "局域网".to_string(),
+            "??" => if g.kind == "public" { "公网（未识别）".into() } else { "未知".into() },
+            _ => if g.country.is_empty() { k.clone() } else { g.country.clone() },
+        };
+        let c = countries.entry(k.clone()).or_default();
+        c.name = name.clone();
+        c.count += n;
+        c.ips += 1;
+        if !g.region.is_empty() {
+            let r = regions.entry((k, g.region.clone())).or_default();
+            r.name = name;
+            r.count += n;
+            r.ips += 1;
+        }
+    }
+    let mut cs: Vec<_> = countries.into_iter().collect();
+    cs.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(&b.0)));
+    let mut rs: Vec<_> = regions.into_iter().collect();
+    rs.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(&b.0)));
+    json!({
+        "db": geoip::loaded(),
+        "by_country": cs.iter().map(|(k, a)| json!({"code": k, "name": a.name, "count": a.count, "ips": a.ips})).collect::<Vec<_>>(),
+        "by_region": rs.iter().take(60).map(|((k, r), a)| json!({"code": k, "country": a.name, "region": r, "count": a.count, "ips": a.ips})).collect::<Vec<_>>(),
+    })
+}
+
+/// Per-visitor-IP statistics (r6 #4): events, first / last seen, users, shares, downloads,
+/// uploads, traffic, denied count, clients, last user agent and the IP's region.
+#[utoipa::path(operation_id = "access_ips", get, path = "/api/stats/ips", params(StatsQuery), responses((status = 200, description = "paged IP table")))]
+pub async fn ips(
+    State(st): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Query(mut f): Query<StatsQuery>,
+) -> ApiResult<Json<Value>> {
+    let (scope, owner) = prelude(&st, &p, &mut f).await?;
+    let per = f.per_page.unwrap_or(20).clamp(1, 200);
+    let page = f.page.unwrap_or(1).max(1);
+    let list = |v: &[&str]| v.iter().map(|a| format!("'{a}'")).collect::<Vec<_>>().join(",");
+    let order = match f.sort.as_deref() {
+        Some("last") => "last_ts DESC",
+        Some("bytes") => "bytes DESC",
+        _ => "events DESC",
+    };
+    let mut b: QueryBuilder<Sqlite> = QueryBuilder::new("SELECT COUNT(DISTINCT ip)");
+    push_where(&mut b, &f, scope, owner);
+    let total: i64 = b.build_query_scalar().fetch_one(&st.db).await?;
+    let mut b: QueryBuilder<Sqlite> = QueryBuilder::new(format!(
+        "SELECT ip, COUNT(*) AS events, MIN(ts), MAX(ts) AS last_ts, \
+         COALESCE(GROUP_CONCAT(DISTINCT NULLIF(username, '')), ''), COUNT(DISTINCT share_id), \
+         SUM(action IN ({v})), SUM(action IN ({d})), SUM(action IN ({u})), COALESCE(SUM(bytes), 0) AS bytes, \
+         SUM(allowed = 0), COALESCE(GROUP_CONCAT(DISTINCT client), ''), \
+         COALESCE((SELECT a2.ua FROM audit_log a2 WHERE a2.ip = audit_log.ip ORDER BY a2.id DESC LIMIT 1), '')",
+        v = list(VISIT),
+        d = list(DOWNLOAD),
+        u = list(UPLOAD)
+    ));
+    push_where(&mut b, &f, scope, owner);
+    b.push(format!(" GROUP BY ip ORDER BY {order} LIMIT "))
+        .push_bind(per)
+        .push(" OFFSET ")
+        .push_bind((page - 1) * per);
+    let rows: Vec<(String, i64, i64, i64, String, i64, i64, i64, i64, i64, i64, String, String)> =
+        b.build_query_as().fetch_all(&st.db).await?;
+    Ok(Json(json!({
+        "total": total,
+        "page": page,
+        "per_page": per,
+        "db": geoip::loaded(),
+        "rows": rows.iter().map(|r| json!({
+            "ip": r.0, "events": r.1, "first_ts": r.2, "last_ts": r.3,
+            "users": r.4.split(',').filter(|x| !x.is_empty()).collect::<Vec<_>>(),
+            "shares": r.5, "visits": r.6, "downloads": r.7, "uploads": r.8, "bytes": r.9, "denied": r.10,
+            "clients": r.11.split(',').filter(|x| !x.is_empty()).collect::<Vec<_>>(),
+            "ua": r.12, "geo": geoip::lookup(&r.0),
+        })).collect::<Vec<_>>(),
     })))
 }
