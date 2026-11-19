@@ -1,4 +1,5 @@
 // DEPTAI-485 r3 motion kit (B). References: design.lthero.com/prompt/<slug> — see motion.css.
+import { copy as copyText } from "../lib/shares";
 import { Children, isValidElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Copy, Link2, Send, Share2 } from "lucide-react";
 import { cx } from "../lib/util";
@@ -158,9 +159,9 @@ export function ShareButton({ url, label = "分享", actions }: { url: string; l
   }, [open]);
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(url);
+      await copyText(url);
     } catch {
-      /* clipboard may be blocked on http */
+      /* clipboard may be blocked */
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);

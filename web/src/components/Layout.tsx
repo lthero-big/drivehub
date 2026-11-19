@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   ChevronsUpDown, FolderOpen, HardDrive, LayoutDashboard, ListChecks, LogIn, LogOut, Menu as MenuIcon, Monitor, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Search, Settings, Shield, Star, Sun, User, Users, X,
-  BadgeCheck, Share2,
+  BadgeCheck, Share2, ChevronRight, BarChart3,
 } from "lucide-react";
 import { call, client, ok, tokens, WEB_VERSION, type FsItem } from "../lib/api";
 import { useApp } from "../lib/app";
 import { useFavorites } from "../lib/favs";
+import { prefs, usePrefs } from "../lib/prefs";
 import { filesHref, go, type Route } from "../lib/router";
 import { tabs } from "../lib/tabs";
 import type { ThemePref } from "../lib/theme";
@@ -49,10 +50,13 @@ const useCollapsed = (): [boolean, (v: boolean) => void] => {
 
 export function Layout({ route, theme, setTheme, children, serverVersion }: { route: Route; theme: ThemePref; setTheme: (t: ThemePref) => void; children: ReactNode; serverVersion?: string }) {
   const { me, isAdmin, openPalette, fsVersion, reload } = useApp();
+  const caps: string[] = me?.caps ?? [];
+  const can = (c: string) => isAdmin || caps.includes(c);
   const [mounts, setMounts] = useState<FsItem[]>([]);
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useCollapsed();
   const favs = useFavorites();
+  const pf = usePrefs();
   useEffect(() => {
     ok(client.GET("/api/fs/list", { params: { query: { path: "/" } } })).then((r) => setMounts(r.items)).catch(() => setMounts([]));
   }, [me?.id, fsVersion]);
@@ -98,36 +102,50 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         <NavLink mini={mini} href="#/search" icon={<Search />} active={at("search")}>搜索</NavLink>
         <NavLink mini={mini} href="#/tasks" icon={<ListChecks />} active={at("tasks")}>任务中心</NavLink>
         {me && <NavLink mini={mini} href="#/shares" icon={<Share2 />} active={at("shares")}>我的分享</NavLink>}
+        {me && <NavLink mini={mini} href="#/stats" icon={<BarChart3 />} active={at("stats")}>访问统计</NavLink>}
         {me && <NavLink mini={mini} href="#/account" icon={<User />} active={at("account")}>账户设置</NavLink>}
       </div>
       {favs.length > 0 && (
-        <div className="space-y-0.5">
-          {!mini ? <p className="flex items-center gap-1 px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-faint"><Star className="size-3" /> 收藏</p> : <div className="mx-3 h-px bg-line" />}
+        <div className="space-y-0.5" data-sec="favs">
+          {!mini ? (
+            <button type="button" aria-expanded={!pf.favsCollapsed} aria-controls="nav-favs" onClick={() => prefs.set({ favsCollapsed: !pf.favsCollapsed })} className="sec-head flex w-full items-center gap-1 rounded-lg px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-faint hover:text-fg">
+              <ChevronRight className={cx("size-3 transition-transform duration-200", !pf.favsCollapsed && "rotate-90")} /><Star className="size-3" /> 收藏 <span className="ml-auto font-normal tabular-nums">{favs.length}</span>
+            </button>
+          ) : <div className="mx-3 h-px bg-line" />}
+          <div id="nav-favs" className="sec-body" data-closed={pf.favsCollapsed && !mini ? "" : undefined}><div className="min-h-0 space-y-0.5 overflow-hidden">
           {favs.map((f) => (
             <a
               key={f.path}
               href={f.is_dir ? filesHref(f.path) : filesHref(f.path.slice(0, f.path.lastIndexOf("/")) || "/")}
               onClick={() => (f.is_dir ? toFolder() : tabs.open({ ...f, size: 0, is_dir: false }))}
               title={f.path}
+              tabIndex={pf.favsCollapsed && !mini ? -1 : undefined}
               className={cx("nav-item flex min-h-9 items-center gap-2.5 rounded-xl py-1.5 text-[13px] text-muted hover:bg-hover hover:text-fg", mini ? "justify-center" : "pr-2.5 pl-3")}
             >
               <FileIcon name={f.name} isDir={f.is_dir} className="size-4" />
               {!mini && <span className="truncate">{f.name}</span>}
             </a>
           ))}
+          </div></div>
         </div>
       )}
-      {isAdmin && (
-        <div className="space-y-0.5">
-          {!mini ? <p className="px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-faint uppercase">管理后台</p> : <div className="mx-3 h-px bg-line" />}
-          <NavLink mini={mini} href="#/admin/dashboard" icon={<LayoutDashboard />} active={at("admin", "dashboard")}>仪表盘</NavLink>
-          <NavLink mini={mini} href="#/admin/mounts" icon={<HardDrive />} active={at("admin", "mounts")}>挂载点</NavLink>
-          <NavLink mini={mini} href="#/admin/users" icon={<User />} active={at("admin", "users")}>用户</NavLink>
-          <NavLink mini={mini} href="#/admin/groups" icon={<Users />} active={at("admin", "groups")}>用户组</NavLink>
-          <NavLink mini={mini} href="#/admin/roles" icon={<BadgeCheck />} active={at("admin", "roles")}>角色</NavLink>
-          <NavLink mini={mini} href="#/admin/acl" icon={<Shield />} active={at("admin", "acl")}>目录权限</NavLink>
-          <NavLink mini={mini} href="#/admin/audit" icon={<ScrollText />} active={at("admin", "audit")}>审计日志</NavLink>
-          <NavLink mini={mini} href="#/admin/settings" icon={<Settings />} active={route.name === "admin" && route.rest.startsWith("settings")}>后台设置</NavLink>
+      {(isAdmin || caps.length > 0) && (
+        <div className="space-y-0.5" data-sec="admin">
+          {!mini ? (
+            <button type="button" aria-expanded={!pf.adminCollapsed} aria-controls="nav-admin" onClick={() => prefs.set({ adminCollapsed: !pf.adminCollapsed })} className="sec-head flex w-full items-center gap-1 rounded-lg px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-faint uppercase hover:text-fg">
+              <ChevronRight className={cx("size-3 transition-transform duration-200", !pf.adminCollapsed && "rotate-90")} /> 管理后台
+            </button>
+          ) : <div className="mx-3 h-px bg-line" />}
+          <div id="nav-admin" className="sec-body" data-closed={pf.adminCollapsed && !mini ? "" : undefined}><div className="min-h-0 space-y-0.5 overflow-hidden">
+          {isAdmin && <NavLink mini={mini} href="#/admin/dashboard" icon={<LayoutDashboard />} active={at("admin", "dashboard")}>仪表盘</NavLink>}
+          {can("admin_mounts") && <NavLink mini={mini} href="#/admin/mounts" icon={<HardDrive />} active={at("admin", "mounts")}>挂载点</NavLink>}
+          {can("admin_users") && <NavLink mini={mini} href="#/admin/users" icon={<User />} active={at("admin", "users")}>用户</NavLink>}
+          {can("admin_groups") && <NavLink mini={mini} href="#/admin/groups" icon={<Users />} active={at("admin", "groups")}>用户组</NavLink>}
+          {can("admin_roles") && <NavLink mini={mini} href="#/admin/roles" icon={<BadgeCheck />} active={at("admin", "roles")}>角色</NavLink>}
+          {can("admin_acl") && <NavLink mini={mini} href="#/admin/acl" icon={<Shield />} active={at("admin", "acl")}>目录权限</NavLink>}
+          {can("admin_audit") && <NavLink mini={mini} href="#/admin/audit" icon={<ScrollText />} active={at("admin", "audit")}>审计日志</NavLink>}
+          {can("admin_settings") && <NavLink mini={mini} href="#/admin/settings" icon={<Settings />} active={route.name === "admin" && route.rest.startsWith("settings")}>后台设置</NavLink>}
+          </div></div>
         </div>
       )}
       <div className="mt-auto space-y-2">
@@ -158,12 +176,15 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
             </div>
           )}
         </Menu>
+        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} data-sidebar-toggle className={cx("max-lg:hidden flex min-h-9 w-full items-center gap-2 rounded-xl py-1.5 text-[12.5px] text-faint hover:bg-hover hover:text-fg", mini ? "justify-center" : "px-3")}>
+          {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}{!mini && "收起侧栏"}
+        </button>
         {!mini && <p className="px-2 text-[10.5px] text-faint">Web {WEB_VERSION} · Server {serverVersion ?? "…"}</p>}
       </div>
     </nav>
   );
 
-  const TITLES: Record<string, string> = { files: "文件", search: "搜索", tasks: "任务中心", account: "账户设置", admin: "管理后台" };
+  const TITLES: Record<string, string> = { stats: "访问统计", shares: "我的分享", files: "文件", search: "搜索", tasks: "任务中心", account: "账户设置", admin: "管理后台" };
   const crumb = route.name === "files" ? (filesPath === "/" ? "全部文件" : filesPath.split("/").filter(Boolean).slice(-1)[0]) : TITLES[route.name] ?? "DriveHub";
   return (
     <div className="flex h-full bg-panel">

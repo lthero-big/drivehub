@@ -178,6 +178,7 @@ export type Me = {
   has_password: boolean;
   groups: { id: number; name: string }[];
   roles?: { id: number; name: string }[];
+  caps?: string[];
   identities: string[];
 };
 export type AuthStatus = Omit<Schemas["AuthStatus"], "me"> & { me: Me | null };

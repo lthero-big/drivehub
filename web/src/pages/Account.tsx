@@ -1,10 +1,12 @@
+import { OtpField, type OtpStatus } from "../ui/r5";
+import { prefs, usePrefs } from "../lib/prefs";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Copy, HardDrive, KeyRound, LogOut, Monitor, Plus, ShieldCheck, Trash2, User as UserIcon, Users as UsersIcon } from "lucide-react";
+import { Copy, HardDrive, KeyRound, LogOut, Monitor, Plus, ShieldCheck, SlidersHorizontal, Trash2, User as UserIcon, Users as UsersIcon } from "lucide-react";
 import { call, tokens } from "../lib/api";
 import { useApp } from "../lib/app";
 import { go } from "../lib/router";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { ConfirmButton, Badge, Button, Card, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, Tabs, toast, usePaged } from "../ui/ui";
+import { ConfirmButton, Badge, Button, Card, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, Switch, Tabs, toast, usePaged } from "../ui/ui";
 
 type Tok = { id: number; name: string; prefix: string; created_at: number; last_used: number | null; expires_at: number | null };
 type App = { id: number; name: string; created_at: number; last_used: number | null };
@@ -24,7 +26,7 @@ function Secret({ value }: { value: string }) {
   );
 }
 
-type Tab = "profile" | "security" | "tokens" | "devices";
+type Tab = "profile" | "prefs" | "security" | "tokens" | "devices";
 
 export function AccountPage({ tab }: { tab: string }) {
   const { me, status, reload } = useApp();
@@ -35,6 +37,25 @@ export function AccountPage({ tab }: { tab: string }) {
   const [secret, setSecret] = useState<{ kind: string; v: string } | null>(null);
   const [totp, setTotp] = useState<{ secret: string; otpauth_url: string; qr?: string } | null>(null);
   const [code, setCode] = useState("");
+  const [otp, setOtp] = useState<OtpStatus>("idle");
+  const pf = usePrefs();
+  const totpAct = async (url: string, msg: string, after?: () => void) => {
+    setOtp("checking");
+    try {
+      await call("POST", url, { code });
+      setOtp("ok");
+      await new Promise((r) => setTimeout(r, 450));
+      toast.ok(msg);
+      after?.();
+      setCode("");
+      setOtp("idle");
+      await load();
+      reload();
+    } catch (e) {
+      setOtp("wrong");
+      toast.err(errMsg(e));
+    }
+  };
   const [pw, setPw] = useState({ old: "", next: "" });
   const [tokName, setTokName] = useState("");
   const [tokDays, setTokDays] = useState("90");
@@ -79,6 +100,7 @@ export function AccountPage({ tab }: { tab: string }) {
   const quota = me.quota_bytes;
   const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
     { id: "profile", label: "概览", icon: <UserIcon /> },
+    { id: "prefs", label: "偏好", icon: <SlidersHorizontal /> },
     { id: "security", label: "安全", icon: <ShieldCheck /> },
     { id: "tokens", label: "令牌与 WebDAV", icon: <KeyRound /> },
     { id: "devices", label: "登录设备", icon: <Monitor /> },
@@ -89,6 +111,16 @@ export function AccountPage({ tab }: { tab: string }) {
       <PageHeader title="账户设置" desc={`${me.username} · 管理资料、安全、访问令牌与登录设备`} />
       <Tabs tabs={tabs} value={cur} onChange={(t) => go(`#/account/${t}`)} />
       <div key={cur} className="anim-in space-y-4">
+      {cur === "prefs" && (
+        <Card title="界面偏好">
+          <div className="divide-y divide-line text-[13px]" data-prefs>
+            <PrefRow title="原地打开文件" desc="打开文件时替换当前标签页，而不是新开一个标签（保存在本浏览器）" checked={pf.openInPlace} onChange={(v) => prefs.set({ openInPlace: v })} />
+            <PrefRow title="图片悬停预览" desc="在列表视图中鼠标停在图片上时，预览跟随光标浮现" checked={pf.hoverPreview} onChange={(v) => prefs.set({ hoverPreview: v })} />
+            <PrefRow title="收起侧栏「收藏」分组" desc="也可直接点击侧栏中的分组标题切换" checked={pf.favsCollapsed} onChange={(v) => prefs.set({ favsCollapsed: v })} />
+            <PrefRow title="收起侧栏「管理后台」分组" desc="仅管理员 / 有管理权限的用户可见" checked={pf.adminCollapsed} onChange={(v) => prefs.set({ adminCollapsed: v })} />
+          </div>
+        </Card>
+      )}
       {cur === "profile" && (<>
         <div className="grid gap-4 sm:grid-cols-3">
           <StatCard icon={<HardDrive />} label="已用空间" value={fmtSize(me.used_bytes)} hint={quota ? `配额 ${fmtSize(quota)}` : "不限额"} />
@@ -136,17 +168,17 @@ export function AccountPage({ tab }: { tab: string }) {
             <div className="flex-1 space-y-3 text-[13px]">
               <p className="text-muted">用 Google Authenticator / 1Password 等扫码，或手动输入密钥：</p>
               <Secret value={totp.secret} />
-              <form className="flex gap-2" onSubmit={(e) => (e.preventDefault(), act(async () => { await call("POST", "/api/auth/totp/enable", { code }); setTotp(null); setCode(""); }, "两步验证已开启"))}>
-                <Input inputMode="numeric" placeholder="6 位验证码" value={code} onChange={(e) => setCode(e.target.value)} aria-label="验证码" />
-                <Button type="submit" variant="primary">确认开启</Button>
+              <form className="flex flex-wrap items-center gap-3" onSubmit={(e) => (e.preventDefault(), totpAct("/api/auth/totp/enable", "两步验证已开启", () => setTotp(null)))}>
+                <OtpField value={code} onChange={(v) => (setCode(v), otp === "wrong" && setOtp("idle"))} onComplete={() => totpAct("/api/auth/totp/enable", "两步验证已开启", () => setTotp(null))} status={otp} label="验证码" />
+                <Button type="submit" variant="primary" disabled={code.length < 6}>确认开启</Button>
               </form>
             </div>
           </div>
         )}
         {me.totp_enabled && (
-          <form className="flex max-w-sm gap-2" onSubmit={(e) => (e.preventDefault(), act(async () => { await call("POST", "/api/auth/totp/disable", { code }); setCode(""); }, "两步验证已关闭"))}>
-            <Input inputMode="numeric" placeholder="输入验证码以关闭" value={code} onChange={(e) => setCode(e.target.value)} aria-label="验证码" />
-            <Button type="submit" variant="danger">关闭</Button>
+          <form className="flex flex-wrap items-center gap-3" onSubmit={(e) => (e.preventDefault(), totpAct("/api/auth/totp/disable", "两步验证已关闭"))}>
+            <OtpField value={code} onChange={(v) => (setCode(v), otp === "wrong" && setOtp("idle"))} status={otp} label="关闭验证码" />
+            <Button type="submit" variant="danger" disabled={code.length < 6}>关闭</Button>
           </form>
         )}
       </Card>
@@ -245,6 +277,15 @@ export function AccountPage({ tab }: { tab: string }) {
       </Card>
       </>)}
       </div>
+    </div>
+  );
+}
+
+function PrefRow({ title, desc, checked, onChange }: { title: string; desc: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center gap-3 py-2.5">
+      <div className="min-w-0 flex-1"><p className="font-medium">{title}</p><p className="text-faint">{desc}</p></div>
+      <Switch checked={checked} onChange={onChange} label={title} />
     </div>
   );
 }

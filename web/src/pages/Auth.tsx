@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { OtpField, type OtpStatus } from "../ui/r5";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { HardDrive } from "lucide-react";
 import { ApiError, call, tokens, type AuthStatus } from "../lib/api";
 import { errMsg } from "../lib/util";
@@ -41,11 +42,14 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
   const [needTotp, setNeedTotp] = useState(!!totpTicket);
   const [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [otp, setOtp] = useState<OtpStatus>("idle");
+  const form = useRef<HTMLFormElement>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setMsg(null);
     setBusy(true);
+    if (needTotp && code.length === 6) setOtp("checking");
     try {
       if (init) tokens.set(await call("POST", "/api/auth/init", { username: login, email: email || null, password: pw }));
       else if (totpTicket) tokens.set(await call("POST", "/api/auth/login/totp", { ticket: totpTicket, code }));
@@ -58,13 +62,15 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
         return setMsg({ text: "如果该邮箱已注册，重置邮件已发送", ok: true });
       } else tokens.set(await call("POST", "/api/auth/login", { login, password: pw, totp_code: code || null }));
       if (totpTicket) location.hash = "";
+      if (needTotp) (setOtp("ok"), await new Promise((r) => setTimeout(r, 420)));
       onDone();
     } catch (err) {
       const a = err as ApiError;
-      if (a.body?.totp_required) {
+      if (a.body?.totp_required && !needTotp) {
         setNeedTotp(true);
         setMsg({ text: "请输入两步验证码" });
-      } else setMsg({ text: a.status === 429 ? "失败次数过多，请稍后再试" : errMsg(err) });
+      } else if (needTotp && code) (setOtp("wrong"), setMsg({ text: a.status === 429 ? "失败次数过多，请稍后再试" : "验证码不正确，请检查验证器 App 中最新的验证码" }));
+      else setMsg({ text: a.status === 429 ? "失败次数过多，请稍后再试" : errMsg(err) });
     } finally {
       setBusy(false);
     }
@@ -74,7 +80,7 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
   const sub = init ? "首次启动：创建唯一的管理员账号" : totpTicket ? "输入验证器 App 中的 6 位验证码" : undefined;
   return (
     <Shell title={title} sub={sub}>
-      <form onSubmit={submit} className="space-y-3.5">
+      <form ref={form} onSubmit={submit} className="space-y-3.5">
         {!totpTicket && tab !== "forgot" && (
           <Field label={init ? "管理员用户名" : tab === "register" ? "用户名（可选）" : "用户名或邮箱"}>
             <Input autoComplete="username" value={login} onChange={(e) => setLogin(e.target.value)} required={tab === "login" || init} autoFocus />
@@ -91,8 +97,8 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
           </Field>
         )}
         {needTotp && (
-          <Field label="两步验证码">
-            <Input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
+          <Field label="两步验证码" hint="输满 6 位自动验证；支持粘贴与短信 / 密码管理器自动填充">
+            <OtpField value={code} onChange={(v) => (setCode(v), otp === "wrong" && setOtp("idle"))} onComplete={() => setTimeout(() => form.current?.requestSubmit(), 0)} status={otp} label="两步验证码" autoFocus />
           </Field>
         )}
         {msg && <p className={msg.ok ? "text-[13px] text-ok" : "text-[13px] text-danger"} role="alert">{msg.text}</p>}

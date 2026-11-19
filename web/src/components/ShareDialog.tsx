@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Mail, QrCode } from "lucide-react";
+import { Check, Copy, Link2, Mail, QrCode } from "lucide-react";
 import { call, type FsItem } from "../lib/api";
 import { abs, copy, PERM_NAMES, qrDataUrl, type Share } from "../lib/shares";
 import { errMsg, fmtTime } from "../lib/util";
@@ -19,6 +19,12 @@ export function ShareDialog({ items, onClose }: { items: FsItem[]; onClose: () =
   const [res, setRes] = useState<Share | null>(null);
   const [qr, setQr] = useState("");
   const open = items.length > 0;
+  // Only a single folder can collect uploads (DEPTAI-485 r5); the server rejects it otherwise.
+  const canUpload = items.length === 1 && items[0].is_dir;
+  const permOpts = Object.entries(PERM_NAMES).filter(([k]) => k !== "upload" || canUpload);
+  useEffect(() => {
+    if (!canUpload && perm === "upload") setPerm("download");
+  }, [canUpload, perm]);
   useEffect(() => {
     if (!open) (setRes(null), setQr(""));
   }, [open]);
@@ -66,8 +72,9 @@ export function ShareDialog({ items, onClose }: { items: FsItem[]; onClose: () =
         <div className="space-y-3">
           <Field label="权限">
             <Select value={perm} onChange={(e) => setPerm(e.target.value)}>
-              {Object.entries(PERM_NAMES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {permOpts.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </Select>
+            {!canUpload && <p className="mt-1 text-[11.5px] text-faint" data-upload-hint>「可上传（收集文件）」仅在分享单个文件夹时可用</p>}
           </Field>
           <div className="grid grid-cols-3 gap-2">
             <Field label="有效天数"><Input type="number" min={0} placeholder="永久" value={days} onChange={(e) => setDays(e.target.value)} /></Field>
@@ -87,19 +94,48 @@ export function ShareDialog({ items, onClose }: { items: FsItem[]; onClose: () =
           <Switch checked={login} onChange={setLogin} label="需要登录才能访问" />
         </div>
       ) : (
-        <div className="space-y-3 text-[13px]">
-          <div className="flex gap-2">
-            <Input readOnly value={link} aria-label="分享链接" />
-            <ShareButton url={link} actions={[{ icon: <QrCode className="size-4" />, label: "二维码", onClick: () => document.querySelector("[data-share-qr]")?.scrollIntoView({ behavior: "smooth" }) }, { icon: <Mail className="size-4" />, label: "邮件分享", onClick: () => void (location.href = `mailto:?subject=${encodeURIComponent("文件分享")}&body=${encodeURIComponent(link)}`) }]} />
+        <div className="share-result min-w-0 space-y-3 text-[13px]">
+          <CopyRow label="分享链接" value={link} />
+          {res.direct_url && <CopyRow label="直链" value={abs(res.direct_url)} />}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <ShareButton url={link} actions={[
+              { icon: <QrCode className="size-4" />, label: "二维码", onClick: () => document.querySelector("[data-share-qr]")?.scrollIntoView({ behavior: "smooth" }) },
+              { icon: <Mail className="size-4" />, label: "邮件分享", onClick: () => void (location.href = `mailto:?subject=${encodeURIComponent("文件分享")}&body=${encodeURIComponent(link)}`) },
+              ...(res.direct_url ? [{ icon: <Link2 className="size-4" />, label: "复制直链", onClick: () => void copyText(abs(res.direct_url!), "直链已复制") }] : []),
+            ]} />
           </div>
           {res.pin && <p>提取码：<b className="font-mono">{res.pin}</b>　取件码：<b className="font-mono">{res.pickup_code}</b></p>}
-          {res.direct_url && (
-            <p className="break-all">直链：<a className="text-accent underline" href={abs(res.direct_url)}>{abs(res.direct_url)}</a></p>
-          )}
           <p className="text-muted">{res.expires_at ? `有效期至 ${fmtTime(res.expires_at)}` : "永久有效"}{res.max_visits ? ` · 最多访问 ${res.max_visits} 次` : ""}{res.max_downloads ? ` · 最多下载 ${res.max_downloads} 次` : ""}</p>
           {qr && <img data-share-qr src={qr} alt="分享二维码" className="mx-auto size-44" />}
         </div>
       )}
     </Modal>
+  );
+}
+
+async function copyText(v: string, msg = "已复制") {
+  try {
+    await copy(v);
+    toast.ok(msg);
+    return true;
+  } catch {
+    toast.err("复制失败，请手动选择复制");
+    return false;
+  }
+}
+
+/** Read-only link + one-click copy button (used for share and direct links). */
+export function CopyRow({ label, value }: { label: string; value: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <div className="min-w-0">
+      <p className="mb-1 text-[12px] text-muted">{label}</p>
+      <div className="flex min-w-0 gap-2">
+        <Input readOnly value={value} aria-label={label} className="min-w-0 flex-1 font-mono text-[12px]" onFocus={(e) => e.currentTarget.select()} />
+        <Button type="button" aria-label={`复制${label}`} data-copy={label} onClick={async () => { if (await copyText(value, `${label}已复制`)) { setDone(true); setTimeout(() => setDone(false), 1600); } }}>
+          {done ? <Check className="size-4 text-ok" /> : <Copy className="size-4" />}{done ? "已复制" : "复制"}
+        </Button>
+      </div>
+    </div>
   );
 }

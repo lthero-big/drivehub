@@ -59,6 +59,20 @@ export async function qrDataUrl(text: string): Promise<string> {
   return QR.toDataURL(text, { margin: 1, width: 200 });
 }
 
-export function copy(text: string) {
-  return navigator.clipboard?.writeText(text);
+/** Copies text; falls back to execCommand on plain-http origins where the Clipboard API is blocked. */
+export async function copy(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) return await navigator.clipboard.writeText(text);
+  } catch {
+    /* fall through */
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+  document.body.appendChild(ta);
+  ta.select();
+  const ok = document.execCommand("copy");
+  ta.remove();
+  if (!ok) throw new Error("copy failed");
 }

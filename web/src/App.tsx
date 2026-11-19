@@ -20,6 +20,7 @@ const GroupsPage = lazy(() => import("./pages/admin/Groups").then((m) => ({ defa
 const RolesPage = lazy(() => import("./pages/admin/Roles").then((m) => ({ default: m.RolesPage })));
 const AclPage = lazy(() => import("./pages/admin/Acl").then((m) => ({ default: m.AclPage })));
 const AuditPage = lazy(() => import("./pages/admin/Audit").then((m) => ({ default: m.AuditPage })));
+const StatsPage = lazy(() => import("./pages/Stats").then((m) => ({ default: m.StatsPage })));
 const SharesPage = lazy(() => import("./pages/Shares").then((m) => ({ default: m.SharesPage })));
 const SharePublicPage = lazy(() => import("./pages/SharePublic").then((m) => ({ default: m.SharePublicPage })));
 const PickupBox = lazy(() => import("./pages/SharePublic").then((m) => ({ default: m.PickupBox })));
@@ -151,10 +152,12 @@ export default function App() {
         return <TasksPage />;
       case "shares":
         return me ? <SharesPage /> : null;
+      case "stats":
+        return me ? <StatsPage /> : null;
       case "account":
         return me ? <AccountPage tab={route.rest} /> : null;
       case "admin":
-        if (!admin) return <p className="py-10 text-center text-sm text-muted">仅管理员可用</p>;
+        if (!admin && !(me?.caps?.length)) return <p className="py-10 text-center text-sm text-muted">仅管理员可用</p>;
         return (
           <div className="mx-auto max-w-6xl py-4">
             {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "groups" ? <GroupsPage /> : route.rest === "roles" ? <RolesPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest.split("/")[0] === "settings" ? <SettingsPage tab={route.rest.split("/")[1]} /> : <DashboardPage />}

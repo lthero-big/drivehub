@@ -1,6 +1,7 @@
 // Open-file tabs (VS Code style): a small external store persisted in localStorage.
 import { useSyncExternalStore } from "react";
 import type { FsItem } from "./api";
+import { prefs } from "./prefs";
 
 export type Tab = Pick<FsItem, "path" | "name" | "size" | "modified_unix"> & { is_dir: false };
 type State = { tabs: Tab[]; active: string | null };
@@ -33,9 +34,15 @@ export const tabs = {
     subs.add(f);
     return () => void subs.delete(f);
   },
-  open(i: FsItem) {
+  /** Opens a file. With the "open in place" preference (or `inPlace`), the active tab (or, from
+   *  the folder view, the last opened tab) is replaced instead of adding a new one. */
+  open(i: FsItem, inPlace = prefs.get().openInPlace) {
     const t: Tab = { path: i.path, name: i.name, size: i.size, modified_unix: i.modified_unix, is_dir: false };
     const has = state.tabs.some((x) => x.path === i.path);
+    if (inPlace && !has && state.tabs.length) {
+      const target = state.active ?? state.tabs[state.tabs.length - 1].path;
+      return set({ tabs: state.tabs.map((x) => (x.path === target ? t : x)), active: i.path });
+    }
     set({ tabs: has ? state.tabs.map((x) => (x.path === i.path ? t : x)) : [...state.tabs, t].slice(-MAX), active: i.path });
   },
   activate(path: string | null) {
