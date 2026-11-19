@@ -9,6 +9,7 @@ import { favorites, useFavorites } from "../lib/favs";
 import { appLink, copyText } from "../lib/links";
 import { tabs } from "../lib/tabs";
 import { fsTrash as trash, undoableDelete } from "../lib/trash";
+import { TagRow } from "../ui/r6";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
 import { fromDataTransfer, fromFileList, uploads, useUploads } from "../lib/uploads";
@@ -228,9 +229,10 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
     if (!tagFilter.length) return setTagElsewhere([]);
     tagStore.files(tagFilter.map(Number), tagMode).then((r) => setTagElsewhere(r.filter((x) => (x.path.slice(0, x.path.lastIndexOf("/")) || "/") !== path)), () => setTagElsewhere([]));
   }, [tagFilter, tagMode, path, tagMap]);
-  const tagPills = (i: FsItem) => {
+  /** Tags stay on one line (+N overflow chip), so a heavily tagged file never makes its row taller. */
+  const tagPills = (i: FsItem, grid = false) => {
     const ts = tagMap[i.path];
-    return ts?.length ? <span className="flex shrink-0 flex-wrap gap-1" data-file-tags>{ts.slice(0, 3).map((t) => <span key={t.id} className="ftag"><i className={`tc-${t.color}`} />{t.name}</span>)}{ts.length > 3 && <span className="ftag">+{ts.length - 3}</span>}</span> : null;
+    return ts?.length ? <TagRow tags={ts} className={grid ? "mt-1 w-full" : "max-w-[45%] min-w-12"} /> : null;
   };
   const selected = useMemo(() => list.filter((i) => sel.has(i.path)), [list, sel]);
   const images = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "image"), [list]);
@@ -747,7 +749,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px]">{i.name}</span>
                       <span className="block text-[11px] text-faint">{i.is_dir ? "文件夹" : fmtSize(i.size)}</span>
-                      {tagPills(i)}
+                      {tagPills(i, true)}
                     </span>
                     <ItemMenu i={i} />
                   </div>
