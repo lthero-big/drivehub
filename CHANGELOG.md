@@ -6,6 +6,7 @@
 ## [Unreleased]
 
 ### Added
+- Android App 一期（DEPTAI-477）：`android/`（Kotlin + Compose M3），版本协商 / 登录（密码、2FA、OAuth）/ 浏览搜索预览 / WorkManager 断点续传上传下载 / 分享与取件码 / 离线目录缓存，release.yml 产出 APK，bump/check-version 覆盖 android；见 `docs/android.md`。
 - 统一发布（DEPTAI-478）：根目录 `VERSION` 单一版本来源，`scripts/bump-version.sh` / `scripts/check-version.sh`，
   CI 版本一致性检查，`v*` tag 触发的发布流水线（server 二进制、web dist、docker 镜像、SHA256SUMS），
   `scripts/package-release.sh` 本地打包，部署文档 `docs/deploy.md`。

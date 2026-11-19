@@ -1,0 +1,5 @@
+-keepattributes *Annotation*, InnerClasses
+-dontwarn org.slf4j.**
+-keep,includedescriptorclasses class com.drivehub.app.**$$serializer { *; }
+-keepclassmembers class com.drivehub.app.** { *** Companion; }
+-keepclasseswithmembers class com.drivehub.app.** { kotlinx.serialization.KSerializer serializer(...); }

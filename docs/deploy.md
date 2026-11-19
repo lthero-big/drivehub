@@ -25,7 +25,7 @@ DriveHub 由 **server**（Rust 单二进制 `drivehub`，axum）、**web**（Rea
 客户端在 `/api/v1/*` 请求上带 `x-drivehub-client: app/X.Y.Z`（或 `web/X.Y.Z`）与 `x-drivehub-api: N`：
 客户端低于最低版本 → `426 {"status":"client_too_old","min_version":…}`（提示升级 App / 刷新页面）；
 客户端 API 大版本高于服务端 → `426 {"status":"server_too_old"}`（需要升级服务端）。
-Web 与服务端总是同包发布（web 产物随服务端一起替换），因此正常部署下 web 永远匹配；Android App 需与服务端同版本或在 `min_app_version` 之上。
+Web 与服务端总是同包发布（web 产物随服务端一起替换），因此正常部署下 web 永远匹配；Android App 需与服务端同版本或在 `min_app_version` 之上（App 说明见 [docs/android.md](android.md)）。
 发版时若引入了旧客户端无法使用的变更，同时上调 `MIN_APP_VERSION` / `MIN_WEB_VERSION`；破坏性 API 变更上调 `API_VERSION`。
 
 ## 2. 发布流程
