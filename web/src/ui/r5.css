@@ -93,6 +93,14 @@
 .mp-disc.spin { animation: mp-spin 7s linear infinite; }
 .mp-disc.paused { animation-play-state: paused; }
 @keyframes mp-spin { to { transform: rotate(360deg); } }
+/* colours cross-fade between tracks instead of jumping (registered so they interpolate) */
+@property --ap-h { syntax: "<color>"; inherits: true; initial-value: #d0021b; }
+@property --mp-a { syntax: "<color>"; inherits: true; initial-value: #f97316; }
+@property --mp-b { syntax: "<color>"; inherits: true; initial-value: #8e4ec6; }
+.ap-root { transition: --ap-h .45s ease; }
+.mp-disc { transition: --mp-a .45s ease, --mp-b .45s ease; }
+.mp-cover { animation: mp-cover-in .45s ease both; }
+@keyframes mp-cover-in { from { opacity: 0; } to { opacity: .9; } }
 .mp-meta { text-align: center; transition: opacity .225s; }
 .mp-meta.x { opacity: 0; }
 .mp-viz { display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 32px; margin: 12px 0 6px; }
@@ -116,5 +124,5 @@
 @media (prefers-reduced-motion: reduce) {
   .sec-body, .atag, .chip, .chip *, .otp-cell, .otp-row, .mp-meta, .mp-viz span { transition: none !important; animation: none !important; }
   .otp-ch.in { animation: otp-fade .1s both !important; }
-  .otp-caret, .mp-disc.spin { animation: none !important; }
+  .otp-caret, .mp-disc.spin, .mp-cover { animation: none !important; }
 }
