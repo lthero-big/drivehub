@@ -25,6 +25,13 @@ export type Share = {
   url_with_pin: string | null;
   pickup_code: string;
   direct_url: string | null;
+  kind?: "share" | "room";
+  allow_upload?: boolean;
+  allow_download?: boolean;
+  max_uploads?: number | null;
+  max_bytes?: number | null;
+  up_bytes?: number;
+  room_url?: string | null;
   stats?: { by_action: { action: string; count: number }[]; unique_ips: number; recent: AuditEvent[] };
 };
 

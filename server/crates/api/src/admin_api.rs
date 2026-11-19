@@ -120,20 +120,39 @@ pub struct PatchUserBody {
     pub reset_totp: Option<bool>,
 }
 
-async fn admin_count(st: &AppState) -> ApiResult<i64> {
-    Ok(
-        sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0")
-            .fetch_one(&st.db)
-            .await?,
-    )
-}
-
+/// Whether the user currently has the admin account level (cached `users.role`, kept in sync
+/// with the role tables by `sync_levels`).
 async fn is_admin_user(st: &AppState, id: i64) -> ApiResult<bool> {
     let r: Option<String> = sqlx::query_scalar("SELECT role FROM users WHERE id = ?")
         .bind(id)
         .fetch_optional(&st.db)
         .await?;
     Ok(r.ok_or_else(|| ApiError::not_found("no such user"))? == "admin")
+}
+
+/// Whether any of the given role ids (`kind` = "roles") or group ids (`kind` = "groups")
+/// carries the builtin admin level.
+pub(crate) async fn grants_admin_level(st: &AppState, kind: &str, ids: &[i64]) -> ApiResult<bool> {
+    for id in ids {
+        let q = if kind == "roles" {
+            "SELECT COUNT(*) FROM roles WHERE id = ? AND level = 'admin'"
+        } else {
+            "SELECT COUNT(*) FROM group_roles gr JOIN roles r ON r.id = gr.role_id WHERE gr.group_id = ? AND r.level = 'admin'"
+        };
+        let n: i64 = sqlx::query_scalar(q).bind(id).fetch_one(&st.db).await?;
+        if n > 0 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn user_exists(st: &AppState, id: i64) -> ApiResult<()> {
+    let r: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&st.db)
+        .await?;
+    r.map(|_| ()).ok_or_else(|| ApiError::not_found("no such user"))
 }
 
 /// Updates role / status / groups / root / visible mounts / quota (admin).
@@ -145,34 +164,72 @@ pub async fn patch_user(
     Json(b): Json<PatchUserBody>,
 ) -> ApiResult<Json<Value>> {
     st.require_cap(&p, acl::ADMIN_USERS)?;
-    let was_admin = is_admin_user(&st, id).await?;
-    if !p.is_admin() && (was_admin || b.role.as_deref() == Some("admin")) {
-        return Err(ApiError::forbidden("only admins can manage admin accounts"));
-    }
-    let demote = b.role.as_deref().is_some_and(|r| r != "admin") || b.disabled == Some(true);
-    if was_admin && demote && admin_count(&st).await? <= 1 {
-        return Err(ApiError::bad("cannot demote/disable the last admin"));
+    user_exists(&st, id).await?;
+    if !p.is_admin() {
+        // Delegated user managers (admin_users cap) cannot touch admin accounts nor grant the
+        // admin level (directly, via a role or via a group holding an admin-level role).
+        let grants_admin = b.role.as_deref() == Some("admin")
+            || match &b.roles { Some(rs) => grants_admin_level(&st, "roles", rs).await?, None => false }
+            || match &b.groups { Some(gs) => grants_admin_level(&st, "groups", gs).await?, None => false };
+        if is_admin_user(&st, id).await? || grants_admin {
+            return Err(ApiError::forbidden("only admins can manage admin accounts"));
+        }
     }
     if let Some(r) = &b.role {
         Role::parse(r).ok_or_else(|| ApiError::bad("bad role"))?;
-        sqlx::query("UPDATE users SET role = ? WHERE id = ?")
-            .bind(r)
-            .bind(id)
-            .execute(&st.db)
-            .await?;
     }
-    if let Some(d) = b.disabled {
-        sqlx::query("UPDATE users SET disabled = ? WHERE id = ?")
-            .bind(d as i64)
-            .bind(id)
-            .execute(&st.db)
-            .await?;
-        if d {
-            sqlx::query("UPDATE sessions SET revoked = 1 WHERE user_id = ?")
-                .bind(id)
-                .execute(&st.db)
-                .await?;
+    // Account level / status / membership changes run in one transaction that is rolled back
+    // when it would leave no enabled admin.
+    if b.role.is_some() || b.disabled.is_some() || b.groups.is_some() || b.roles.is_some() {
+        let mut tx = st.db.begin().await?;
+        let before = effective_admin_count(&mut *tx).await?;
+        if let Some(r) = &b.role {
+            // Legacy "account type": mapped onto the builtin level role.
+            crate::auth::set_level_role(&mut tx, id, r).await?;
         }
+        if let Some(d) = b.disabled {
+            sqlx::query("UPDATE users SET disabled = ? WHERE id = ?")
+                .bind(d as i64)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            if d {
+                sqlx::query("UPDATE sessions SET revoked = 1 WHERE user_id = ?")
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        if let Some(gs) = &b.groups {
+            sqlx::query("DELETE FROM user_groups WHERE user_id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            for g in gs {
+                sqlx::query("INSERT OR IGNORE INTO user_groups (user_id, group_id) SELECT ?, id FROM groups WHERE id = ?")
+                    .bind(id)
+                    .bind(g)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        if let Some(rs) = &b.roles {
+            sqlx::query("DELETE FROM user_roles WHERE user_id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            for r in rs {
+                sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE id = ?")
+                    .bind(id)
+                    .bind(r)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        crate::auth::sync_levels(&mut *tx).await?;
+        ensure_admin_remains(&mut tx, before).await?;
+        tx.commit().await?;
+        st.auth.reload_acl(&st.db).await?;
     }
     if let Some(e) = &b.email {
         sqlx::query("UPDATE users SET email = ? WHERE id = ?")
@@ -190,33 +247,6 @@ pub async fn patch_user(
     }
     if let Some(pw) = &b.password {
         set_password(&st, id, pw).await?;
-    }
-    if let Some(gs) = &b.groups {
-        sqlx::query("DELETE FROM user_groups WHERE user_id = ?")
-            .bind(id)
-            .execute(&st.db)
-            .await?;
-        for g in gs {
-            sqlx::query("INSERT OR IGNORE INTO user_groups (user_id, group_id) SELECT ?, id FROM groups WHERE id = ?")
-                .bind(id)
-                .bind(g)
-                .execute(&st.db)
-                .await?;
-        }
-    }
-    if let Some(rs) = &b.roles {
-        sqlx::query("DELETE FROM user_roles WHERE user_id = ?")
-            .bind(id)
-            .execute(&st.db)
-            .await?;
-        for r in rs {
-            sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE id = ?")
-                .bind(id)
-                .bind(r)
-                .execute(&st.db)
-                .await?;
-        }
-        st.auth.reload_acl(&st.db).await?;
     }
     if let Some(r) = &b.root_path {
         let r = drivehub_storage::norm(r)?;
@@ -264,12 +294,12 @@ pub async fn delete_user(
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
     st.require_cap(&p, acl::ADMIN_USERS)?;
+    user_exists(&st, id).await?;
     if !p.is_admin() && is_admin_user(&st, id).await? {
         return Err(ApiError::forbidden("only admins can manage admin accounts"));
     }
-    if is_admin_user(&st, id).await? && admin_count(&st).await? <= 1 {
-        return Err(ApiError::bad("cannot delete the last admin"));
-    }
+    let mut tx = st.db.begin().await?;
+    let before = effective_admin_count(&mut *tx).await?;
     for q in [
         "DELETE FROM sessions WHERE user_id = ?",
         "DELETE FROM api_tokens WHERE user_id = ?",
@@ -281,8 +311,10 @@ pub async fn delete_user(
         "DELETE FROM acl_rules WHERE subject_type = 'user' AND subject_id = ?",
         "DELETE FROM users WHERE id = ?",
     ] {
-        sqlx::query(q).bind(id).execute(&st.db).await?;
+        sqlx::query(q).bind(id).execute(&mut *tx).await?;
     }
+    ensure_admin_remains(&mut tx, before).await?;
+    tx.commit().await?;
     st.auth.reload_acl(&st.db).await?;
     st.auth.forget_basic();
     st.audit(&p, CH_AUTH, "user_delete", "", true, &format!("id={id}"));
@@ -369,14 +401,22 @@ pub async fn delete_group(
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
     st.require_cap(&p, acl::ADMIN_GROUPS)?;
+    if !p.is_admin() && grants_admin_level(&st, "groups", &[id]).await? {
+        return Err(ApiError::forbidden("only admins can manage groups holding the admin role"));
+    }
+    let mut tx = st.db.begin().await?;
+    let before = effective_admin_count(&mut *tx).await?;
     for q in [
         "DELETE FROM user_groups WHERE group_id = ?",
         "DELETE FROM group_roles WHERE group_id = ?",
         "DELETE FROM acl_rules WHERE subject_type = 'group' AND subject_id = ?",
         "DELETE FROM groups WHERE id = ?",
     ] {
-        sqlx::query(q).bind(id).execute(&st.db).await?;
+        sqlx::query(q).bind(id).execute(&mut *tx).await?;
     }
+    crate::auth::sync_levels(&mut *tx).await?;
+    ensure_admin_remains(&mut tx, before).await?;
+    tx.commit().await?;
     st.auth.reload_acl(&st.db).await?;
     st.audit(&p, CH_AUTH, "group_delete", "", true, &format!("id={id}"));
     Ok(Json(json!({"ok": true})))

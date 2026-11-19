@@ -20,8 +20,8 @@ fn now() -> i64 {
 }
 
 async fn role_json(st: &AppState, id: i64) -> ApiResult<Value> {
-    let r: (i64, String, String, i64, i64, i64) = sqlx::query_as(
-        "SELECT id, name, description, permissions, builtin, created_at FROM roles WHERE id = ?",
+    let r: (i64, String, String, i64, i64, i64, Option<String>) = sqlx::query_as(
+        "SELECT id, name, description, permissions, builtin, created_at, level FROM roles WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&st.db)
@@ -37,7 +37,7 @@ async fn role_json(st: &AppState, id: i64) -> ApiResult<Value> {
         .await?;
     Ok(json!({"id": r.0, "name": r.1, "description": r.2,
         "permissions": acl::bits_to_names(r.3 as u32), "builtin": r.4 != 0, "created_at": r.5,
-        "users": users, "groups": groups}))
+        "users": users, "groups": groups, "level": r.6}))
 }
 
 /// Roles (admin).
@@ -131,6 +131,9 @@ pub async fn patch_role(
     } else {
         clean_name(&b.name)?
     };
+    if !p.is_admin() && crate::admin_api::grants_admin_level(&st, "roles", &[id]).await? {
+        return Err(ApiError::forbidden("only admins can edit the admin role"));
+    }
     let bits = acl::names_to_bits(&b.permissions).map_err(ApiError::bad)?;
     no_escalation(&st, &p, bits)?;
     sqlx::query("UPDATE roles SET name = ?, description = ?, permissions = ? WHERE id = ?")
@@ -154,13 +157,25 @@ pub async fn delete_role(
     Path(id): Path<i64>,
 ) -> ApiResult<Json<Value>> {
     st.require_cap(&p, acl::ADMIN_ROLES)?;
+    let builtin: Option<i64> = sqlx::query_scalar("SELECT builtin FROM roles WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&st.db)
+        .await?;
+    if builtin.ok_or_else(|| ApiError::not_found("no such role"))? != 0 {
+        return Err(ApiError::bad("builtin roles cannot be deleted"));
+    }
+    let mut tx = st.db.begin().await?;
+    let before = effective_admin_count(&mut *tx).await?;
     for q in [
         "DELETE FROM user_roles WHERE role_id = ?",
         "DELETE FROM group_roles WHERE role_id = ?",
         "DELETE FROM roles WHERE id = ?",
     ] {
-        sqlx::query(q).bind(id).execute(&st.db).await?;
+        sqlx::query(q).bind(id).execute(&mut *tx).await?;
     }
+    crate::auth::sync_levels(&mut *tx).await?;
+    ensure_admin_remains(&mut tx, before).await?;
+    tx.commit().await?;
     st.auth.reload_acl(&st.db).await?;
     st.audit(&p, CH_AUTH, "role_delete", "", true, &format!("id={id}"));
     Ok(Json(json!({"ok": true})))
@@ -189,41 +204,52 @@ pub async fn patch_group(
         .fetch_optional(&st.db)
         .await?;
     ex.ok_or_else(|| ApiError::not_found("no such group"))?;
+    if !p.is_admin()
+        && (crate::admin_api::grants_admin_level(&st, "groups", &[id]).await?
+            || match &b.roles { Some(rs) => crate::admin_api::grants_admin_level(&st, "roles", rs).await?, None => false })
+    {
+        return Err(ApiError::forbidden("only admins can manage the admin role / groups holding it"));
+    }
+    let mut tx = st.db.begin().await?;
+    let before = effective_admin_count(&mut *tx).await?;
     if let Some(n) = &b.name {
         let n = clean_name(n)?;
         sqlx::query("UPDATE groups SET name = ? WHERE id = ?")
             .bind(n)
             .bind(id)
-            .execute(&st.db)
+            .execute(&mut *tx)
             .await
             .map_err(|_| ApiError(StatusCode::CONFLICT, "group exists".into()))?;
     }
     if let Some(ms) = &b.members {
         sqlx::query("DELETE FROM user_groups WHERE group_id = ?")
             .bind(id)
-            .execute(&st.db)
+            .execute(&mut *tx)
             .await?;
         for u in ms {
             sqlx::query("INSERT OR IGNORE INTO user_groups (user_id, group_id) SELECT id, ? FROM users WHERE id = ?")
                 .bind(id)
                 .bind(u)
-                .execute(&st.db)
+                .execute(&mut *tx)
                 .await?;
         }
     }
     if let Some(rs) = &b.roles {
         sqlx::query("DELETE FROM group_roles WHERE group_id = ?")
             .bind(id)
-            .execute(&st.db)
+            .execute(&mut *tx)
             .await?;
         for r in rs {
             sqlx::query("INSERT OR IGNORE INTO group_roles (group_id, role_id) SELECT ?, id FROM roles WHERE id = ?")
                 .bind(id)
                 .bind(r)
-                .execute(&st.db)
+                .execute(&mut *tx)
                 .await?;
         }
     }
+    crate::auth::sync_levels(&mut *tx).await?;
+    ensure_admin_remains(&mut tx, before).await?;
+    tx.commit().await?;
     st.auth.reload_acl(&st.db).await?;
     st.audit(&p, CH_AUTH, "group_update", "", true, &format!("id={id}"));
     Ok(Json(group_json(&st, id).await?))

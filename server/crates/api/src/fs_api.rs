@@ -119,6 +119,7 @@ pub async fn list(
             entries
                 .iter()
                 .map(|e| item(&mount.cfg.name, e))
+                .filter(|i| i.name != crate::share_api::ROOMS_DIR)
                 .filter(|i| st.perms(&p, &i.path).has(READ))
                 .filter_map(|mut i| {
                     i.path = p.map_out(&i.path)?;

@@ -182,7 +182,7 @@ export type Me = {
   identities: string[];
 };
 export type AuthStatus = Omit<Schemas["AuthStatus"], "me"> & { me: Me | null };
-export type Role = { id: number; name: string; description: string; permissions: string[]; builtin: boolean; created_at: number; users: number; groups: number };
+export type Role = { id: number; name: string; description: string; permissions: string[]; builtin: boolean; created_at: number; users: number; groups: number; level?: string | null };
 export type Group = { id: number; name: string; members: number; member_list?: { id: number; username: string }[]; roles?: { id: number; name: string }[] };
 export type RoleBody = Schemas["RoleBody"];
 export type PatchGroupBody = Schemas["PatchGroupBody"];

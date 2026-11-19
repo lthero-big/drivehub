@@ -32,7 +32,7 @@ export function UsersPage() {
   useEffect(() => {
     load();
   }, []);
-  const fu = users.filter((u) => (!role || u.role === role) && (!uq.trim() || `${u.username} ${u.email ?? ""}`.toLowerCase().includes(uq.trim().toLowerCase())));
+  const fu = users.filter((u) => (!role || (u.roles ?? []).some((r) => r.name === role)) && (!uq.trim() || `${u.username} ${u.email ?? ""}`.toLowerCase().includes(uq.trim().toLowerCase())));
   const pu = usePaged(fu, 10, uq + role);
   const [gq, setGq] = useState("");
   const fg = groups.filter((g) => !gq.trim() || g.name.toLowerCase().includes(gq.trim().toLowerCase()));
@@ -54,7 +54,6 @@ export function UsersPage() {
       const e = edit;
       await call("PATCH", `/api/admin/users/${e.u.id}`, {
         email: e.email || null,
-        role: e.role,
         disabled: e.disabled,
         email_verified: e.email_verified,
         root_path: e.root_path || "/",
@@ -72,7 +71,7 @@ export function UsersPage() {
       <PageHeader title="用户" desc={`${users.length} 位用户 · 在「用户组」「角色」页管理分组与权限`} actions={
         <>
           <Input className="w-48" placeholder="搜索用户名/邮箱" aria-label="搜索用户" value={uq} onChange={(e) => setUq(e.target.value)} />
-          <Select value={role} onChange={(e) => setRole(e.target.value)} aria-label="账号类型筛选"><option value="">全部账号类型</option><option value="admin">admin</option><option value="user">user</option></Select>
+          <Select value={role} onChange={(e) => setRole(e.target.value)} aria-label="角色筛选"><option value="">全部角色</option>{roles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}</Select>
           <Button variant="primary" onClick={() => setCreating({ username: "", email: "", password: "", role: "user" })}>
             <Plus className="size-4" /> 新建用户
           </Button>
@@ -83,7 +82,6 @@ export function UsersPage() {
           <thead className="border-b border-line bg-panel-2 text-xs text-muted">
             <tr>
               <th className="px-3 py-2 font-medium">用户</th>
-              <th className="px-3 py-2 font-medium">账号类型</th>
               <th className="px-3 py-2 font-medium">角色</th>
               <th className="px-3 py-2 font-medium">用户组</th>
               <th className="px-3 py-2 font-medium">根目录</th>
@@ -101,8 +99,7 @@ export function UsersPage() {
                   </p>
                   <p className="text-xs text-faint">{u.email ?? "—"} {u.identities.length > 0 && `· ${u.identities.join("/")}`}</p>
                 </td>
-                <td className="px-3 py-2"><Badge tone={u.role === "admin" ? "accent" : "neutral"}>{u.role}</Badge></td>
-                <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(u.roles ?? []).map((r) => <Badge key={r.id} tone="ok">{r.name}</Badge>)}{!(u.roles ?? []).length && <span className="text-xs text-faint">—</span>}</div></td>
+                <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(u.roles ?? []).map((r) => <Badge key={r.id} tone={r.name === "admin" ? "accent" : "ok"}>{r.name}</Badge>)}{!(u.roles ?? []).length && <span className="text-xs text-faint">—</span>}</div></td>
                 <td className="px-3 py-2 text-xs">{u.groups.map((g) => g.name).join("、") || "—"}</td>
                 <td className="px-3 py-2 font-mono text-xs">{u.root_path}</td>
                 <td className="px-3 py-2 text-xs">{fmtSize(u.used_bytes)}{u.quota_bytes ? ` / ${fmtSize(u.quota_bytes)}` : ""}</td>
@@ -130,7 +127,7 @@ export function UsersPage() {
             <Field label="用户名"><Input value={creating.username} onChange={(e) => setCreating({ ...creating, username: e.target.value })} /></Field>
             <Field label="邮箱（可选）"><Input type="email" value={creating.email} onChange={(e) => setCreating({ ...creating, email: e.target.value })} /></Field>
             <Field label="初始密码" hint="至少 8 位；留空则只能用 OAuth 或重置邮件登录"><Input type="password" autoComplete="new-password" value={creating.password} onChange={(e) => setCreating({ ...creating, password: e.target.value })} /></Field>
-            <Field label="账号类型" hint="admin 不受 ACL 限制；guest 最多只读+下载"><Select value={creating.role} onChange={(e) => setCreating({ ...creating, role: e.target.value })}><option value="user">user</option><option value="admin">admin</option><option value="guest">guest（最多只读+下载）</option></Select></Field>
+            <Field label="初始角色" hint="内置角色：admin 拥有全部权限并可管理系统；guest 最多只读+下载。创建后可在编辑中追加更多角色 / 用户组"><Select value={creating.role} onChange={(e) => setCreating({ ...creating, role: e.target.value })}><option value="user">user</option><option value="admin">admin</option><option value="guest">guest（最多只读+下载）</option></Select></Field>
           </div>
         )}
       </Modal>
@@ -139,7 +136,6 @@ export function UsersPage() {
         {edit && (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="邮箱"><Input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>
-            <Field label="账号类型"><Select value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}><option>admin</option><option>user</option><option>guest</option></Select></Field>
             <Field label="根目录" hint="用户只能看到此目录及以下（管理员不受限）"><Input value={edit.root_path} onChange={(e) => setEdit({ ...edit, root_path: e.target.value })} /></Field>
             <Field label="空间配额（GB）" hint="留空 = 不限"><Input type="number" min={0} step="0.1" value={edit.quota_gb} onChange={(e) => setEdit({ ...edit, quota_gb: e.target.value })} /></Field>
             <Field label="重设密码" hint="留空不修改"><Input type="password" autoComplete="new-password" value={edit.password} onChange={(e) => setEdit({ ...edit, password: e.target.value })} /></Field>
@@ -157,10 +153,10 @@ export function UsersPage() {
               ))}
             </fieldset>
             <fieldset className="space-y-1.5 text-[13px]">
-              <legend className="mb-1 font-medium text-muted">角色（权限包）</legend>
+              <legend className="mb-1 font-medium text-muted">角色（权限包，唯一权限来源；可多选，也可通过用户组授予）</legend>
               {roles.length === 0 && <p className="text-faint">暂无</p>}
               {roles.map((r) => (
-                <Checkbox key={r.id} checked={edit.roles.includes(r.id)} onChange={(v) => setEdit({ ...edit, roles: v ? [...edit.roles, r.id] : edit.roles.filter((x) => x !== r.id) })}>{r.name} <span className="text-xs text-faint">{r.permissions.length} 项权限</span></Checkbox>
+                <Checkbox key={r.id} checked={edit.roles.includes(r.id)} onChange={(v) => setEdit({ ...edit, roles: v ? [...edit.roles, r.id] : edit.roles.filter((x) => x !== r.id) })}>{r.name} <span className="text-xs text-faint">{r.level === "admin" ? "全部权限 · 系统管理" : r.level === "guest" ? "访客 · 最多只读" : `${r.permissions.length} 项权限`}</span></Checkbox>
               ))}
             </fieldset>
             <fieldset className="space-y-1.5 text-[13px]">

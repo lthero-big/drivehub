@@ -686,3 +686,40 @@ async fn access_stats_filters() {
         .json();
     assert_eq!(mine["summary"]["events"], 0, "{mine}");
 }
+
+/// Merge of r5 delegated caps with main's unified level roles (DEPTAI-464r): a delegated
+/// user / group / role manager can never grant the admin level through roles or groups.
+#[tokio::test]
+async fn delegated_managers_cannot_grant_admin_level() {
+    let t = T::new().await;
+    let (carol, tok) = t.user("carol").await;
+    let (dave, _) = t.user("dave").await;
+    let roles = t.adm("GET", "/api/admin/roles", None).await;
+    let admin_role = roles.as_array().unwrap().iter().find(|r| r["level"] == "admin").unwrap()["id"].as_i64().unwrap();
+    let rid = t.role("mgr", &["admin_users", "admin_groups", "admin_roles"]).await;
+    t.adm("PATCH", &format!("/api/admin/users/{carol}"), Some(json!({"roles": [rid]}))).await;
+    // direct admin-level role
+    let r = t.call("PATCH", &format!("/api/admin/users/{dave}"), Some(&tok), Some(json!({"roles": [admin_role]}))).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN, "{}", r.text());
+    // admin group membership
+    let g = t.adm("POST", "/api/admin/groups", Some(json!({"name": "admins"}))).await["id"].as_i64().unwrap();
+    t.adm("PATCH", &format!("/api/admin/groups/{g}"), Some(json!({"roles": [admin_role]}))).await;
+    let r = t.call("PATCH", &format!("/api/admin/users/{dave}"), Some(&tok), Some(json!({"groups": [g]}))).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN, "{}", r.text());
+    let r = t.call("PATCH", &format!("/api/admin/groups/{g}"), Some(&tok), Some(json!({"members": [carol]}))).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN, "{}", r.text());
+    let r = t.call("DELETE", &format!("/api/admin/groups/{g}"), Some(&tok), None).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN, "{}", r.text());
+    // giving a plain group the admin role
+    let g2 = t.adm("POST", "/api/admin/groups", Some(json!({"name": "plain"}))).await["id"].as_i64().unwrap();
+    let r = t.call("PATCH", &format!("/api/admin/groups/{g2}"), Some(&tok), Some(json!({"roles": [admin_role]}))).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN, "{}", r.text());
+    // editing the admin role itself
+    let r = t.call("PATCH", &format!("/api/admin/roles/{admin_role}"), Some(&tok), Some(json!({"name": "admin", "permissions": []}))).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN, "{}", r.text());
+    // ordinary management still works
+    let r = t.call("PATCH", &format!("/api/admin/groups/{g2}"), Some(&tok), Some(json!({"members": [dave]}))).await;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.text());
+    let me = t.call("GET", "/api/auth/me", Some(&tok), None).await.json();
+    assert_ne!(me["role"], "admin");
+}

@@ -96,6 +96,13 @@ impl AppState {
         }
         st.sweep_uploads();
         if data_dir.is_some() {
+            let st3 = st.clone();
+            tokio::spawn(async move {
+                loop {
+                    share_api::sweep_rooms(&st3).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                }
+            });
             let db = st.db.clone();
             tokio::spawn(async move {
                 loop {
@@ -567,6 +574,13 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
     // Public share entry points: short link + signed direct link (DEPTAI-474).
     let index = web_dir.as_ref().map(|d| d.join("index.html"));
     let public = Router::new()
+        // Drop room link (DEPTAI-464r): same visitor flow as /s/<code>[-pin].
+        .route(
+            "/r/{code}",
+            get(|axum::extract::Path(code): axum::extract::Path<String>| async move {
+                axum::response::Redirect::temporary(&format!("/s/{code}"))
+            }),
+        )
         .route(
             "/s/{code}",
             get(
