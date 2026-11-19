@@ -5,11 +5,13 @@ import { Pencil, Plus, Trash2, Users as UsersIcon } from "lucide-react";
 import { call, rbac, type Group, type Me, type Role } from "../../lib/api";
 import { errMsg } from "../../lib/util";
 import { Badge, Button, Checkbox, ConfirmButton, Field, IconButton, Input, Modal, PageHeader, Pager, toast, usePaged } from "../../ui/ui";
+import { SkTable } from "../../ui/r6";
 
 type Draft = { id: number | null; name: string; members: number[]; roles: number[] };
 
 export function GroupsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
+  const [ready, setReady] = useState(false);
   const [users, setUsers] = useState<Me[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [d, setD] = useState<Draft | null>(null);
@@ -19,6 +21,7 @@ export function GroupsPage() {
     try {
       const [g, u, r] = await Promise.all([rbac.groups(), call<Me[]>("GET", "/api/admin/users"), rbac.roles()]);
       setGroups(g);
+      setReady(true);
       setUsers(u);
       setRoles(r);
     } catch (e) {
@@ -51,7 +54,8 @@ export function GroupsPage() {
           <Button variant="primary" onClick={() => setD({ id: null, name: "", members: [], roles: [] })}><Plus className="size-4" /> 新建用户组</Button>
         </>
       } />
-      <div className="overflow-x-auto rounded-2xl border border-line bg-panel shadow-card">
+      {!ready && <SkTable cols={[2, 4, 3, 1]} rows={5} label="正在加载用户组" />}
+      <div className={ready ? "overflow-x-auto rounded-2xl border border-line bg-panel shadow-card" : "hidden"}>
         <table className="w-full min-w-[560px] text-left text-[13px]" data-testid="group-table">
           <thead className="border-b border-line bg-panel-2 text-xs text-muted"><tr><th className="px-3 py-2 font-medium">用户组</th><th className="px-3 py-2 font-medium">成员</th><th className="px-3 py-2 font-medium">角色</th><th /></tr></thead>
           <tbody className="divide-y divide-line">

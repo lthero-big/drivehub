@@ -9,6 +9,7 @@ import { abs, copy, PERM_NAMES, qrDataUrl, STATUS_NAMES, type Share } from "../l
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
 import { Badge, Button, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Pager, Select, Switch, toast, usePaged } from "../ui/ui";
 import { PickupBox } from "./SharePublic";
+import { SkTable } from "../ui/r6";
 
 const tone = (s: string) => (s === "active" ? "ok" : s === "revoked" ? "danger" : "warn") as "ok";
 
@@ -63,6 +64,7 @@ export function SharesPage() {
         <Button size="sm" variant="primary" onClick={() => setNewRoom(true)}><Inbox className="size-4" /> 新建快传房间</Button>
         <IconButton size="sm" label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
       </>} />
+      {rows === null && <SkTable cols={[1, 3, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3]} rows={6} label="正在加载分享" />}
       {shown && shown.length === 0 && <Empty title={rows?.length ? "没有匹配的分享" : "还没有分享"}>在文件列表中选中文件后点击「分享」</Empty>}
       {shown && shown.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-line bg-panel">

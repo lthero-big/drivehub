@@ -4,8 +4,9 @@ import { client, ok, type FsItem, type SearchHit } from "../lib/api";
 import { filesHref, go } from "../lib/router";
 import { tabs } from "../lib/tabs";
 import { cx, errMsg, extsOf, fmtSize, fmtTime, KIND_LABEL, parentOf, type Kind } from "../lib/util";
-import { Badge, Empty, IconButton, Input, Select, Spinner, PageHeader, Pager, usePaged } from "../ui/ui";
+import { Badge, Empty, IconButton, Input, Select, PageHeader, Pager, usePaged } from "../ui/ui";
 import { FileIcon } from "../components/FileIcon";
+import { SkTable } from "../ui/r6";
 
 const KINDS: Kind[] = ["image", "video", "audio", "pdf", "office", "markdown", "code", "archive"];
 const SIZES = [
@@ -90,7 +91,7 @@ export function SearchPage({ initial }: { initial: string }) {
         </p>
       </form>
 
-      {loading && <Spinner />}
+      {loading && <SkTable cols={[5, 2, 2]} rows={6} label="正在搜索" />}
       {err && <p className="text-sm text-danger">{err}</p>}
       {res?.msg && (
         <p className="flex items-center gap-2 rounded-lg bg-accent-soft px-3 py-2 text-[13px] text-accent">

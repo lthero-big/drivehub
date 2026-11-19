@@ -5,6 +5,7 @@ import { call, rawFetch } from "../../lib/api";
 import type { AuditEvent } from "../../lib/shares";
 import { errMsg, fmtSize, fmtTime } from "../../lib/util";
 import { Badge, Button, Card, Checkbox, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Pager, Select, toast, usePaged } from "../../ui/ui";
+import { SkTable } from "../../ui/r6";
 
 type Alert = { id: number; name: string; kind: string; actions: string; threshold: number; window_secs: number; sink: string; target: string; enabled: boolean };
 type AlertEv = { id: number; time: string; ts: number; rule: string; user: string; ip: string; message: string; sink: string; delivered: boolean; error: string };
@@ -96,6 +97,7 @@ export function AuditPage() {
           <IconButton label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
         </div>
       </form>
+      {rows === null && <SkTable cols={[2, 1, 2, 1, 1, 2, 4, 1, 1, 1, 3]} rows={8} label="正在加载审计日志" />}
       {rows && rows.length === 0 && <Empty title="没有记录" />}
       {rows && rows.length > 0 && view === "table" && (
         <div className="overflow-x-auto rounded-xl border border-line bg-panel">

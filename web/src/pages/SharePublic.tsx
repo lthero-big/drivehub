@@ -3,7 +3,8 @@ import { Download, Eye, File, Folder, KeyRound, Link2, Upload } from "lucide-rea
 import { CLIENT_HEADERS, tokens } from "../lib/api";
 import { abs, copy, PERM_NAMES } from "../lib/shares";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { Button, Card, Empty, Input, Spinner, toast } from "../ui/ui";
+import { Button, Card, Empty, Input, toast } from "../ui/ui";
+import { Sk, SkFileRows, SkWrap } from "../ui/r6";
 
 type Item = { name: string; path: string; is_dir: boolean; size: number; modified_unix: number | null };
 type Opened = { id: number; name: string; owner: string; perm: string; expires_at: number | null; items: Item[]; token: string; visits_left: number | null; downloads_left: number | null; kind?: string; allow_download?: boolean; allow_upload?: boolean; uploads_left?: number | null; bytes_left?: number | null };
@@ -117,7 +118,7 @@ export function SharePublicPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-8">
       <h1 className="text-lg font-semibold"><a href="/">DriveHub</a> · {room ? "快传房间" : "分享"}</h1>
-      {state === "loading" && <div className="flex justify-center py-16"><Spinner /></div>}
+      {state === "loading" && <SkWrap label="正在打开分享" className="mx-auto max-w-3xl space-y-3 rounded-2xl border border-line bg-panel p-5"><Sk className="h-5 w-1/3 rounded" /><Sk className="h-3 w-1/2 rounded" /><SkFileRows rows={4} /></SkWrap>}
       {state === "error" && <Empty title={err}><a className="text-accent underline" href="/">返回首页</a></Empty>}
       {state === "pin" && (
         <Card title="请输入提取码">
@@ -142,7 +143,7 @@ export function SharePublicPage() {
           {dir !== "/" && dir !== roomDir && (
             <button className="mb-2 text-[13px] text-accent underline" onClick={() => browse(dir.split("/").slice(0, -1).join("/") || "/")}>← 返回上级 ({dir})</button>
           )}
-          {!list ? <Spinner /> : list.length === 0 ? <Empty title="空文件夹" /> : (
+          {!list ? <SkFileRows rows={5} /> : list.length === 0 ? <Empty title="空文件夹" /> : (
             <ul className="divide-y divide-line text-[13px]">
               {list.map((i) => (
                 <li key={i.path} className="flex items-center gap-2 py-1.5">

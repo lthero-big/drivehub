@@ -9,13 +9,13 @@ import { favorites, useFavorites } from "../lib/favs";
 import { appLink, copyText } from "../lib/links";
 import { tabs } from "../lib/tabs";
 import { fsTrash as trash, undoableDelete } from "../lib/trash";
-import { TagRow } from "../ui/r6";
+import { SkFileGrid, SkFileRows, TagRow } from "../ui/r6";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
 import { fromDataTransfer, fromFileList, uploads, useUploads } from "../lib/uploads";
 import { hasExternalFiles, INTERNAL_MIME, isInternalDrag, PhCard, PhRow, placeholdersFor, setUploadOrigin, TrashZone } from "./DragUpload";
 import { baseName, cx, errMsg, fmtSize, fmtTime, joinPath, kindOf } from "../lib/util";
-import { ask, Button, Checkbox, ConfirmButton, confirmDlg, ContextMenu, Empty, IconButton, Input, Menu, MenuItem, MenuSep, Pager, Spinner, toast } from "../ui/ui";
+import { ask, Button, Checkbox, ConfirmButton, confirmDlg, ContextMenu, Empty, IconButton, Input, Menu, MenuItem, MenuSep, Pager, toast } from "../ui/ui";
 import { SegmentedDrag } from "../ui/motion";
 import { DirPicker } from "./DirPicker";
 import { DetailsDialog } from "./FileDialogs";
@@ -661,11 +661,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
       </div>
 
       <div ref={areaRef} onMouseDown={onAreaDown} data-testid="file-area" className={cx("min-h-[55vh] flex-1 py-3", band && "sel-none")}>
-        {items === null && (
-          <div className="flex justify-center py-20">
-            <Spinner />
-          </div>
-        )}
+        {items === null && (view === "grid" ? <SkFileGrid /> : <SkFileRows />)}
         {err && (
           <Empty icon={err.status === 401 || err.status === 403 ? <Lock className="size-10" /> : undefined} title={err.status === 401 ? "需要登录或目录密码" : err.status === 403 ? "没有访问权限" : "加载失败"}>
             <p>{err.msg}</p>

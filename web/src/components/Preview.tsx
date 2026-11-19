@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEven
 import { ChevronLeft, ChevronRight, Download, ExternalLink, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 import { fileUrl, rawFetch, type FsItem } from "../lib/api";
 import { cx, ext, fmtSize, kindOf } from "../lib/util";
-import { Button, Spinner } from "../ui/ui";
+import { Button } from "../ui/ui";
+import { SkPreview } from "../ui/r6";
 import { FoldToolbar } from "../ui/motion";
 import { FileIcon } from "./FileIcon";
 import { CodeViewer } from "./CodeViewer";
@@ -43,12 +44,8 @@ function useAsync<T>(f: () => Promise<T>, deps: unknown[]) {
   return s;
 }
 
-function Loading() {
-  return (
-    <div className="flex h-64 items-center justify-center">
-      <Spinner />
-    </div>
-  );
+function Loading({ kind = "doc" }: { kind?: "code" | "doc" | "page" | "list" }) {
+  return <SkPreview kind={kind} />;
 }
 
 function Fallback({ item, why }: { item: FsItem; why: string }) {
@@ -68,7 +65,7 @@ function Fallback({ item, why }: { item: FsItem; why: string }) {
 
 function CodeView({ item }: { item: FsItem }) {
   const s = useAsync(() => readText(item.path), [item.path]);
-  if (s.loading) return <Loading />;
+  if (s.loading) return <Loading kind="code" />;
   if (s.e) return <Fallback item={item} why={`读取失败：${s.e}`} />;
   return <CodeViewer name={item.name} text={s.v!.text} truncated={s.v!.truncated} />;
 }
@@ -78,7 +75,7 @@ function MarkdownView({ item }: { item: FsItem }) {
     const [{ text }, { marked }, purify] = await Promise.all([readText(item.path), import("marked"), import("dompurify")]);
     return purify.default.sanitize(await marked.parse(text, { gfm: true }));
   }, [item.path]);
-  if (s.loading) return <Loading />;
+  if (s.loading) return <Loading kind="doc" />;
   if (s.e) return <Fallback item={item} why={`读取失败：${s.e}`} />;
   return <article className="prose-dh mx-auto max-w-3xl" dangerouslySetInnerHTML={{ __html: s.v! }} />;
 }
@@ -115,7 +112,7 @@ async function listZip(item: FsItem): Promise<ZipEntry[]> {
 
 function ZipView({ item }: { item: FsItem }) {
   const s = useAsync(() => listZip(item), [item.path]);
-  if (s.loading) return <Loading />;
+  if (s.loading) return <Loading kind="list" />;
   if (s.e) return <Fallback item={item} why={s.e} />;
   const files = s.v!.filter((x) => !x.dir);
   return (
@@ -146,7 +143,7 @@ function DocxView({ item }: { item: FsItem }) {
   }, [item.path, el]);
   return (
     <div className="h-full overflow-auto scroll-thin rounded-lg bg-white text-black">
-      {s.loading && <Loading />}
+      {s.loading && <Loading kind="page" />}
       {s.e && <Fallback item={item} why={`无法渲染：${s.e}`} />}
       <div ref={setEl} />
     </div>

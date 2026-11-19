@@ -4,6 +4,7 @@ import { call, client, ok, type AuditRow, type TaskInfo, type VersionInfo } from
 import { fmtTime } from "../../lib/util";
 import { Badge, Card, PageHeader } from "../../ui/ui";
 import { AuditDash } from "./AuditDash";
+import { PageSkeleton } from "../../ui/r6";
 
 function Stat({ icon: I, label, value, href, tone = "accent" }: { icon: typeof HardDrive; label: string; value: number | string; href: string; tone?: "accent" | "ok" | "warn" | "danger" }) {
   const t = { accent: "bg-accent-soft text-accent", ok: "bg-ok/12 text-ok", warn: "bg-warn/15 text-warn", danger: "bg-danger/12 text-danger" }[tone];
@@ -30,7 +31,7 @@ export function DashboardPage() {
       .then(([m, u, t, a, dn, v]) => setD({ mounts: m.length, users: u.length, tasks: t, audit: a, denied: dn, ver: v }))
       .catch(() => {});
   }, []);
-  if (!d) return null;
+  if (!d) return <PageSkeleton kind="dashboard" />;
   const since = Date.now() / 1000 - 86400;
   const active = d.tasks.filter((t) => t.status === "running" || t.status === "pending").length;
   // 24h activity histogram (per hour) from the audit sample

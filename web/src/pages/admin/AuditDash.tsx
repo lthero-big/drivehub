@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { call } from "../../lib/api";
 import { fmtSize } from "../../lib/util";
 import { Card, Select } from "../../ui/ui";
+import { SkChart, SkStats, SkTable } from "../../ui/r6";
 
 type Dash = {
   totals: { events: number; denied: number; failed_logins: number; active_users: number; download_bytes: number; upload_bytes: number };
@@ -16,7 +17,7 @@ export function AuditDash() {
   const [d, setD] = useState<Dash | null>(null);
   const [days, setDays] = useState(7);
   useEffect(() => void call<Dash>("GET", `/api/admin/audit/dashboard?days=${days}`).then(setD).catch(() => {}), [days]);
-  if (!d) return null;
+  if (!d) return <div className="space-y-4"><SkStats n={4} /><div className="grid gap-4 lg:grid-cols-2"><div className="rounded-2xl border border-line bg-panel p-5"><SkChart h={128} /></div><SkTable cols={[3, 2, 2]} rows={5} /></div></div>;
   const max = Math.max(1, ...d.traffic.map((t) => t.download_bytes + t.upload_bytes));
   return (
     <div className="space-y-4">

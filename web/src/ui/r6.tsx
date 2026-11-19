@@ -171,3 +171,84 @@ export function SkChart({ h = 112 }: { h?: number }) {
 export function SkMedia({ className }: { className?: string }) {
   return <SkWrap label="正在加载预览" className={cx("grid h-full min-h-48 place-items-center", className)}><Sk className="aspect-video w-[min(90%,48rem)] rounded-xl" /></SkWrap>;
 }
+
+/** Page header placeholder (title + desc + actions), same rhythm as PageHeader. */
+export function SkHeader({ actions = 2 }: { actions?: number }) {
+  return (
+    <div className="flex items-end gap-3 pb-2">
+      <div className="flex-1 space-y-2"><Sk className="h-6 w-40 rounded-lg" /><Sk className="h-3 w-64 max-w-full rounded" /></div>
+      {Array.from({ length: actions }, (_, i) => <Sk key={i} className="hidden h-8 w-20 rounded-lg sm:block" />)}
+    </div>
+  );
+}
+
+export type SkKind = "files" | "table" | "stats" | "cards" | "form" | "dashboard" | "acl" | "account";
+
+/** Whole-page skeleton whose shape follows the page's real components. */
+export function PageSkeleton({ kind }: { kind: SkKind }) {
+  const body = {
+    files: <><div className="flex gap-2 py-3"><Sk className="h-8 w-64 rounded-lg" /><span className="flex-1" /><Sk className="h-8 w-24 rounded-lg" /><Sk className="h-8 w-8 rounded-lg" /></div><SkFileRows rows={10} /></>,
+    table: <><SkHeader /><SkTable rows={8} /></>,
+    stats: <><SkHeader /><Sk className="h-28 w-full rounded-2xl" /><SkStats n={6} /><div className="rounded-2xl border border-line bg-panel p-5"><SkChart /></div><SkTable cols={[2, 2, 3, 4, 2, 2]} rows={6} /></>,
+    cards: <><SkHeader /><SkCards /></>,
+    form: <><SkHeader actions={0} /><div className="space-y-4 rounded-2xl border border-line bg-panel p-5">{Array.from({ length: 4 }, (_, i) => <div key={i} className="space-y-1.5"><Sk className="h-3 w-24 rounded" /><Sk className="h-10 w-full rounded-xl" /></div>)}</div></>,
+    dashboard: <><SkHeader actions={0} /><SkStats n={4} /><div className="grid gap-4 lg:grid-cols-2"><div className="rounded-2xl border border-line bg-panel p-5"><SkChart /></div><SkTable cols={[3, 2, 2]} rows={5} /></div></>,
+    acl: <><SkHeader /><div className="flex gap-2"><Sk className="h-9 w-24 rounded-xl" /><Sk className="h-9 w-24 rounded-xl" /><Sk className="h-9 w-24 rounded-xl" /></div><div className="grid gap-4 lg:grid-cols-[18rem_1fr]"><div className="space-y-2 rounded-2xl border border-line bg-panel p-3">{Array.from({ length: 8 }, (_, i) => <Sk key={i} className="h-7 rounded-lg" style={{ marginLeft: (i % 3) * 14 }} />)}</div><SkTable cols={[3, 4, 2]} rows={5} /></div></>,
+    account: <><SkHeader actions={0} /><div className="flex gap-2">{Array.from({ length: 4 }, (_, i) => <Sk key={i} className="h-9 w-20 rounded-xl" />)}</div><SkCards n={2} className="xl:grid-cols-2" /></>,
+  }[kind];
+  return <div className="mx-auto max-w-6xl space-y-4 py-4" data-page-skeleton={kind}>{body}</div>;
+}
+
+/** Skeleton for a hash route (lazy page chunks / first data load). */
+export function routeSkeleton(name: string, rest = ""): SkKind {
+  if (name === "files") return "files";
+  if (name === "stats") return "stats";
+  if (name === "account") return "account";
+  if (name === "admin") {
+    const sub = rest.split("/")[0];
+    if (sub === "dashboard" || sub === "") return "dashboard";
+    if (sub === "roles" || sub === "mounts" || sub === "groups") return "cards";
+    if (sub === "settings") return "form";
+    if (sub === "acl") return "acl";
+  }
+  return "table";
+}
+
+/** Boot skeleton: sidebar + top bar + file list, shown before the session is known. */
+export function AppSkeleton() {
+  return (
+    <div className="flex h-full bg-panel" data-app-skeleton>
+      <SkWrap label="正在加载 DriveHub" className="hidden w-64 shrink-0 space-y-2 border-r border-line p-3 lg:block">
+        <span className="flex items-center gap-2 pb-3"><Sk className="size-9 rounded-xl" /><Sk className="h-4 w-24 rounded" /></span>
+        {Array.from({ length: 7 }, (_, i) => <Sk key={i} className="h-8 rounded-xl" style={{ width: `${70 + ((i * 17) % 25)}%` }} />)}
+      </SkWrap>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex h-14 items-center gap-2 border-b border-line px-4"><Sk className="h-4 w-32 rounded" /><span className="flex-1" /><Sk className="size-9 rounded-xl" /><Sk className="h-9 w-24 rounded-xl" /></div>
+        <div className="px-4 sm:px-8"><PageSkeleton kind="files" /></div>
+      </div>
+    </div>
+  );
+}
+
+/** Preview placeholders per viewer: code (gutter + lines), doc (heading + paragraphs), page (A4 sheet), list (archive rows). */
+export function SkPreview({ kind }: { kind: "code" | "doc" | "page" | "list" }) {
+  if (kind === "list") return <SkTable cols={[5, 1, 2]} rows={8} label="正在读取压缩包" />;
+  if (kind === "page")
+    return (
+      <SkWrap label="正在渲染文档" className="flex justify-center bg-panel-2 p-6">
+        <div className="w-full max-w-2xl space-y-3 rounded-lg bg-panel p-10 shadow-card"><Sk className="h-5 w-1/2 rounded" />{Array.from({ length: 10 }, (_, i) => <Sk key={i} className="h-3 rounded" style={{ width: `${60 + ((i * 31) % 40)}%` }} />)}</div>
+      </SkWrap>
+    );
+  if (kind === "code")
+    return (
+      <SkWrap label="正在加载代码" className="grid grid-cols-[2.5rem_1fr] gap-x-3 gap-y-2 p-4 font-mono">
+        {Array.from({ length: 14 }, (_, i) => [<Sk key={`n${i}`} className="h-3 w-5 justify-self-end rounded opacity-60" />, <Sk key={`l${i}`} className="h-3 rounded" style={{ width: `${15 + ((i * 53) % 70)}%`, marginLeft: (i % 4) * 16 }} />])}
+      </SkWrap>
+    );
+  return (
+    <SkWrap label="正在加载文档" className="space-y-3 p-6">
+      <Sk className="h-6 w-1/3 rounded-lg" />
+      {Array.from({ length: 3 }, (_, p) => <div key={p} className="space-y-2 pt-2">{Array.from({ length: 3 }, (_, i) => <Sk key={i} className="h-3 rounded" style={{ width: `${70 + ((p * 7 + i * 13) % 30)}%` }} />)}</div>)}
+    </SkWrap>
+  );
+}

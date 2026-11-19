@@ -5,6 +5,7 @@ import { BadgeCheck, Lock, Pencil, Plus, Trash2 } from "lucide-react";
 import { PERM_CATEGORIES, PERM_HINT, PERM_LABEL, PERMS, permsOf, rbac, type Role } from "../../lib/api";
 import { cx, errMsg } from "../../lib/util";
 import { Badge, Button, ConfirmButton, Field, IconButton, Input, Modal, PageHeader, toast } from "../../ui/ui";
+import { SkCards } from "../../ui/r6";
 
 const FILE_RW = ["read", "download", "upload", "create", "edit", "rename", "move", "copy", "tag"];
 const PRESETS: { label: string; perms: string[] }[] = [
@@ -62,7 +63,8 @@ type Draft = { id: number | null; name: string; description: string; permissions
 export function RolesPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [d, setD] = useState<Draft | null>(null);
-  const load = () => rbac.roles().then(setRoles, (e) => toast.err(errMsg(e)));
+  const [ready, setReady] = useState(false);
+  const load = () => rbac.roles().then((r) => (setRoles(r), setReady(true)), (e) => toast.err(errMsg(e)));
   useEffect(() => void load(), []);
   const save = async () => {
     if (!d) return;
@@ -82,7 +84,8 @@ export function RolesPage() {
       <PageHeader title="角色" desc="角色 = 一组权限。把角色分配给用户或用户组后，在根目录授予这些权限；目录权限页里更深层的规则仍可覆盖。" actions={
         <Button variant="primary" onClick={() => setD({ id: null, name: "", description: "", permissions: ["read", "download", "copy", "tag"], builtin: false })}><Plus className="size-4" /> 新建角色</Button>
       } />
-      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="role-list">
+      {!ready && <SkCards />}
+      <ul className={cx("grid gap-3 sm:grid-cols-2 xl:grid-cols-3", !ready && "hidden")} data-testid="role-list">
         {roles.map((r) => (
           <li key={r.id} className="card-lift flex flex-col gap-3 rounded-2xl border border-line bg-panel p-4 shadow-card" data-role={r.name}>
             <div className="flex items-start gap-2">

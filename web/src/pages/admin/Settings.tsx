@@ -5,6 +5,7 @@ import { useApp } from "../../lib/app";
 import { go } from "../../lib/router";
 import { errMsg } from "../../lib/util";
 import { Badge, Card, PageHeader, Switch, Tabs, toast } from "../../ui/ui";
+import { Sk } from "../../ui/r6";
 
 type S = { open_registration: boolean; require_email_verification: boolean };
 type Tab = "access" | "service";
@@ -30,7 +31,7 @@ export function SettingsPage({ tab }: { tab?: string }) {
         <p className="text-[14px] font-medium">{title}</p>
         <p className="text-[13px] text-muted">{desc}</p>
       </div>
-      {s && <Switch label={title} checked={s[k]} onChange={(v) => put({ [k]: v })} />}
+      {s ? <Switch label={title} checked={s[k]} onChange={(v) => put({ [k]: v })} /> : <Sk className="h-7 w-12 rounded-full" />}
     </div>
   );
   const cur: Tab = tab === "service" ? "service" : "access";
