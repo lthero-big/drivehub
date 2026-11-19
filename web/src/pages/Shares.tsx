@@ -4,6 +4,7 @@ import { ArrowRight, BarChart3, Copy, Inbox, Link2, Pencil, QrCode, RefreshCw, T
 import { call, type FsItem } from "../lib/api";
 import { go } from "../lib/router";
 import { useApp } from "../lib/app";
+import { shareTrash, undoableDelete } from "../lib/trash";
 import { abs, copy, PERM_NAMES, qrDataUrl, STATUS_NAMES, type Share } from "../lib/shares";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
 import { Badge, Button, confirmDlg, Empty, Field, IconButton, Input, Modal, Select, Switch, toast } from "../ui/ui";
@@ -28,7 +29,21 @@ export function SharesPage() {
     const u = s.kind === "room" && s.room_url ? s.room_url : s.url;
     return abs(s.pin ? `${u}-${s.pin}` : u);
   };
-  const shown = rows?.filter((s) => !kind || (s.kind ?? "share") === kind) ?? null;
+  const shown = rows?.filter((s) => !gone.has(String(s.id)) && (!kind || (s.kind ?? "share") === kind)) ?? null;
+  const [gone, setGone] = useState<Set<string>>(new Set());
+  /** Same delete-with-undo flow as files (lib/trash): hide → undo toast → DELETE when it ends. */
+  const removeShares = (its: Share[]) =>
+    undoableDelete({
+      items: its,
+      key: (x) => String(x.id),
+      name: (x) => x.name,
+      noun: "分享",
+      hide: (ks) => setGone((g) => new Set([...g, ...ks])),
+      unhide: (ks) => setGone((g) => new Set([...g].filter((k) => !ks.includes(k)))),
+      exec: shareTrash.exec,
+      beacon: shareTrash.beacon,
+      after: () => load(),
+    });
   const act = async (f: () => Promise<unknown>) => {
     try {
       await f();
@@ -48,7 +63,7 @@ export function SharesPage() {
         <Button variant="ghost" onClick={() => go("#/stats")}><BarChart3 className="size-4" /> 访问统计总览</Button>
         <IconButton label="刷新" onClick={load}><RefreshCw className="size-4" /></IconButton>
       </div>
-      {rows && rows.length === 0 && <Empty title="还没有分享">在文件列表中选中文件后点击「分享」</Empty>}
+      {shown && shown.length === 0 && <Empty title={rows?.length ? "没有匹配的分享" : "还没有分享"}>在文件列表中选中文件后点击「分享」</Empty>}
       {shown && shown.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-line bg-panel">
           <table className="w-full min-w-[860px] text-left text-[12.5px]">
@@ -75,7 +90,7 @@ export function SharesPage() {
                     <IconButton label="二维码" onClick={async () => setQr({ s, img: await qrDataUrl(link(s)) })}><QrCode className="size-4" /></IconButton>
                     <IconButton label="访问统计" onClick={() => call<Share>("GET", `/api/shares/${s.id}`).then(setStats)}><BarChart3 className="size-4" /></IconButton>
                     <IconButton label="修改限制" onClick={() => setEdit(s)}><Pencil className="size-4" /></IconButton>
-                    <IconButton label="删除" onClick={async () => (await confirmDlg(`删除分享「${s.name}」？`, { danger: true })) && act(() => call("DELETE", `/api/shares/${s.id}`))}><Trash2 className="size-4" /></IconButton>
+                    <IconButton label="删除" onClick={async () => (await confirmDlg(`删除分享「${s.name}」？`, { label: "链接会立即失效。5 秒内可以撤销。", confirm: "删除", danger: true })) && removeShares([s])}><Trash2 className="size-4" /></IconButton>
                   </td>
                 </tr>
               ))}

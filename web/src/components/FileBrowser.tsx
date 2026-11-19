@@ -8,7 +8,7 @@ import { ApiError, client, fileUrl, ok, pathPassword, rawFetch, zipUrl, type FsI
 import { favorites, useFavorites } from "../lib/favs";
 import { appLink, copyText } from "../lib/links";
 import { tabs } from "../lib/tabs";
-import { trash } from "../lib/trash";
+import { fsTrash as trash, undoableDelete } from "../lib/trash";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
 import { fromDataTransfer, fromFileList, uploads, useUploads } from "../lib/uploads";
@@ -304,18 +304,22 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   };
   /** Delete with undo: hide now, commit after the toast's undo window (dialog → toast morph). */
   const scheduleDelete = (its: FsItem[]) => {
-    const paths = its.map((i) => i.path);
-    setGone((g) => new Set([...g, ...paths]));
     setSel(new Set());
-    const unhide = () => setGone((g) => new Set([...g].filter((p) => !paths.includes(p))));
-    const job = trash.schedule(paths, (failed) => {
-      failed.forEach((f) => toast.err(`${baseName(f.path)}：${f.err}`));
-      tabs.forget(paths.filter((p) => !failed.some((f) => f.path === p)));
-      favorites.forget(paths.filter((p) => !failed.some((f) => f.path === p)));
-      load(true).then(unhide);
-      bumpFs();
+    undoableDelete({
+      items: its,
+      key: (i) => i.path,
+      name: (i) => i.name,
+      hide: (ps) => setGone((g) => new Set([...g, ...ps])),
+      unhide: (ps) => setGone((g) => new Set([...g].filter((p) => !ps.includes(p)))),
+      exec: trash.exec,
+      beacon: trash.beacon,
+      after: (ok) => {
+        tabs.forget(ok);
+        favorites.forget(ok);
+        bumpFs();
+        return load(true);
+      },
     });
-    toast.undo(its.length === 1 ? `已删除「${its[0].name}」` : `已删除 ${its.length} 项`, { onUndo: () => (job.undo(), unhide()), onCommit: () => job.commit() });
   };
   const remove = async (its: FsItem[]) => {
     if (!its.length) return;
