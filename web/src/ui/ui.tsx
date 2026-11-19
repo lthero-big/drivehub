@@ -67,7 +67,7 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button({ 
  *  - "xs" (h-7, 12px): dense chrome such as the code-viewer header
  *  Labels next to an sm control use 13px text so label and control share one baseline. */
 export type CtlSize = "xs" | "sm" | "md";
-export const CTL_H: Record<CtlSize, string> = { xs: "h-7 rounded-lg px-2 text-xs", sm: "h-8 rounded-lg px-2.5 text-[13px]", md: "h-10 rounded-xl px-3 text-sm" };
+export const CTL_H: Record<CtlSize, string> = { xs: "h-7 rounded-lg px-2 text-xs", sm: "h-8 rounded-xl px-2.5 text-[13px]", md: "h-10 rounded-xl px-3 text-sm" };
 
 export function IconButton({ label, className, children, size = "md", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: CtlSize }) {
   return (
