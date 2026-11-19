@@ -6,6 +6,8 @@
 //! - `s3`     any S3-compatible object store (AWS / MinIO / R2 / OSS-S3 ...)
 //! - `webdav` generic WebDAV — also the bridge to rclone (`rclone serve webdav`) and
 //!   OpenList/AList (`/dav`), which covers drives OpenDAL lacks (115, PikPak, Aliyun ...).
+pub mod drivers;
+
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
@@ -226,6 +228,7 @@ pub fn build_driver(kind: &str, opts: &HashMap<String, String>) -> Result<Box<dy
             }
             Ok(Box::new(OpendalDriver::new("webdav", Operator::new(b)?)))
         }
+        "pikpak" => Ok(Box::new(drivers::pikpak::PikPakDriver::new(opts)?)),
         other => Err(StorageError::Unsupported(format!(
             "storage kind '{other}' (supported: fs, s3, webdav; onedrive/gdrive/115/pikpak via rclone/OpenList webdav bridge)"
         ))),

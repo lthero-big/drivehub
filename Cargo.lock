@@ -793,10 +793,18 @@ name = "drivehub-storage"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
+ "base64 0.22.1",
  "bytes",
  "futures",
+ "hmac 0.12.1",
+ "httpdate",
+ "md-5 0.10.6",
  "opendal",
+ "reqwest",
  "serde",
+ "serde_json",
+ "sha1 0.10.7",
  "tempfile",
  "thiserror",
  "tokio",
