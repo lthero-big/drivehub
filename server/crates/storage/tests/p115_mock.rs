@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use base64::Engine;
+use drivehub_storage::drivers::p115::{self, ec115};
 use drivehub_storage::{build_driver, drivers::p115::m115, ByteRange, StorageError};
 use futures::StreamExt;
 use num_bigint::BigUint;
@@ -31,6 +32,13 @@ struct Mock {
     objs: Vec<Obj>,
     next: u64,
     base: String,
+    server_sk: Vec<u8>,
+    pending: HashMap<String, (String, String)>, // oss object -> (dir id, name)
+    parts: HashMap<String, std::collections::BTreeMap<u32, Vec<u8>>>,
+    rapid_hits: u32,
+    sign_checks: u32,
+    oss_puts: u32,
+    completes: u32,
 }
 type S = Arc<Mutex<Mock>>;
 
@@ -235,8 +243,203 @@ async fn dl(State(s): State<S>, h: HeaderMap, Path(id): Path<String>) -> impl In
     (StatusCode::OK, d)
 }
 
+fn sha1u(b: &[u8]) -> String {
+    use sha1::{Digest, Sha1};
+    Sha1::digest(b).iter().map(|x| format!("{x:02X}")).collect()
+}
+
+fn form_decode(s: &str) -> HashMap<String, String> {
+    let dec = |v: &str| {
+        let b = v.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < b.len() {
+            match b[i] {
+                b'+' => out.push(b' '),
+                b'%' => {
+                    out.push(u8::from_str_radix(&v[i + 1..i + 3], 16).unwrap());
+                    i += 2;
+                }
+                c => out.push(c),
+            }
+            i += 1;
+        }
+        String::from_utf8(out).unwrap()
+    };
+    s.split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .map(|(k, v)| (dec(k), dec(v)))
+        .collect()
+}
+
+fn add_file(m: &mut Mock, dir: &str, name: &str, data: Vec<u8>) {
+    m.next += 1;
+    let id = format!("u{}", m.next);
+    m.objs.push(Obj {
+        id,
+        parent: dir.into(),
+        name: name.into(),
+        dir: false,
+        data,
+    });
+}
+
+async fn uploadinfo(h: HeaderMap) -> Json<Value> {
+    assert!(ok_cookie(&h));
+    Json(json!({"state": true, "user_id": 42, "userkey": "UKEY", "size_limit": 123}))
+}
+
+async fn initupload(
+    State(s): State<S>,
+    Query(q): Query<HashMap<String, String>>,
+    body: axum::body::Bytes,
+) -> Vec<u8> {
+    let mut m = s.lock().unwrap();
+    let (cpub, _ts) = ec115::Cipher::decode_token(&q["k_ec"]).expect("k_ec");
+    let ec = ec115::Cipher::server(&m.server_sk, &cpub).unwrap();
+    let f = form_decode(&String::from_utf8(ec.decrypt_request(&body).expect("ec body")).unwrap());
+    let (fid, target, size) = (
+        f["fileid"].clone(),
+        f["target"].clone(),
+        f["filesize"].clone(),
+    );
+    assert_eq!(f["userid"], "42");
+    assert_eq!(f["sig"], p115::upload_sig("42", "UKEY", &fid, &target));
+    let (sk, sv) = (
+        f.get("sign_key").cloned().unwrap_or_default(),
+        f.get("sign_val").cloned().unwrap_or_default(),
+    );
+    assert_eq!(
+        f["token"],
+        p115::upload_token("42", &fid, &f["t"], &size, &sk, &sv)
+    );
+    let dir = target.strip_prefix("U_1_").unwrap().to_string();
+    let reply = if let Some(src) = m
+        .objs
+        .iter()
+        .find(|o| !o.dir && sha1u(&o.data) == fid)
+        .cloned()
+    {
+        if sk.is_empty() {
+            // demand a range proof before accepting the rapid upload
+            json!({"statuscode": 0, "status": 7, "sign_key": "SK1", "sign_check": "1-3"})
+        } else {
+            assert_eq!(sk, "SK1");
+            assert_eq!(sv, sha1u(&src.data[1..=3]));
+            m.sign_checks += 1;
+            m.rapid_hits += 1;
+            add_file(&mut m, &dir, &f["filename"], src.data.clone());
+            json!({"statuscode": 0, "status": 2, "pickcode": "pcx"})
+        }
+    } else {
+        m.next += 1;
+        let obj = format!("obj/{}", m.next);
+        m.pending.insert(obj.clone(), (dir, f["filename"].clone()));
+        json!({"statuscode": 0, "status": 1, "bucket": "fhnfile", "object": obj,
+            "callback": {"callback": "{\"callbackUrl\":\"https://uplb.115.com/3.0/rsacallback.php\"}", "callback_var": "{\"x:scene_id\":\"0\"}"}})
+    };
+    ec.encrypt_reply(reply.to_string().as_bytes())
+}
+
+async fn gettoken() -> Json<Value> {
+    Json(
+        json!({"StatusCode": "200", "AccessKeyID": "AK", "AccessKeySecret": "SKEY", "SecurityToken": "STS"}),
+    )
+}
+
+/// Verifies the OSS V1 signature (canonical x-oss-* headers + sub-resource).
+fn oss_verify(method: &str, h: &HeaderMap, bucket: &str, key: &str, q: &HashMap<String, String>) {
+    use hmac::{Hmac, Mac};
+    let mut xs: Vec<(String, String)> = h
+        .iter()
+        .filter(|(k, _)| k.as_str().starts_with("x-oss-"))
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
+        .collect();
+    xs.sort();
+    let canon: String = xs.iter().map(|(k, v)| format!("{k}:{v}\n")).collect();
+    let sub = if q.contains_key("uploads") {
+        "?uploads".to_string()
+    } else if let Some(u) = q.get("uploadId") {
+        match q.get("partNumber") {
+            Some(p) => format!("?partNumber={p}&uploadId={u}"),
+            None => format!("?uploadId={u}"),
+        }
+    } else {
+        String::new()
+    };
+    let to_sign = format!(
+        "{method}\n\n{}\n{}\n{canon}/{bucket}/{key}{sub}",
+        h["content-type"].to_str().unwrap(),
+        h["date"].to_str().unwrap()
+    );
+    let mut mac = Hmac::<sha1::Sha1>::new_from_slice(b"SKEY").unwrap();
+    mac.update(to_sign.as_bytes());
+    let sig = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+    assert_eq!(
+        h["authorization"].to_str().unwrap(),
+        format!("OSS AK:{sig}")
+    );
+    assert_eq!(h["x-oss-security-token"], "STS");
+}
+
+fn finish(m: &mut Mock, key: &str, h: &HeaderMap, data: Vec<u8>) {
+    let cb = base64::engine::general_purpose::STANDARD
+        .decode(h["x-oss-callback"].as_bytes())
+        .unwrap();
+    assert!(String::from_utf8(cb).unwrap().contains("rsacallback"));
+    assert!(h.contains_key("x-oss-callback-var"));
+    let (dir, name) = m.pending.remove(key).expect("pending object");
+    add_file(m, &dir, &name, data);
+}
+
+async fn oss_put(
+    State(s): State<S>,
+    Path((bucket, key)): Path<(String, String)>,
+    Query(q): Query<HashMap<String, String>>,
+    h: HeaderMap,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    let mut m = s.lock().unwrap();
+    oss_verify("PUT", &h, &bucket, &key, &q);
+    if let (Some(no), Some(uid)) = (q.get("partNumber"), q.get("uploadId")) {
+        let no: u32 = no.parse().unwrap();
+        m.parts.get_mut(uid).unwrap().insert(no, body.to_vec());
+        return (StatusCode::OK, [("etag", format!("\"p{no}\""))]);
+    }
+    m.oss_puts += 1;
+    finish(&mut m, &key, &h, body.to_vec());
+    (StatusCode::OK, [("etag", "\"x\"".to_string())])
+}
+
+async fn oss_post(
+    State(s): State<S>,
+    Path((bucket, key)): Path<(String, String)>,
+    Query(q): Query<HashMap<String, String>>,
+    h: HeaderMap,
+    body: axum::body::Bytes,
+) -> String {
+    let mut m = s.lock().unwrap();
+    oss_verify("POST", &h, &bucket, &key, &q);
+    if q.contains_key("uploads") {
+        let uid = format!("up{}", m.parts.len() + 1);
+        m.parts.insert(uid.clone(), Default::default());
+        return format!("<InitiateMultipartUploadResult><UploadId>{uid}</UploadId></InitiateMultipartUploadResult>");
+    }
+    let parts = m.parts.remove(&q["uploadId"]).unwrap();
+    let xml = String::from_utf8(body.to_vec()).unwrap();
+    for no in parts.keys() {
+        assert!(xml.contains(&format!(
+            "<PartNumber>{no}</PartNumber><ETag>\"p{no}\"</ETag>"
+        )));
+    }
+    m.completes += 1;
+    finish(&mut m, &key, &h, parts.into_values().flatten().collect());
+    String::new()
+}
+
 async fn start() -> (S, String) {
     let s: S = Arc::new(Mutex::new(Mock::default()));
+    s.lock().unwrap().server_sk = SERVER_SK.lock().unwrap().0.clone();
     s.lock().unwrap().objs.push(Obj {
         id: "f1".into(),
         parent: "0".into(),
@@ -251,6 +454,13 @@ async fn start() -> (S, String) {
         .route("/rb/delete", post(rb_delete))
         .route("/app/chrome/downurl", post(downurl))
         .route("/dl/{id}", get(dl))
+        .route("/app/uploadinfo", post(uploadinfo))
+        .route("/4.0/initupload.php", post(initupload))
+        .route("/3.0/gettoken.php", get(gettoken))
+        .route(
+            "/oss/{bucket}/{*key}",
+            axum::routing::put(oss_put).post(oss_post),
+        )
         .with_state(s.clone());
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", l.local_addr().unwrap());
@@ -259,8 +469,26 @@ async fn start() -> (S, String) {
     (s, base)
 }
 
+/// Test stand-in for 115's static ECDH key: (secret scalar, uncompressed X||Y hex).
+static SERVER_SK: std::sync::LazyLock<Mutex<(Vec<u8>, String)>> = std::sync::LazyLock::new(|| {
+    use p224::elliptic_curve::sec1::ToEncodedPoint;
+    let sk = p224::SecretKey::random(&mut rand_core::OsRng);
+    let pk = sk.public_key().to_encoded_point(false);
+    let hex: String = pk.as_bytes()[1..]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    Mutex::new((sk.to_bytes().to_vec(), hex))
+});
+
 fn opts(base: &str, cookie: &str) -> HashMap<String, String> {
+    let ec = SERVER_SK.lock().unwrap().1.clone();
+    let oss = format!("{base}/oss");
     [
+        ("uplb_endpoint", base),
+        ("oss_endpoint", oss.as_str()),
+        ("ec_remote_pubkey", ec.as_str()),
+        ("upload_part_size", "6"),
         ("cookie", cookie),
         ("webapi_endpoint", base),
         ("proapi_endpoint", base),
@@ -278,6 +506,72 @@ async fn collect(s: drivehub_storage::ByteStream) -> Vec<u8> {
         .collect::<Vec<_>>()
         .await
         .concat()
+}
+
+#[test]
+fn ec115_token_and_envelope_roundtrip() {
+    let (sk, hex) = SERVER_SK.lock().unwrap().clone();
+    let remote: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    let c = ec115::Cipher::new(&remote).unwrap();
+    let tok = c.encode_token(1_763_520_000_123, 0x5a, 0xa5);
+    let (pk, ts) = ec115::Cipher::decode_token(&tok).unwrap();
+    assert_eq!(pk, c.pubkey);
+    assert_eq!(ts, 1_763_520_000_123u64 as u32);
+    let srv = ec115::Cipher::server(&sk, &pk).unwrap();
+    let body = c.encrypt(b"appid=0&filename=a+b.txt");
+    assert_eq!(
+        srv.decrypt_request(&body).unwrap(),
+        b"appid=0&filename=a+b.txt"
+    );
+    let reply = br#"{"status":2,"statuscode":0}"#;
+    assert_eq!(c.decrypt(&srv.encrypt_reply(reply)).unwrap(), reply);
+    // the real 115 key is a valid P-224 point
+    assert!(ec115::Cipher::new(&ec115::REMOTE_PUB).is_ok());
+    // signature/token formats (upper-case sha1 / lower-case md5)
+    assert_eq!(p115::upload_sig("1", "k", "F", "U_1_0").len(), 40);
+    assert_eq!(p115::upload_token("1", "F", "1", "3", "", "").len(), 32);
+}
+
+#[tokio::test]
+async fn p115_upload_rapid_hit_and_miss() {
+    let (s, base) = start().await;
+    let drv = build_driver("115", &opts(&base, COOKIE)).unwrap();
+    // miss, small -> single OSS PUT with callback
+    drv.write("up/a.txt", bytes::Bytes::from_static(b"abc"))
+        .await
+        .unwrap();
+    assert_eq!(
+        collect(drv.read("up/a.txt", None).await.unwrap()).await,
+        b"abc"
+    );
+    // hit: same content as the seeded hello.txt -> sign_check retry then rapid (秒传), no OSS
+    drv.write("up/copy.txt", bytes::Bytes::from_static(b"0123456789"))
+        .await
+        .unwrap();
+    // miss, large, streamed -> spooled + OSS multipart (part size 6)
+    let chunks: Vec<std::io::Result<bytes::Bytes>> = (0..4)
+        .map(|i| Ok(bytes::Bytes::from(vec![b'k' + i as u8; 5])))
+        .collect();
+    let n = drv
+        .write_stream("up/big.bin", futures::stream::iter(chunks).boxed(), &|_| {})
+        .await
+        .unwrap();
+    assert_eq!(n, 20);
+    let got = collect(drv.read("up/big.bin", None).await.unwrap()).await;
+    assert_eq!(&got[..], b"kkkkklllllmmmmmnnnnn");
+    // overwrite replaces the old file
+    drv.write("up/a.txt", bytes::Bytes::from_static(b"xyz!"))
+        .await
+        .unwrap();
+    assert_eq!(drv.stat("up/a.txt").await.unwrap().size, 4);
+    assert_eq!(drv.list("up").await.unwrap().len(), 3);
+    let m = s.lock().unwrap();
+    assert_eq!((m.rapid_hits, m.sign_checks), (1, 1));
+    assert_eq!((m.oss_puts, m.completes), (2, 1));
+    assert!(m.pending.is_empty() && m.parts.is_empty());
 }
 
 #[test]
@@ -353,10 +647,10 @@ async fn p115_conformance_against_mock() {
     assert_eq!(names.len(), 2, "{names:?}"); // pagination with page_size=2 + exact count
     assert_eq!(drv.list_recursive("t").await.unwrap().len(), 4);
     assert_eq!(drv.list("").await.unwrap().len(), 2);
-    assert!(matches!(
-        drv.write("t/n.txt", bytes::Bytes::from_static(b"x")).await,
-        Err(StorageError::Unsupported(_))
-    ));
+    drv.write("t/n.txt", bytes::Bytes::from_static(b"x"))
+        .await
+        .unwrap();
+    assert_eq!(drv.stat("t/n.txt").await.unwrap().size, 1);
     drv.delete("t").await.unwrap();
     assert!(drv.stat("t").await.is_err());
     assert_eq!(drv.list("").await.unwrap().len(), 1);

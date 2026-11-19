@@ -10,6 +10,7 @@
 //! user_endpoint, api_endpoint, oss_endpoint (override `https://{bucket}.{endpoint}`),
 //! upload_part_size (bytes, default 16 MiB: single PUT up to it, OSS multipart above).
 //! A rotated refresh_token is reported through `set_option_sink` for persistence.
+use super::Src;
 use crate::{norm, ByteRange, ByteStream, Entry, Result, StorageDriver, StorageError};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -178,57 +179,17 @@ pub struct PikPakDriver {
     sink: std::sync::Mutex<Option<crate::OptionSink>>,
 }
 
-/// Upload source: small payloads stay in memory, streamed uploads are spooled to a temp file.
-enum Src {
-    Mem(Bytes),
-    File(std::path::PathBuf, u64),
-}
-
-impl Src {
-    fn len(&self) -> u64 {
-        match self {
-            Src::Mem(b) => b.len() as u64,
-            Src::File(_, n) => *n,
-        }
+async fn gcid_src(src: &Src) -> Result<String> {
+    let n = src.len();
+    let psize = gcid_block(n);
+    let mut outer = Sha1::new();
+    let mut off = 0;
+    while off < n {
+        let len = psize.min(n - off);
+        outer.update(Sha1::digest(&src.slice(off, len).await?));
+        off += len;
     }
-    async fn slice(&self, off: u64, len: u64) -> Result<Bytes> {
-        match self {
-            Src::Mem(b) => Ok(b.slice(off as usize..(off + len) as usize)),
-            Src::File(p, _) => {
-                let p = p.clone();
-                tokio::task::spawn_blocking(move || {
-                    use std::os::unix::fs::FileExt;
-                    let f = std::fs::File::open(p)?;
-                    let mut buf = vec![0u8; len as usize];
-                    f.read_exact_at(&mut buf, off)?;
-                    Ok::<_, std::io::Error>(Bytes::from(buf))
-                })
-                .await
-                .map_err(be)?
-                .map_err(be)
-            }
-        }
-    }
-    async fn gcid(&self) -> Result<String> {
-        let n = self.len();
-        let psize = gcid_block(n);
-        let mut outer = Sha1::new();
-        let mut off = 0;
-        while off < n {
-            let len = psize.min(n - off);
-            outer.update(Sha1::digest(&self.slice(off, len).await?));
-            off += len;
-        }
-        Ok(hex(&outer.finalize()).to_uppercase())
-    }
-}
-
-impl Drop for Src {
-    fn drop(&mut self) {
-        if let Src::File(p, _) = self {
-            let _ = std::fs::remove_file(p);
-        }
-    }
+    Ok(hex(&outer.finalize()).to_uppercase())
 }
 
 /// GCID block size for a payload of `n` bytes (256 KiB doubling up to 2 MiB, <= 512 blocks).
@@ -860,7 +821,7 @@ impl PikPakDriver {
             }
             self.trash(&old.id).await?;
         }
-        let hash = src.gcid().await?;
+        let hash = gcid_src(&src).await?;
         let v = self
             .api(
                 reqwest::Method::POST,
@@ -1001,32 +962,8 @@ impl StorageDriver for PikPakDriver {
     ) -> Result<u64> {
         // GCID needs the whole content before the upload task is created, so spool to a
         // temp file (not memory); parts are then read back one at a time.
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let tmp = std::env::temp_dir().join(format!(
-            "drivehub-pikpak-{}-{}-{}.part",
-            std::process::id(),
-            now_ms(),
-            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        let f = std::sync::Arc::new(std::fs::File::create(&tmp).map_err(be)?);
-        let mut src = Src::File(tmp, 0);
-        let mut n = 0u64;
-        while let Some(c) = data.next().await {
-            let c = c.map_err(be)?;
-            n += c.len() as u64;
-            let f = f.clone();
-            tokio::task::spawn_blocking(move || {
-                use std::io::Write;
-                (&*f).write_all(&c)
-            })
-            .await
-            .map_err(be)?
-            .map_err(be)?;
-        }
-        if let Src::File(_, len) = &mut src {
-            *len = n;
-        }
-        drop(f);
+        let src = Src::spool(&mut data, "pikpak").await?;
+        let n = src.len();
         self.upload(path, src, on_progress).await?;
         Ok(n)
     }

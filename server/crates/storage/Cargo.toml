@@ -20,6 +20,12 @@ opendal = { version = "0.59.5", features = ["services-fs", "services-s3", "servi
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+p224 = { version = "0.13.2", features = ["ecdh"] }
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+crc32fast = "1.5.5"
+lz4_flex = "0.14.2"
 
 [dev-dependencies]
 axum.workspace = true

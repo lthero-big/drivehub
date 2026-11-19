@@ -8,7 +8,10 @@
 //!
 //! Options: cookie ("UID=..; CID=..; SEID=..; KID=.."), root_id (default "0"), user_agent,
 //! page_size; test overrides: webapi_endpoint, proapi_endpoint, passport_endpoint, m115_n.
-//! Not yet ported: upload (initupload sig/token + ec115 + OSS), QR-code login.
+//! Upload: rapid upload (sha1 + 128 KiB pre-hash, sign_check retry) via ec115-encrypted
+//! `initupload.php`, else STS OSS PUT / multipart with the 115 callback (options uplb_endpoint,
+//! oss_endpoint, ec_remote_pubkey, upload_part_size for tests). Not yet ported: QR-code login.
+use super::Src;
 use crate::{norm, ByteRange, ByteStream, Entry, Result, StorageDriver, StorageError};
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -181,6 +184,131 @@ struct RFile {
     modified: Option<i64>,
 }
 
+/// ec115 envelope for `uplb.115.com/4.0/initupload.php` (port of 115driver/pkg/crypto/ec115):
+/// P-224 ECDH with 115's static key, AES-128-CBC request body, LZ4-block reply, `k_ec` token.
+pub mod ec115 {
+    use aes::cipher::{
+        block_padding::NoPadding, block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit,
+    };
+    use p224::elliptic_curve::sec1::ToEncodedPoint;
+
+    type Enc = cbc::Encryptor<aes::Aes128>;
+    type Dec = cbc::Decryptor<aes::Aes128>;
+
+    /// 115's static P-224 public key (uncompressed X || Y).
+    pub const REMOTE_PUB: [u8; 56] = [
+        0x57, 0xA2, 0x92, 0x57, 0xCD, 0x23, 0x20, 0xE5, 0xD6, 0xD1, 0x43, 0x32, 0x2F, 0xA4, 0xBB,
+        0x8A, 0x3C, 0xF9, 0xD3, 0xCC, 0x62, 0x3E, 0xF5, 0xED, 0xAC, 0x62, 0xB7, 0x67, 0x8A, 0x89,
+        0xC9, 0x1A, 0x83, 0xBA, 0x80, 0x0D, 0x61, 0x29, 0xF5, 0x22, 0xD0, 0x34, 0xC8, 0x95, 0xDD,
+        0x24, 0x65, 0x24, 0x3A, 0xDD, 0xC2, 0x50, 0x95, 0x3B, 0xEE, 0xBA,
+    ];
+    const CRC_SALT: &[u8] = b"^j>WD3Kr?J2gLFjD4W2y@";
+
+    pub struct Cipher {
+        key: [u8; 16],
+        iv: [u8; 16],
+        /// `[29, 02|03, X(28)]` — length-prefixed compressed local public key.
+        pub pubkey: Vec<u8>,
+    }
+
+    impl Cipher {
+        /// Fresh ephemeral key agreed with `remote` (uncompressed X||Y, 56 bytes).
+        pub fn new(remote: &[u8]) -> Result<Self, String> {
+            let mut sec1 = vec![4u8];
+            sec1.extend_from_slice(remote);
+            let rp = p224::PublicKey::from_sec1_bytes(&sec1).map_err(|e| e.to_string())?;
+            let sk = p224::ecdh::EphemeralSecret::random(&mut rand_core::OsRng);
+            let mut pubkey = vec![29u8];
+            pubkey.extend_from_slice(sk.public_key().to_encoded_point(true).as_bytes());
+            let shared = sk.diffie_hellman(&rp);
+            Ok(Self::from_secret(shared.raw_secret_bytes(), pubkey))
+        }
+
+        /// key = secret[..16], iv = secret[len-16..] (28-byte X coordinate).
+        pub fn from_secret(secret: &[u8], pubkey: Vec<u8>) -> Self {
+            let mut key = [0u8; 16];
+            let mut iv = [0u8; 16];
+            key.copy_from_slice(&secret[..16]);
+            iv.copy_from_slice(&secret[secret.len() - 16..]);
+            Self { key, iv, pubkey }
+        }
+
+        /// Server side (mocks): agree with a client pubkey taken from a `k_ec` token.
+        pub fn server(secret_key: &[u8], client_pub: &[u8]) -> Result<Self, String> {
+            let sk = p224::SecretKey::from_slice(secret_key).map_err(|e| e.to_string())?;
+            let pk =
+                p224::PublicKey::from_sec1_bytes(&client_pub[1..]).map_err(|e| e.to_string())?;
+            let shared = p224::ecdh::diffie_hellman(sk.to_nonzero_scalar(), pk.as_affine());
+            Ok(Self::from_secret(
+                shared.raw_secret_bytes(),
+                client_pub.to_vec(),
+            ))
+        }
+
+        /// PKCS#7 + AES-CBC (upstream hand-rolls the same chaining over ECB).
+        pub fn encrypt(&self, plain: &[u8]) -> Vec<u8> {
+            Enc::new(&self.key.into(), &self.iv.into()).encrypt_padded_vec_mut::<Pkcs7>(plain)
+        }
+
+        /// Inverse of [`Cipher::encrypt`] (mocks).
+        pub fn decrypt_request(&self, ct: &[u8]) -> Option<Vec<u8>> {
+            Dec::new(&self.key.into(), &self.iv.into())
+                .decrypt_padded_vec_mut::<Pkcs7>(ct)
+                .ok()
+        }
+
+        /// Reply: AES-CBC (no padding) over `[len lo, len hi, lz4 block...]`.
+        pub fn decrypt(&self, ct: &[u8]) -> Option<Vec<u8>> {
+            let ct = &ct[..ct.len() - ct.len() % 16];
+            let b = Dec::new(&self.key.into(), &self.iv.into())
+                .decrypt_padded_vec_mut::<NoPadding>(ct)
+                .ok()?;
+            let len = *b.first()? as usize | (*b.get(1)? as usize) << 8;
+            lz4_flex::block::decompress(b.get(2..2 + len)?, 0x2000).ok()
+        }
+
+        /// Inverse of [`Cipher::decrypt`] (mocks).
+        pub fn encrypt_reply(&self, plain: &[u8]) -> Vec<u8> {
+            let z = lz4_flex::block::compress(plain);
+            let mut b = vec![(z.len() & 0xff) as u8, (z.len() >> 8) as u8];
+            b.extend_from_slice(&z);
+            b.resize(b.len().div_ceil(16) * 16, 0);
+            Enc::new(&self.key.into(), &self.iv.into()).encrypt_padded_vec_mut::<NoPadding>(&b)
+        }
+
+        /// `k_ec` query token: obfuscated pubkey + timestamp + CRC32 (salted).
+        pub fn encode_token(&self, ts: i64, r1: u8, r2: u8) -> String {
+            let t = (ts as u32).to_be_bytes();
+            let mut tmp = Vec::with_capacity(48);
+            tmp.extend(self.pubkey[..15].iter().map(|b| b ^ r1));
+            tmp.extend_from_slice(&[r1, 0x73 ^ r1, r1, r1, r1]);
+            tmp.extend((0..4).map(|i| r1 ^ t[3 - i]));
+            tmp.extend(self.pubkey[15..].iter().map(|b| b ^ r2));
+            tmp.extend_from_slice(&[r2, 0x01 ^ r2, r2, r2, r2]);
+            let mut h = crc32fast::Hasher::new();
+            h.update(CRC_SALT);
+            h.update(&tmp);
+            tmp.extend(h.finalize().to_le_bytes());
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(tmp)
+        }
+
+        /// Inverse of [`Cipher::encode_token`] (mocks): `(client pubkey, timestamp)`.
+        pub fn decode_token(tok: &str) -> Option<(Vec<u8>, u32)> {
+            use base64::Engine;
+            let b = base64::engine::general_purpose::STANDARD.decode(tok).ok()?;
+            if b.len() != 48 {
+                return None;
+            }
+            let (r1, r2) = (b[15], b[39]);
+            let mut pk: Vec<u8> = b[..15].iter().map(|x| x ^ r1).collect();
+            pk.extend(b[24..39].iter().map(|x| x ^ r2));
+            let t = [b[23] ^ r1, b[22] ^ r1, b[21] ^ r1, b[20] ^ r1];
+            Some((pk, u32::from_be_bytes(t)))
+        }
+    }
+}
+
 fn be(e: impl std::fmt::Display) -> StorageError {
     StorageError::Backend(format!("115: {e}"))
 }
@@ -204,6 +332,71 @@ pub struct P115Driver {
     passport: String,
     rsa: m115::Rsa,
     checked: Mutex<bool>,
+    uplb: String,
+    oss_ep: Option<String>,
+    ec_remote: Vec<u8>,
+    part_size: u64,
+    /// (user_id, userkey) from `app/uploadinfo`.
+    upinfo: Mutex<Option<(String, String)>>,
+}
+
+const MD5_SALT: &str = "Qclm8MGWUv59TnrR0XPg";
+const APP_VER: &str = "27.0.5.7";
+const OSS_UA: &str = "aliyun-sdk-android/2.9.1";
+const OSS_ENDPOINT: &str = "cn-shenzhen.oss.aliyuncs.com";
+
+fn sha1_upper(b: &[u8]) -> String {
+    use sha1::{Digest, Sha1};
+    hexu(&Sha1::digest(b))
+}
+
+fn hexu(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02X}")).collect()
+}
+
+/// Go `url.Values.Encode`: keys sorted, QueryEscape (space -> '+').
+fn form_encode(kv: &std::collections::BTreeMap<&str, String>) -> String {
+    let esc = |s: &str| {
+        s.bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (b as char).to_string()
+                }
+                b' ' => "+".into(),
+                _ => format!("%{b:02X}"),
+            })
+            .collect::<String>()
+    };
+    kv.iter()
+        .map(|(k, v)| format!("{}={}", esc(k), esc(v)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// initupload `sig` (115driver GenerateSignature).
+pub fn upload_sig(user_id: &str, userkey: &str, file_id: &str, target: &str) -> String {
+    let inner = sha1_upper(format!("{user_id}{file_id}{target}0").as_bytes()).to_lowercase();
+    sha1_upper(format!("{userkey}{inner}000000").as_bytes())
+}
+
+/// initupload `token` (115driver GenerateToken).
+pub fn upload_token(
+    user_id: &str,
+    file_id: &str,
+    t: &str,
+    size: &str,
+    sign_key: &str,
+    sign_val: &str,
+) -> String {
+    use md5::{Digest, Md5};
+    let uid_md5 = format!("{:x}", Md5::digest(user_id.as_bytes()));
+    format!(
+        "{:x}",
+        Md5::digest(
+            format!("{MD5_SALT}{file_id}{size}{sign_key}{sign_val}{user_id}{t}{uid_md5}{APP_VER}")
+                .as_bytes()
+        )
+    )
 }
 
 impl P115Driver {
@@ -233,6 +426,21 @@ impl P115Driver {
                 .unwrap_or_else(|| "https://passportapi.115.com".into()),
             rsa: m115::Rsa::new(get("m115_n").as_deref().unwrap_or(m115::N_HEX)),
             checked: Mutex::new(false),
+            uplb: get("uplb_endpoint").unwrap_or_else(|| "https://uplb.115.com".into()),
+            oss_ep: get("oss_endpoint"),
+            ec_remote: get("ec_remote_pubkey")
+                .and_then(|h| {
+                    (0..h.len())
+                        .step_by(2)
+                        .map(|i| u8::from_str_radix(h.get(i..i + 2)?, 16).ok())
+                        .collect()
+                })
+                .unwrap_or_else(|| ec115::REMOTE_PUB.to_vec()),
+            part_size: get("upload_part_size")
+                .and_then(|v| v.parse().ok())
+                .filter(|v| *v > 0)
+                .unwrap_or(16 << 20),
+            upinfo: Mutex::new(None),
         })
     }
 
@@ -303,6 +511,336 @@ impl P115Driver {
             .map_err(be)?;
         Self::check_basic(&v)?;
         Ok(v)
+    }
+
+    async fn upload_info(&self) -> Result<(String, String)> {
+        let mut g = self.upinfo.lock().await;
+        if let Some(i) = g.as_ref() {
+            return Ok(i.clone());
+        }
+        self.login_check().await?;
+        let v: Value = self
+            .req(
+                reqwest::Method::POST,
+                &format!("{}/app/uploadinfo", self.proapi),
+            )
+            .send()
+            .await
+            .map_err(be)?
+            .json()
+            .await
+            .map_err(be)?;
+        let (uid, key) = (sval(&v, "user_id"), sval(&v, "userkey"));
+        if uid.is_empty() || uid == "0" || key.is_empty() {
+            return Err(be(format!("uploadinfo: {v}")));
+        }
+        *g = Some((uid.clone(), key.clone()));
+        Ok((uid, key))
+    }
+
+    /// `initupload.php` with sign_key/sign_val retry (status 7). Returns the decrypted reply.
+    async fn init_upload(
+        &self,
+        dir_id: &str,
+        name: &str,
+        src: &Src,
+        file_id: &str,
+    ) -> Result<Value> {
+        let (uid, ukey) = self.upload_info().await?;
+        let target = format!("U_1_{dir_id}");
+        let size = src.len().to_string();
+        let mut form = std::collections::BTreeMap::new();
+        form.insert("appid", "0".to_string());
+        form.insert("appversion", APP_VER.to_string());
+        form.insert("userid", uid.clone());
+        form.insert("filename", name.to_string());
+        form.insert("filesize", size.clone());
+        form.insert("fileid", file_id.to_string());
+        form.insert("target", target.clone());
+        form.insert("sig", upload_sig(&uid, &ukey, file_id, &target));
+        form.insert("topupload", "true".to_string());
+        let ec = ec115::Cipher::new(&self.ec_remote).map_err(be)?;
+        let (mut sign_key, mut sign_val) = (String::new(), String::new());
+        for _ in 0..4 {
+            let t = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            let rnd: [u8; 2] = {
+                use rand_core::RngCore;
+                let mut b = [0u8; 2];
+                rand_core::OsRng.fill_bytes(&mut b);
+                b
+            };
+            form.insert("t", t.to_string());
+            form.insert(
+                "token",
+                upload_token(&uid, file_id, &t.to_string(), &size, &sign_key, &sign_val),
+            );
+            if !sign_key.is_empty() && !sign_val.is_empty() {
+                form.insert("sign_key", sign_key.clone());
+                form.insert("sign_val", sign_val.clone());
+            }
+            let body = ec.encrypt(form_encode(&form).as_bytes());
+            let raw = self
+                .req(
+                    reqwest::Method::POST,
+                    &format!("{}/4.0/initupload.php", self.uplb),
+                )
+                .query(&[("k_ec", ec.encode_token(t, rnd[0], rnd[1]))])
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(body)
+                .send()
+                .await
+                .map_err(be)?
+                .bytes()
+                .await
+                .map_err(be)?;
+            let plain = ec
+                .decrypt(&raw)
+                .ok_or_else(|| be("initupload: bad ec115 reply"))?;
+            let v: Value = serde_json::from_slice(&plain).map_err(be)?;
+            let code = v.get("statuscode").and_then(|x| x.as_i64()).unwrap_or(0);
+            if code != 0 && code != 701 {
+                return Err(be(format!("initupload: {code} {}", sval(&v, "statusmsg"))));
+            }
+            if v.get("status").and_then(|x| x.as_i64()) != Some(7) {
+                return Ok(v);
+            }
+            // Server asks for the SHA1 of an inclusive byte range "start-end".
+            sign_key = sval(&v, "sign_key");
+            let chk = sval(&v, "sign_check");
+            let (a, b) = chk
+                .split_once('-')
+                .and_then(|(a, b)| Some((a.parse::<u64>().ok()?, b.parse::<u64>().ok()?)))
+                .filter(|(a, b)| a <= b && *b < src.len())
+                .ok_or_else(|| be(format!("initupload: bad sign_check {chk}")))?;
+            sign_val = sha1_upper(&src.slice(a, b - a + 1).await?);
+        }
+        Err(be("initupload: sign check loop"))
+    }
+
+    /// Signed OSS request (V1, STS) carrying the 115 callback headers.
+    #[allow(clippy::too_many_arguments)]
+    async fn oss(
+        &self,
+        method: reqwest::Method,
+        tok: &Value,
+        bucket: &str,
+        object: &str,
+        sub: &str,
+        ctype: &str,
+        extra: &[(&str, String)],
+        data: Bytes,
+    ) -> Result<reqwest::Response> {
+        use base64::Engine;
+        use hmac::{Hmac, Mac};
+        let (ak, sk, sts) = (
+            sval(tok, "AccessKeyID"),
+            sval(tok, "AccessKeySecret"),
+            sval(tok, "SecurityToken"),
+        );
+        let q = if sub.is_empty() {
+            String::new()
+        } else {
+            format!("?{sub}")
+        };
+        let url = match &self.oss_ep {
+            Some(ep) => format!("{}/{bucket}/{object}{q}", ep.trim_end_matches('/')),
+            None => format!("https://{bucket}.{OSS_ENDPOINT}/{object}{q}"),
+        };
+        let date = httpdate::fmt_http_date(SystemTime::now());
+        let mut hs: Vec<(String, String)> = extra
+            .iter()
+            .map(|(k, v)| (k.to_lowercase(), v.clone()))
+            .collect();
+        hs.push(("x-oss-security-token".into(), sts));
+        hs.sort();
+        let canon: String = hs.iter().map(|(k, v)| format!("{k}:{v}\n")).collect();
+        let to_sign = format!("{method}\n\n{ctype}\n{date}\n{canon}/{bucket}/{object}{q}");
+        let mut mac = Hmac::<sha1::Sha1>::new_from_slice(sk.as_bytes()).map_err(be)?;
+        mac.update(to_sign.as_bytes());
+        let sig = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        let mut rb = self
+            .http
+            .request(method, url)
+            .header("Date", date)
+            .header("Content-Type", ctype)
+            .header("Authorization", format!("OSS {ak}:{sig}"))
+            .header("User-Agent", OSS_UA);
+        for (k, v) in &hs {
+            rb = rb.header(k.as_str(), v.as_str());
+        }
+        let r = rb.body(data).send().await.map_err(be)?;
+        if !r.status().is_success() {
+            let st = r.status();
+            return Err(be(format!(
+                "oss {sub} HTTP {st}: {}",
+                r.text().await.unwrap_or_default()
+            )));
+        }
+        Ok(r)
+    }
+
+    /// OSS upload with 115's callback: single PUT up to `part_size`, multipart above
+    /// (callback is attached to CompleteMultipartUpload, like the SDK's multipart path).
+    async fn oss_upload(&self, init: &Value, src: &Src) -> Result<()> {
+        let tok: Value = self
+            .req(
+                reqwest::Method::GET,
+                &format!("{}/3.0/gettoken.php", self.uplb),
+            )
+            .send()
+            .await
+            .map_err(be)?
+            .json()
+            .await
+            .map_err(be)?;
+        if sval(&tok, "StatusCode") != "200" {
+            return Err(be(format!("gettoken: {tok}")));
+        }
+        use base64::Engine;
+        let b64 = |s: String| base64::engine::general_purpose::STANDARD.encode(s);
+        let (bucket, object) = (sval(init, "bucket"), sval(init, "object"));
+        let cb = init.get("callback").cloned().unwrap_or_default();
+        let cbh = [
+            ("x-oss-callback", b64(sval(&cb, "callback"))),
+            ("x-oss-callback-var", b64(sval(&cb, "callback_var"))),
+        ];
+        const OCT: &str = "application/octet-stream";
+        let n = src.len();
+        if n <= self.part_size {
+            let data = src.slice(0, n).await?;
+            self.oss(
+                reqwest::Method::PUT,
+                &tok,
+                &bucket,
+                &object,
+                "",
+                OCT,
+                &cbh,
+                data,
+            )
+            .await?;
+            return Ok(());
+        }
+        let part = self.part_size.max(n.div_ceil(10_000));
+        let r = self
+            .oss(
+                reqwest::Method::POST,
+                &tok,
+                &bucket,
+                &object,
+                "uploads",
+                OCT,
+                &[],
+                Bytes::new(),
+            )
+            .await?;
+        let body = r.text().await.map_err(be)?;
+        let uid = body
+            .split_once("<UploadId>")
+            .and_then(|(_, r)| r.split_once("</UploadId>"))
+            .map(|(u, _)| u.to_string())
+            .ok_or_else(|| be("oss: no UploadId"))?;
+        let mut xml = String::from("<CompleteMultipartUpload>");
+        let (mut off, mut no) = (0u64, 1u32);
+        while off < n {
+            let len = part.min(n - off);
+            let data = src.slice(off, len).await?;
+            let sub = format!("partNumber={no}&uploadId={uid}");
+            let mut tries = 0;
+            let r = loop {
+                match self
+                    .oss(
+                        reqwest::Method::PUT,
+                        &tok,
+                        &bucket,
+                        &object,
+                        &sub,
+                        OCT,
+                        &[],
+                        data.clone(),
+                    )
+                    .await
+                {
+                    Ok(r) => break r,
+                    Err(e) if tries >= 2 => return Err(e),
+                    Err(_) => tries += 1,
+                }
+            };
+            let etag = r
+                .headers()
+                .get("etag")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            xml.push_str(&format!(
+                "<Part><PartNumber>{no}</PartNumber><ETag>{etag}</ETag></Part>"
+            ));
+            off += len;
+            no += 1;
+        }
+        xml.push_str("</CompleteMultipartUpload>");
+        self.oss(
+            reqwest::Method::POST,
+            &tok,
+            &bucket,
+            &object,
+            &format!("uploadId={uid}"),
+            "application/xml",
+            &cbh,
+            Bytes::from(xml),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Rapid upload (秒传, sha1 + 128 KiB pre-hash) or OSS upload, then verify by listing.
+    async fn upload(&self, path: &str, src: Src) -> Result<()> {
+        let (parent, name) = Self::split(path)?;
+        let dir_id = self.mkdir_id(&parent).await?;
+        if let Some(old) = self
+            .list_id(&dir_id)
+            .await?
+            .into_iter()
+            .find(|f| f.name == name)
+        {
+            if old.is_dir {
+                return Err(StorageError::AlreadyExists(path.into()));
+            }
+            self.delete(path).await?;
+        }
+        let n = src.len();
+        // 115driver also computes a 128 KiB pre-hash (PreID), but initupload 4.0 neither sends
+        // it nor folds it into the token, so only the full sha1 (fileid) is needed.
+        let file_id = {
+            use sha1::{Digest, Sha1};
+            let mut h = Sha1::new();
+            let mut off = 0;
+            while off < n {
+                let len = (4u64 << 20).min(n - off);
+                h.update(&src.slice(off, len).await?);
+                off += len;
+            }
+            hexu(&h.finalize())
+        };
+        let init = self.init_upload(&dir_id, &name, &src, &file_id).await?;
+        match init.get("status").and_then(|x| x.as_i64()) {
+            Some(2) => {}
+            Some(1) => self.oss_upload(&init, &src).await?,
+            other => return Err(be(format!("initupload: unexpected status {other:?}"))),
+        }
+        if self
+            .list_id(&dir_id)
+            .await?
+            .iter()
+            .any(|f| f.name == name && !f.is_dir)
+        {
+            Ok(())
+        } else {
+            Err(be(format!("upload of {path} not visible after completion")))
+        }
     }
 
     async fn list_id(&self, cid: &str) -> Result<Vec<RFile>> {
@@ -549,19 +1087,22 @@ impl StorageDriver for P115Driver {
         Ok(resp.bytes_stream().map_err(std::io::Error::other).boxed())
     }
 
-    async fn write(&self, _path: &str, _data: Bytes) -> Result<()> {
-        Err(StorageError::Unsupported(
-            "115: upload not ported yet (DEPTAI-481 phase 2)".into(),
-        ))
+    async fn write(&self, path: &str, data: Bytes) -> Result<()> {
+        self.upload(path, Src::Mem(data)).await
     }
 
     async fn write_stream(
         &self,
         path: &str,
-        _data: ByteStream,
-        _p: &(dyn Fn(u64) + Send + Sync),
+        mut data: ByteStream,
+        on_progress: &(dyn Fn(u64) + Send + Sync),
     ) -> Result<u64> {
-        self.write(path, Bytes::new()).await.map(|_| 0)
+        // sha1 must be known before initupload, so spool to disk rather than RAM.
+        let src = Src::spool(&mut data, "115").await?;
+        let n = src.len();
+        self.upload(path, src).await?;
+        on_progress(n);
+        Ok(n)
     }
 
     async fn mkdir(&self, path: &str) -> Result<()> {
