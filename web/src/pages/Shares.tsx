@@ -7,7 +7,7 @@ import { useApp } from "../lib/app";
 import { shareTrash, undoableDelete } from "../lib/trash";
 import { abs, copy, PERM_NAMES, qrDataUrl, STATUS_NAMES, type Share } from "../lib/shares";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { Badge, Button, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Select, Switch, toast } from "../ui/ui";
+import { Badge, Button, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Pager, Select, Switch, toast, usePaged } from "../ui/ui";
 import { PickupBox } from "./SharePublic";
 
 const tone = (s: string) => (s === "active" ? "ok" : s === "revoked" ? "danger" : "warn") as "ok";
@@ -23,6 +23,7 @@ export function SharesPage() {
   const [edit, setEdit] = useState<Share | null>(null);
   const [newRoom, setNewRoom] = useState(false);
   const [kind, setKind] = useState<"" | "share" | "room">("");
+  const [gone, setGone] = useState<Set<string>>(new Set());
   const load = () => call<Share[]>("GET", `/api/shares${all ? "?all=true" : ""}`).then(setRows).catch((e) => toast.err(errMsg(e)));
   useEffect(() => void load(), [all]); // eslint-disable-line react-hooks/exhaustive-deps
   const link = (s: Share) => {
@@ -30,7 +31,6 @@ export function SharesPage() {
     return abs(s.pin ? `${u}-${s.pin}` : u);
   };
   const shown = rows?.filter((s) => !gone.has(String(s.id)) && (!kind || (s.kind ?? "share") === kind)) ?? null;
-  const [gone, setGone] = useState<Set<string>>(new Set());
   /** Same delete-with-undo flow as files (lib/trash): hide → undo toast → DELETE when it ends. */
   const removeShares = (its: Share[]) =>
     undoableDelete({
@@ -44,6 +44,7 @@ export function SharesPage() {
       beacon: shareTrash.beacon,
       after: () => load(),
     });
+  const ps = usePaged(shown ?? [], 20, `${kind}${all}`, "shares");
   const act = async (f: () => Promise<unknown>) => {
     try {
       await f();
@@ -70,7 +71,7 @@ export function SharesPage() {
               <tr>{["生效", "名称", "类型", "状态", "权限", "提取码", "访问", "下载", "上传", "到期", "创建", ""].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {shown.map((s) => (
+              {ps.slice.map((s) => (
                 <tr key={s.id} className="hover:bg-hover" data-share-row={s.id}>
                   <td className="px-2 py-0.5"><Switch checked={!s.revoked} onChange={(on) => act(() => call("PATCH", `/api/shares/${s.id}`, { revoked: !on }).then(() => toast.ok(on ? "分享已生效" : "分享已失效")))} label={s.revoked ? `启用分享 ${s.name}` : `停用分享 ${s.name}`} /></td>
                   <td className="max-w-60 truncate px-3 py-1.5" title={s.items.join("\n")}>{s.name}{all && <span className="text-muted"> · {s.owner}</span>}</td>
@@ -97,6 +98,7 @@ export function SharesPage() {
           </table>
         </div>
       )}
+      <Pager {...ps} />
       <Modal open={!!qr} onClose={() => setQr(null)} title={qr?.s.name ?? ""}>
         {qr && (
           <div className="space-y-2 text-center text-[13px]">

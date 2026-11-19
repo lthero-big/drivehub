@@ -37,7 +37,8 @@ function scroller(el: HTMLElement | null): HTMLElement {
 
 type View = "list" | "grid" | "gallery";
 type Sort = { by: "name" | "size" | "modified"; desc: boolean };
-const PAGE = 60;
+const PAGE_SIZES = [30, 60, 100, 200];
+const pageSize0 = () => Number(localStorage.getItem("dh_pagesize_files")) || 60;
 
 function useStored<T>(key: string, init: T): [T, (v: T) => void] {
   const [v, set] = useState<T>(() => {
@@ -142,6 +143,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   const [items, setItems] = useState<FsItem[] | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [PAGE, setPAGE] = useState(pageSize0);
   const [err, setErr] = useState<{ msg: string; status: number } | null>(null);
   const [view, setView] = useStored<View>("dh_view", "list");
   const [sort, setSort] = useStored<Sort>("dh_sort", { by: "name", desc: false });
@@ -182,7 +184,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         setItems([]);
       }
     },
-    [path, sort.by, sort.desc, me],
+    [path, sort.by, sort.desc, me, PAGE],
   );
 
   useEffect(() => {
@@ -780,7 +782,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           </>
         )}
 
-        {items && !err && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total - (items ? items.length - all.length : 0)} size={PAGE} setPage={(n) => (setSel(new Set()), load(false, n))} />}
+        {items && !err && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total - (items ? items.length - all.length : 0)} size={PAGE} sizes={PAGE_SIZES} unit="项" setSize={(n) => (localStorage.setItem("dh_pagesize_files", String(n)), setPAGE(n))} setPage={(n) => (setSel(new Set()), load(false, n))} />}
         {readme && <Readme item={readme} />}
       </div>
 

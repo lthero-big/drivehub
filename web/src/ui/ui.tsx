@@ -208,26 +208,72 @@ export function Tabs<T extends string>({ tabs, value, onChange, className }: { t
   );
 }
 
-export function usePaged<T>(items: T[], size = 20, resetKey: unknown = "") {
+const PAGE_SIZES = [10, 20, 50, 100];
+const sizeKey = (k: string) => `dh_pagesize_${k}`;
+/** Client-side paging. `key` persists the chosen page size per list (localStorage). */
+export function usePaged<T>(items: T[], size = 20, resetKey: unknown = "", key?: string) {
   const [page, setPage] = useState(1);
-  const pages = Math.max(1, Math.ceil(items.length / size));
-  useEffect(() => setPage(1), [resetKey, size]);
+  const [sz, setSz] = useState(() => (key && Number(localStorage.getItem(sizeKey(key)))) || size);
+  const pages = Math.max(1, Math.ceil(items.length / sz));
+  useEffect(() => setPage(1), [resetKey, sz]);
   const p = Math.min(page, pages);
-  return { page: p, pages, setPage, total: items.length, slice: items.slice((p - 1) * size, p * size), size };
+  const setSize = (n: number) => (setSz(n), key && localStorage.setItem(sizeKey(key), String(n)));
+  const sizes = [...new Set([size, ...PAGE_SIZES])].sort((x, y) => x - y);
+  return { page: p, pages, setPage, total: items.length, slice: items.slice((p - 1) * sz, p * sz), size: sz, setSize, sizes };
 }
 
-export function Pager({ page, pages, setPage, total, size }: { page: number; pages: number; setPage: (n: number) => void; total: number; size: number }) {
-  if (total <= size) return total > 0 ? <p className="px-1 pt-3 text-xs text-faint">共 {total} 条</p> : null;
+/** Page numbers with ellipsis: 1 … 4 5 [6] 7 8 … 20 */
+export function pageList(page: number, pages: number): (number | "…")[] {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  const out: (number | "…")[] = [1];
+  const lo = Math.max(2, Math.min(page - 1, pages - 4));
+  const hi = Math.min(pages - 1, Math.max(page + 1, 5));
+  if (lo > 2) out.push("…");
+  for (let i = lo; i <= hi; i++) out.push(i);
+  if (hi < pages - 1) out.push("…");
+  out.push(pages);
+  return out;
+}
+
+/** Unified pagination (DEPTAI-485 r6 #8): range label · page size · numbered pages · jump to page.
+ *  Works for client lists (usePaged) and server lists (pass total / size / setPage / setSize). */
+export function Pager({ page, pages, setPage, total, size, setSize, sizes = PAGE_SIZES, unit = "条" }: { page: number; pages: number; setPage: (n: number) => void; total: number; size: number; setSize?: (n: number) => void; sizes?: number[]; unit?: string }) {
+  const [jump, setJump] = useState("");
+  const minSize = Math.min(...sizes);
+  if (total <= 0) return null;
+  if (total <= size && (!setSize || total <= minSize)) return <p className="px-1 pt-3 text-xs text-faint" data-pager="single">共 {total} {unit}</p>;
   const from = (page - 1) * size + 1;
   const to = Math.min(total, page * size);
+  const go = (n: number) => setPage(Math.max(1, Math.min(pages, n)));
   return (
-    <nav aria-label="分页" className="flex flex-wrap items-center justify-between gap-2 pt-3 text-[13px] text-muted">
-      <span>{from}–{to} / 共 {total} 条</span>
-      <span className="flex items-center gap-1">
-        <IconButton label="上一页" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft className="size-4" /></IconButton>
-        <span className="min-w-16 text-center tabular-nums">{page} / {pages}</span>
-        <IconButton label="下一页" disabled={page >= pages} onClick={() => setPage(page + 1)}><ChevronRight className="size-4" /></IconButton>
+    <nav aria-label="分页" data-pager className="ctl-sm flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-3 text-[13px] text-muted">
+      <span className="flex items-center gap-2">
+        <span className="tabular-nums" data-pager-range>{from}–{to} / 共 {total} {unit}</span>
+        {setSize && (
+          <Select size="sm" value={String(size)} onChange={(e) => (setSize(Number(e.target.value)), setPage(1))} aria-label="每页条数">
+            {[...new Set([...sizes, size])].sort((a, b) => a - b).map((n) => <option key={n} value={String(n)}>{n} {unit}/页</option>)}
+          </Select>
+        )}
       </span>
+      {pages > 1 && (
+        <span className="flex flex-wrap items-center gap-1">
+          <IconButton size="sm" label="上一页" disabled={page <= 1} onClick={() => go(page - 1)}><ChevronLeft className="size-4" /></IconButton>
+          {pageList(page, pages).map((n, i) =>
+            n === "…" ? <span key={`e${i}`} className="w-6 text-center text-faint">…</span> : (
+              <button key={n} type="button" aria-current={n === page ? "page" : undefined} aria-label={`第 ${n} 页`} onClick={() => go(n)}
+                className={cx("btn-key h-8 min-w-8 rounded-lg px-2 tabular-nums", n === page ? "bg-accent font-semibold text-accent-fg" : "hover:bg-hover hover:text-fg")}>{n}</button>
+            ),
+          )}
+          <IconButton size="sm" label="下一页" disabled={page >= pages} onClick={() => go(page + 1)}><ChevronRight className="size-4" /></IconButton>
+          {pages > 5 && (
+            <form className="ml-1 flex items-center gap-1" onSubmit={(e) => (e.preventDefault(), jump && go(Number(jump)), setJump(""))}>
+              <span className="ctl-label">跳至</span>
+              <Input ctl="sm" className="w-14 text-center tabular-nums" inputMode="numeric" aria-label="跳转页码" placeholder={String(page)} value={jump} onChange={(e) => setJump(e.target.value.replace(/\D/g, ""))} />
+              <span className="ctl-label">页</span>
+            </form>
+          )}
+        </span>
+      )}
     </nav>
   );
 }

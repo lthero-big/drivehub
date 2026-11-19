@@ -4,7 +4,7 @@ import { BellPlus, Download, RefreshCw, ShieldCheck, Trash2, Send } from "lucide
 import { call, rawFetch } from "../../lib/api";
 import type { AuditEvent } from "../../lib/shares";
 import { errMsg, fmtSize, fmtTime } from "../../lib/util";
-import { Badge, Button, Card, Checkbox, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Select, toast } from "../../ui/ui";
+import { Badge, Button, Card, Checkbox, confirmDlg, Empty, Field, IconButton, Input, Modal, PageHeader, Pager, Select, toast, usePaged } from "../../ui/ui";
 
 type Alert = { id: number; name: string; kind: string; actions: string; threshold: number; window_secs: number; sink: string; target: string; enabled: boolean };
 type AlertEv = { id: number; time: string; ts: number; rule: string; user: string; ip: string; message: string; sink: string; delivered: boolean; error: string };
@@ -18,6 +18,7 @@ export function AuditPage() {
   const [verify, setVerify] = useState<{ ok: boolean; checked: number; first_bad_id: number | null; reason: string | null } | null>(null);
   const [policy, setPolicy] = useState<number | null>(null);
   const [view, setView] = useState<"table" | "timeline">("timeline");
+  const pr = usePaged(rows ?? [], 50, rows, "audit");
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const query = () => {
     const q = new URLSearchParams({ limit: "500" });
@@ -103,7 +104,7 @@ export function AuditPage() {
               <tr>{["时间", "用户", "IP", "客户端", "通道", "动作", "路径", "结果", "字节", "分享", "详情"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {rows.map((r) => (
+              {pr.slice.map((r) => (
                 <tr key={r.id} className="hover:bg-hover">
                   <td className="px-3 py-1.5 whitespace-nowrap text-muted">{fmtTime(r.ts)}</td>
                   <td className="px-3 py-1.5">{r.username}</td>
@@ -122,6 +123,7 @@ export function AuditPage() {
           </table>
         </div>
       )}
+      {rows && rows.length > 0 && view === "table" && <Pager {...pr} />}
       {rows && rows.length > 0 && view === "timeline" && <AuditTimeline rows={rows} />}
       <Card title="保留期策略">
         <div className="flex items-end gap-2">
