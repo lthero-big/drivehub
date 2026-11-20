@@ -30,13 +30,18 @@ futures = "0.3.34"
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["sync", "time", "process", "io-util"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
 url = "2"
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 utoipa.workspace = true
+semver.workspace = true
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+flate2 = "1.1.11"
+tar = "0.4.46"
+base64 = "0.22"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
