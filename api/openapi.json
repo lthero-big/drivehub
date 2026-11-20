@@ -4769,6 +4769,13 @@
           },
           "server_version": {
             "type": "string"
+          },
+          "web_build": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Build id of the web bundle currently on disk (web_dir/version.json). A loaded page whose own build id differs should offer a reload."
           }
         }
       }
