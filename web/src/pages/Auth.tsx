@@ -4,6 +4,14 @@ import { HardDrive } from "lucide-react";
 import { ApiError, call, tokens, type AuthStatus } from "../lib/api";
 import { errMsg } from "../lib/util";
 import { Button, Field, Input } from "../ui/ui";
+import { reducedMotion, type Phase } from "../ui/morph";
+
+const MIN_RUN_MS = 900;
+const DONE_HOLD_MS = 850;
+const ERR_HOLD_MS = 1400;
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const afterRun = (t0: number) => wait(reducedMotion() ? 0 : Math.max(0, MIN_RUN_MS - (Date.now() - t0)));
+const holdDone = () => wait(reducedMotion() ? 0 : DONE_HOLD_MS);
 
 function Shell({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
@@ -41,38 +49,58 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
   const [code, setCode] = useState("");
   const [needTotp, setNeedTotp] = useState(!!totpTicket);
   const [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [otp, setOtp] = useState<OtpStatus>("idle");
   const form = useRef<HTMLFormElement>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (phase !== "idle") return;
     setMsg(null);
-    setBusy(true);
+    setPhase("run");
+    const t0 = Date.now();
     if (needTotp && code.length === 6) setOtp("checking");
     try {
-      if (init) tokens.set(await call("POST", "/api/auth/init", { username: login, email: email || null, password: pw }));
-      else if (totpTicket) tokens.set(await call("POST", "/api/auth/login/totp", { ticket: totpTicket, code }));
+      type Session = Parameters<typeof tokens.set>[0];
+      let session: Session | undefined;
+      let stay: string | undefined;
+      if (init) session = await call("POST", "/api/auth/init", { username: login, email: email || null, password: pw });
+      else if (totpTicket) session = await call("POST", "/api/auth/login/totp", { ticket: totpTicket, code });
       else if (tab === "register") {
         const r = await call("POST", "/api/auth/register", { username: login || null, email, password: pw });
-        if (r.verification_required) return setMsg({ text: "注册成功，请查收验证邮件后登录", ok: true });
-        tokens.set(r.tokens);
+        if (r.verification_required) stay = "注册成功，请查收验证邮件后登录";
+        else session = r.tokens;
       } else if (tab === "forgot") {
         await call("POST", "/api/auth/password/forgot", { email });
-        return setMsg({ text: "如果该邮箱已注册，重置邮件已发送", ok: true });
-      } else tokens.set(await call("POST", "/api/auth/login", { login, password: pw, totp_code: code || null }));
+        stay = "如果该邮箱已注册，重置邮件已发送";
+      } else session = await call("POST", "/api/auth/login", { login, password: pw, totp_code: code || null });
+      await afterRun(t0);
+      setPhase("done");
+      if (stay) {
+        setMsg({ text: stay, ok: true });
+        await holdDone();
+        setPhase("idle");
+        return;
+      }
+      if (needTotp) setOtp("ok");
+      await holdDone();
+      if (session) tokens.set(session);
       if (totpTicket) location.hash = "";
-      if (needTotp) (setOtp("ok"), await new Promise((r) => setTimeout(r, 420)));
       onDone();
     } catch (err) {
       const a = err as ApiError;
+      await afterRun(t0);
       if (a.body?.totp_required && !needTotp) {
         setNeedTotp(true);
         setMsg({ text: "请输入两步验证码" });
-      } else if (needTotp && code) (setOtp("wrong"), setMsg({ text: a.status === 429 ? "失败次数过多，请稍后再试" : "验证码不正确，请检查验证器 App 中最新的验证码" }));
+        setPhase("idle");
+        return;
+      }
+      if (needTotp && code) (setOtp("wrong"), setMsg({ text: a.status === 429 ? "失败次数过多，请稍后再试" : "验证码不正确，请检查验证器 App 中最新的验证码" }));
       else setMsg({ text: a.status === 429 ? "失败次数过多，请稍后再试" : errMsg(err) });
-    } finally {
-      setBusy(false);
+      setPhase("error");
+      await wait(reducedMotion() ? 400 : ERR_HOLD_MS);
+      setPhase("idle");
     }
   };
 
@@ -102,7 +130,7 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
           </Field>
         )}
         {msg && <p className={msg.ok ? "text-[13px] text-ok" : "text-[13px] text-danger"} role="alert">{msg.text}</p>}
-        <Button type="submit" variant="primary" className="w-full" loading={busy}>
+        <Button type="submit" variant="primary" className="mx-auto w-full" phase={phase} data-auth-submit>
           {init ? "创建管理员" : totpTicket ? "验证" : tab === "register" ? "注册" : tab === "forgot" ? "发送重置邮件" : "登录"}
         </Button>
       </form>
