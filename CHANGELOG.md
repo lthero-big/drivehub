@@ -3,6 +3,11 @@
 本项目所有组件（server / web / Android App / Docker 镜像）共用一个版本号，见 `VERSION` 与 [docs/deploy.md](docs/deploy.md)。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## 0.1.1 — 2026-11-20
+
+### Android
+- 按 PikPak App 风格重做界面：深色主题与绿色强调色、底部四栏导航、彩色圆角文件图标、类型筛选与列表/网格切换、搜索胶囊、传输与「我的」卡片化（DEPTAI-498）。取件码入口改到「我的」和分享页，功能保留。
+
 ## [Unreleased]
 
 ### Added
