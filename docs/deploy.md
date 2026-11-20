@@ -25,6 +25,7 @@ DriveHub 由 **server**（Rust 单二进制 `drivehub`，axum）、**web**（Rea
 客户端在 `/api/v1/*` 请求上带 `x-drivehub-client: app/X.Y.Z`（或 `web/X.Y.Z`）与 `x-drivehub-api: N`：
 客户端低于最低版本 → `426 {"status":"client_too_old","min_version":…}`（提示升级 App / 刷新页面）；
 客户端 API 大版本高于服务端 → `426 {"status":"server_too_old"}`（需要升级服务端）。
+例外：`GET /api/client/android/latest` 与 `GET /api/client/android/download` 仍走鉴权中间件（匿名可访问，错误的 Bearer 仍为 401），但**不做版本门控**，以便过旧的 App 下载升级包。
 Web 与服务端总是同包发布（web 产物随服务端一起替换），因此正常部署下 web 永远匹配；Android App 需与服务端同版本或在 `min_app_version` 之上（App 说明见 [docs/android.md](android.md)）。
 发版时若引入了旧客户端无法使用的变更，同时上调 `MIN_APP_VERSION` / `MIN_WEB_VERSION`；破坏性 API 变更上调 `API_VERSION`。
 
@@ -46,7 +47,8 @@ git tag v0.2.0 && git push origin main --tags
 | `web` | `web/dist` |
 | `server`（linux amd64；arm64 用 `ubuntu-24.04-arm` runner，矩阵里已注释） | `drivehub-linux-amd64`、`web.tar.gz`、`drivehub-X.Y.Z-linux-amd64.tar.gz`、`SHA256SUMS`，并冒烟 `/api/version` |
 | `docker` | 构建 base → runtime（`drivehub:X.Y.Z` + `drivehub:latest`），容器冒烟，`drivehub-X.Y.Z-docker-amd64.tar.gz` + sha256 |
-| `checksums` | 汇总所有构件与总 `SHA256SUMS` |
+| `android` | `drivehub-X.Y.Z-android-<signing>.apk` + sha256（未配置密钥时为 `debug-key`，不能用于商店 / 覆盖正式包） |
+| `checksums` | 汇总所有构件与总 `SHA256SUMS`，并生成 `release-manifest.json`（含 APK）；仅当提供 `DRIVEHUB_RELEASE_KEY` 时附加 `.sig`，不会在仓库或 CI 里生成密钥 |
 
 构件只上传为 workflow artifacts；推送镜像（ghcr）和创建 GitHub Release 的步骤已写好但注释掉，确定仓库后再打开。
 本地打包同一套构件：`scripts/package-release.sh`（输出 `dist/vX.Y.Z/`）；本地镜像：`deploy/build.sh`。

@@ -147,4 +147,59 @@ class ApiClientTest {
         assertEquals("https://a.b/", ApiClient.normalizeBase("a.b"))
         assertEquals("http://1.2.3.4:8470/", ApiClient.normalizeBase(" http://1.2.3.4:8470// "))
     }
+
+    @Test fun androidLatestParsesPackage() {
+        srv.enqueue(json("""{"source":"local","version":"0.2.0","version_code":200,"url":"/api/client/android/download","sha256":"abc","size":6}"""))
+        val p = api.androidLatest()
+        assertEquals("local", p.source)
+        assertEquals("0.2.0", p.version)
+        assertEquals(200L, p.versionCode)
+        assertEquals("/api/client/android/download", p.url)
+        val r = srv.takeRequest()
+        assertEquals("/api/client/android/latest", r.path)
+        assertEquals("app/0.1.0", r.getHeader("x-drivehub-client"))
+    }
+
+    @Test fun downloadAndroidVerifiesSha256() {
+        val body = "PK-apk"
+        val sha = "cff481d2cf8effe3deeef24847282eaf7492a9740c99801ee875da3152570271"
+        srv.enqueue(MockResponse().setHeader("Content-Type", "application/vnd.android.package-archive").setBody(body))
+        val f = File.createTempFile("apk", ".apk")
+        val pkg = ClientPackage(source = "local", version = "0.2.0", versionCode = 200,
+            url = "/api/client/android/download", sha256 = sha, size = body.length.toLong())
+        api.downloadAndroid(pkg, f)
+        assertEquals(body, f.readText())
+        assertEquals("/api/client/android/download", srv.takeRequest().path)
+    }
+
+    @Test fun downloadAndroidRejectsBadSha256AndDeletesFile() {
+        val sha = "cff481d2cf8effe3deeef24847282eaf7492a9740c99801ee875da3152570271"
+        srv.enqueue(MockResponse().setBody("not-the-apk"))
+        val f = File.createTempFile("apk", ".apk")
+        f.writeText("stale")
+        val pkg = ClientPackage(source = "manifest", version = "0.2.0", url = "/v/app.apk", sha256 = sha, size = 0)
+        val e = runCatching { api.downloadAndroid(pkg, f) }.exceptionOrNull()
+        assertTrue(e is com.drivehub.app.core.Sha256MismatchException)
+        assertFalse("corrupt file must be deleted", f.exists())
+        assertEquals("/v/app.apk", srv.takeRequest().path)
+    }
+
+    @Test fun downloadAndroidRejectsSizeMismatchAndDeletesFile() {
+        val sha = "cff481d2cf8effe3deeef24847282eaf7492a9740c99801ee875da3152570271"
+        srv.enqueue(MockResponse().setBody("PK-apk"))
+        val f = File.createTempFile("apk", ".apk")
+        val pkg = ClientPackage(url = "/api/client/android/download", sha256 = sha, size = 99)
+        val e = runCatching { api.downloadAndroid(pkg, f) }.exceptionOrNull()
+        assertTrue(e is java.io.IOException)
+        assertTrue(e!!.message!!.contains("size mismatch"))
+        assertFalse(f.exists())
+    }
+
+    @Test fun androidLatestRelativeAndAbsoluteUrlsResolve() {
+        val rel = ClientPackage(url = "/api/client/android/download", sha256 = "x")
+        assertEquals("/api/client/android/download", api.resolvePackageUrl(rel).encodedPath)
+        val abs = ClientPackage(url = srv.url("/v2/app.apk").toString(), sha256 = "x")
+        assertEquals("/v2/app.apk", api.resolvePackageUrl(abs).encodedPath)
+        assertEquals(srv.hostName, api.resolvePackageUrl(abs).host)
+    }
 }

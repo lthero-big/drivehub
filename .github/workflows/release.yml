@@ -161,6 +161,7 @@ jobs:
     needs: [version, server, docker, android]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { path: artifacts }
       - name: combined SHA256SUMS
@@ -168,12 +169,27 @@ jobs:
           mkdir release
           find artifacts -type f ! -name SHA256SUMS ! -path '*/web-dist/*' -exec cp {} release/ \;
           (cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+      - name: release manifest (includes Android APK; signed only when the key secret is set)
+        env:
+          RELEASE_KEY: ${{ secrets.DRIVEHUB_RELEASE_KEY }}
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          # Never print the key. Write it to a temp file only if present.
+          if [[ -n "$RELEASE_KEY" ]]; then
+            KEY="$RUNNER_TEMP/drivehub-release.key"
+            umask 077
+            printf '%s' "$RELEASE_KEY" > "$KEY"
+            export DRIVEHUB_RELEASE_KEY="$KEY"
+          fi
+          scripts/emit-release-manifest.sh --dir release --version "$VERSION" \
+            --docker "ghcr.io/lthero-big/drivehub:$VERSION"
+          rm -f "$RUNNER_TEMP/drivehub-release.key"
+          (cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: drivehub-${{ needs.version.outputs.version }}-release
           path: release/*
           retention-days: 90
       # Optional: attach to a GitHub Release (disabled; needs `permissions: contents: write`).
-      # Once DEPTAI-484's scripts/make-release.sh lands, sign release-manifest.json here too.
       # - uses: softprops/action-gh-release@v2
       #   with: { files: release/*, generate_release_notes: true }

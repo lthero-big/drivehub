@@ -8,7 +8,10 @@ import androidx.lifecycle.viewModelScope
 import com.drivehub.app.BuildConfig
 import com.drivehub.app.core.Compat
 import com.drivehub.app.core.VersionNegotiator
+import com.drivehub.app.core.AppUpdate
+import com.drivehub.app.core.Sha256MismatchException
 import com.drivehub.app.data.*
+import com.drivehub.app.update.ApkInstaller
 import com.drivehub.app.work.Transfers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +39,20 @@ data class FilesState(
 data class PickupState(val busy: Boolean = false, val error: String? = null, val needPin: Boolean = false,
                        val open: ShareOpen? = null, val path: String = "/", val items: List<SharedItem> = emptyList())
 
+data class AppUpdateState(
+    val pkg: ClientPackage? = null,
+    val checking: Boolean = false,
+    val downloading: Boolean = false,
+    val installing: Boolean = false,
+    val received: Long = 0,
+    val total: Long = 0,
+    val error: String? = null,
+    val needsPermission: Boolean = false,
+    val ready: File? = null,
+    val forced: Boolean = false,
+    val none: Boolean = false,
+)
+
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = Prefs(app)
     val stage = MutableStateFlow<Stage>(Stage.Boot)
@@ -46,10 +63,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val message = MutableStateFlow<String?>(null)
     val createdShare = MutableStateFlow<Share?>(null)
     val serverInfo = MutableStateFlow<VersionInfo?>(null)
+    val appUpdate = MutableStateFlow(AppUpdateState())
     private var api: ApiClient? = null
     private var cache: OfflineCache? = null
 
-    init { boot() }
+    init {
+        boot()
+        viewModelScope.launch {
+            ApkInstaller.results.collect { r ->
+                appUpdate.value = appUpdate.value.copy(installing = false, error = if (r.success) null else r.userFacing)
+                if (r.success) message.value = r.userFacing
+            }
+        }
+    }
 
     private fun mk(url: String) = ApiClient(url, BuildConfig.VERSION_NAME, BuildConfig.API_VERSION, prefs).also { api = it; cache = OfflineCache(getApplication(), it.base.toString()) }
 
@@ -69,23 +95,114 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 is Compat.Ok -> {
                     serverInfo.value = r.info
                     prefs.serverUrl = c.base.toString().trimEnd('/')
+                    var blocked = false
                     if (prefs.accessToken != null || prefs.refreshToken != null) {
                         val ok = withContext(Dispatchers.IO) { runCatching { c.me() } }
                         when {
                             ok.isSuccess -> { stage.value = Stage.Main; loadFiles("/") }
                             ok.exceptionOrNull() is ApiException && (ok.exceptionOrNull() as ApiException).status == 401 -> goLogin(c)
-                            ok.exceptionOrNull() is UpgradeRequiredException -> stage.value = Stage.Blocked((ok.exceptionOrNull() as UpgradeRequiredException).compat)
+                            ok.exceptionOrNull() is UpgradeRequiredException -> {
+                                val compat = (ok.exceptionOrNull() as UpgradeRequiredException).compat
+                                stage.value = Stage.Blocked(compat)
+                                blocked = true
+                                if (compat is Compat.ClientTooOld) refreshAppUpdate(forced = true)
+                            }
                             else -> { stage.value = Stage.Main; loadFiles("/") } // offline: cached listings
                         }
                     } else goLogin(c)
+                    if (!blocked) refreshAppUpdate(forced = false)
                 }
                 is Compat.Unreachable ->
                     if (silent && prefs.accessToken != null) { stage.value = Stage.Main; loadFiles("/") }
                     else stage.value = Stage.Setup(VersionNegotiator.message(r))
-                else -> stage.value = Stage.Blocked(r)
+                else -> {
+                    stage.value = Stage.Blocked(r)
+                    if (r is Compat.ClientTooOld) refreshAppUpdate(forced = true)
+                }
             }
         }
     }
+
+    /** Query /api/client/android/latest and, unless this is a forced upgrade, hide older/equal packages. */
+    fun refreshAppUpdate(forced: Boolean = appUpdate.value.forced) {
+        val c = api ?: return
+        appUpdate.value = AppUpdateState(checking = true, forced = forced)
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { c.androidLatest() } }
+            r.onSuccess { pkg ->
+                val newer = AppUpdate.isNewer(pkg.version, pkg.versionCode, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+                appUpdate.value = if (!forced && !newer) AppUpdateState(none = true)
+                else AppUpdateState(pkg = pkg, forced = forced)
+            }.onFailure { e ->
+                val notFound = (e as? ApiException)?.status == 404
+                appUpdate.value = AppUpdateState(
+                    forced = forced,
+                    none = notFound,
+                    error = if (notFound && forced)
+                        "服务器尚未提供可下载的安装包，请向管理员索取 APK。\nNo APK is hosted on this server."
+                    else if (notFound) null else errText(e),
+                )
+            }
+        }
+    }
+
+    fun startAppUpdate() {
+        val ctx = getApplication<Application>()
+        val cur = appUpdate.value
+        val pkg = cur.pkg ?: return
+        if (!ApkInstaller.canInstall(ctx)) {
+            appUpdate.value = cur.copy(
+                needsPermission = true,
+                error = "需要先允许本应用安装未知来源应用。系统仍会再弹出一次安装确认，应用不会跳过该确认。\nAllow DriveHub to install unknown apps; the system will still ask you to confirm the install.",
+            )
+            return
+        }
+        val ready = cur.ready
+        if (ready != null && ready.exists()) { beginInstall(ready); return }
+        appUpdate.value = cur.copy(downloading = true, needsPermission = false, error = null, received = 0, total = pkg.size)
+        viewModelScope.launch {
+            val dest = File(ctx.cacheDir, "updates/drivehub-${pkg.version ?: "update"}.apk")
+            dest.parentFile?.mkdirs()
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    api!!.downloadAndroid(pkg, dest, onProgress = { a, b ->
+                        appUpdate.value = appUpdate.value.copy(received = a, total = if (b > 0) b else pkg.size)
+                    })
+                }
+            }
+            r.onSuccess {
+                appUpdate.value = appUpdate.value.copy(downloading = false, ready = dest)
+                beginInstall(dest)
+            }.onFailure { e ->
+                appUpdate.value = appUpdate.value.copy(
+                    downloading = false,
+                    error = if (e is Sha256MismatchException)
+                        "安装包校验失败（SHA-256 不匹配），已删除损坏文件。\nAPK checksum mismatch; the file was deleted."
+                    else errText(e),
+                )
+            }
+        }
+    }
+
+    private fun beginInstall(apk: File) {
+        val ctx = getApplication<Application>()
+        if (!ApkInstaller.canInstall(ctx)) {
+            appUpdate.value = appUpdate.value.copy(needsPermission = true)
+            return
+        }
+        appUpdate.value = appUpdate.value.copy(installing = true, needsPermission = false, error = null)
+        runCatching { ApkInstaller.install(ctx, apk) }
+            .onFailure { appUpdate.value = appUpdate.value.copy(installing = false, error = it.message) }
+    }
+
+    fun onForeground() {
+        val cur = appUpdate.value
+        if (cur.needsPermission && cur.pkg != null && ApkInstaller.canInstall(getApplication())) {
+            startAppUpdate()
+        }
+    }
+
+    fun installPermissionIntent() = ApkInstaller.permissionSettingsIntent(getApplication())
 
     private suspend fun goLogin(c: ApiClient) {
         val providers = withContext(Dispatchers.IO) { runCatching { c.authStatus().oauthProviders }.getOrDefault(emptyList()) }
