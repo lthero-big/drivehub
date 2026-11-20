@@ -5,9 +5,12 @@
 #   scripts/make-release.sh 0.2.0 --out /srv/drivehub-releases/v0.2.0 \
 #       [--channel stable|beta] [--min-client 0.1.0] [--notes-file NOTES.md] \
 #       [--base-url https://github.com/lthero-big/drivehub/releases/download/v0.2.0/] \
-#       [--docker ghcr.io/lthero-big/drivehub:0.2.0] [--no-web]
+#       [--docker ghcr.io/lthero-big/drivehub:0.2.0] [--no-web] \
+#       [--android path.apk[=versionCode]]
 #
 # Produces <out>/{drivehub-linux-<arch>, web.tar.gz, release-manifest.json, release-manifest.json.sig}.
+# Pass --android so the signed manifest lists the APK (versionCode defaults to X*10000+Y*100+Z
+# from VERSION / the filename). This script does not build or sign the APK itself.
 # Upload all four as release assets (or serve the directory over HTTP) and point
 # DRIVEHUB_UPDATE_URL at <base>/release-manifest.json. The secret key never enters the repo;
 # create one with `drivehub release keygen --out <file>`.
@@ -17,6 +20,7 @@ cd "$(dirname "$0")/.."
 VERSION=${1:?usage: make-release.sh <version> --out <dir> [...]}
 shift
 OUT="" CHANNEL=stable MIN_CLIENT="" NOTES="" BASE="" DOCKER="" WEB=1
+ANDROID=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT=$2; shift 2 ;;
@@ -25,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --notes-file) NOTES=$2; shift 2 ;;
     --base-url) BASE=$2; shift 2 ;;
     --docker) DOCKER=$2; shift 2 ;;
+    --android) ANDROID+=("$2"); shift 2 ;;
     --no-web) WEB=0; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -46,6 +51,29 @@ ARGS=(--version "$VERSION" --channel "$CHANNEL" --server "$PLAT=$OUT/drivehub-$P
 [[ -n "$NOTES" ]] && ARGS+=(--notes-file "$NOTES")
 [[ -n "$BASE" ]] && ARGS+=(--base-url "$BASE")
 [[ -n "$DOCKER" ]] && ARGS+=(--docker "$DOCKER")
+code_from_version() {
+  local v=${1#v}
+  v=${v%%-*}
+  IFS=. read -r a b c <<<"$v"
+  echo $(( ${a:-0} * 10000 + ${b:-0} * 100 + ${c:-0} ))
+}
+for a in "${ANDROID[@]+"${ANDROID[@]}"}"; do
+  if [[ "$a" == *=* ]]; then
+    ARGS+=(--android "$a")
+  else
+    ver=$(basename "$a")
+    ver=${ver#drivehub-}
+    ver=${ver%-android-*}
+    ver=${ver%.apk}
+    ver=${ver#v}
+    if [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+      ARGS+=(--android "$a=$(code_from_version "$ver")")
+    else
+      ARGS+=(--android "$a=$(code_from_version "$VERSION")")
+    fi
+  fi
+  cp -a "$a" "$OUT/$(basename "${a%%=*}")" 2>/dev/null || cp -a "${a%%=*}" "$OUT/"
+done
 if [[ $WEB == 1 ]]; then
   echo ">> web $VERSION"
   (cd web && DRIVEHUB_WEB_VERSION=$VERSION npm run build >/dev/null)

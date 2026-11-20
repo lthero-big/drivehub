@@ -330,6 +330,25 @@ async fn binary_upgrade_reject_and_rollback() {
     assert_eq!(a["source"], "manifest");
     assert_eq!(a["url"], format!("{src_base}/v2/app.apk"));
     assert_eq!(a["version_code"], 2);
+    // A client already rejected by the version gate can still discover the APK.
+    let r = s
+        .http
+        .get(format!("{}/api/client/android/latest", s.base))
+        .header("x-drivehub-client", "app/0.0.1")
+        .header("x-drivehub-api", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 200, "latest must not be version-gated");
+    let gated = s
+        .http
+        .get(format!("{}/api/v1/health", s.base))
+        .header("x-drivehub-client", "app/0.0.1")
+        .header("x-drivehub-api", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(gated.status().as_u16(), 426);
 
     // ---- 1. real upgrade 0.1.0 -> 0.2.0 (download, verify, DB backup, swap, exec, health)
     let (st, v) = s
@@ -355,7 +374,10 @@ async fn binary_upgrade_reject_and_rollback() {
     let pv = s.version().await.unwrap();
     assert_eq!(pv["server_version"], "0.2.0");
     assert_eq!(pv["update_available"], false);
-    assert_eq!(v["last_check"]["update_available"], false, "installed release is no longer offered");
+    assert_eq!(
+        v["last_check"]["update_available"], false,
+        "installed release is no longer offered"
+    );
     assert_eq!(pv["web_build"], "b2", "web refresh prompt keys off this");
     let r = s
         .http
@@ -520,10 +542,24 @@ async fn binary_upgrade_reject_and_rollback() {
 
     // ---- locally hosted APK wins over the manifest
     std::fs::create_dir_all(s.data.join("clients/android")).unwrap();
-    std::fs::write(s.data.join("clients/android/drivehub-0.2.0.apk"), b"PK-apk").unwrap();
+    // Older CI-named APK must not win over a higher semver, even if copied later.
+    std::fs::write(
+        s.data
+            .join("clients/android/drivehub-0.1.0-android-debug-key.apk"),
+        b"old-apk",
+    )
+    .unwrap();
+    std::fs::write(
+        s.data
+            .join("clients/android/drivehub-0.2.0-android-release-key.apk"),
+        b"PK-apk",
+    )
+    .unwrap();
     let a: Value = s
         .http
         .get(format!("{}/api/client/android/latest", s.base))
+        .header("x-drivehub-client", "app/0.0.1")
+        .header("x-drivehub-api", "1")
         .send()
         .await
         .unwrap()
@@ -534,10 +570,13 @@ async fn binary_upgrade_reject_and_rollback() {
         (a["source"].as_str(), a["version"].as_str()),
         (Some("local"), Some("0.2.0"))
     );
+    assert_eq!(a["version_code"], 200);
     assert_eq!(a["sha256"], sha(b"PK-apk"));
     let body = s
         .http
         .get(format!("{}/api/client/android/download", s.base))
+        .header("x-drivehub-client", "app/0.0.1")
+        .header("x-drivehub-api", "1")
         .send()
         .await
         .unwrap()
@@ -545,6 +584,15 @@ async fn binary_upgrade_reject_and_rollback() {
         .await
         .unwrap();
     assert_eq!(&body[..], b"PK-apk");
+    let gated = s
+        .http
+        .get(format!("{}/api/auth/me", s.base))
+        .header("x-drivehub-client", "app/0.0.1")
+        .header("x-drivehub-api", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(gated.status().as_u16(), 426, "other API remains gated");
 }
 
 #[tokio::test]
