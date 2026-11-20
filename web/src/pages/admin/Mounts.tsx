@@ -5,13 +5,15 @@ import { errMsg } from "../../lib/util";
 import { ConfirmButton, Badge, Button, Card, Empty, Field, IconButton, Input, Modal, Select, Switch, toast, PageHeader, Pager, usePaged } from "../../ui/ui";
 import { SkCards } from "../../ui/r6";
 
-type Kind = "fs" | "s3" | "webdav" | "rclone" | "openlist";
+type Kind = "fs" | "s3" | "webdav" | "rclone" | "openlist" | "pikpak" | "p115";
 const KINDS: { k: Kind; label: string; desc: string; icon: typeof HardDrive }[] = [
   { k: "fs", label: "本地磁盘", desc: "服务器上的目录", icon: HardDrive },
   { k: "s3", label: "S3 兼容", desc: "AWS S3 / MinIO / R2 / OSS / COS", icon: Cloud },
   { k: "webdav", label: "WebDAV", desc: "任意 WebDAV 服务", icon: Server },
   { k: "rclone", label: "rclone 桥接", desc: "70+ 网盘，经 rclone serve webdav", icon: Terminal },
   { k: "openlist", label: "OpenList 桥接", desc: "115 / PikPak 等，经 OpenList /dav", icon: Server },
+  { k: "pikpak", label: "PikPak（原生）", desc: "内置驱动，账号密码登录", icon: Cloud },
+  { k: "p115", label: "115（原生，预览）", desc: "内置驱动，Cookie 登录；上传暂未支持", icon: Cloud },
 ];
 const FIELDS: Record<string, { key: string; label: string; ph?: string; secret?: boolean; req?: boolean }[]> = {
   fs: [{ key: "root", label: "根目录", ph: "/srv/files", req: true }],
@@ -28,6 +30,20 @@ const FIELDS: Record<string, { key: string; label: string; ph?: string; secret?:
     { key: "username", label: "用户名" },
     { key: "password", label: "密码", secret: true },
     { key: "root", label: "子路径（可选）", ph: "/" },
+  ],
+  pikpak: [
+    { key: "username", label: "账号（邮箱/手机号）", req: true },
+    { key: "password", label: "密码", secret: true, req: true },
+    { key: "platform", label: "客户端类型", ph: "web / android / pc（默认 web）" },
+    { key: "refresh_token", label: "Refresh Token（可选）", secret: true },
+    { key: "captcha_token", label: "Captcha Token（触发人机验证时填写）", secret: true },
+    { key: "device_id", label: "设备 ID（可选，默认按账号生成）" },
+    { key: "root_id", label: "根目录 ID（可选）" },
+  ],
+  p115: [
+    { key: "cookie", label: "Cookie", ph: "UID=…; CID=…; SEID=…; KID=…", secret: true, req: true },
+    { key: "root_id", label: "根目录 ID（可选，默认 0）", ph: "0" },
+    { key: "page_size", label: "分页大小（可选）", ph: "1000" },
   ],
 };
 const fieldsOf = (k: Kind) => FIELDS[k === "rclone" || k === "openlist" ? "webdav" : k];
@@ -108,7 +124,7 @@ export function MountsPage() {
             {isNew && (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {KINDS.map(({ k, label, desc, icon: I }) => (
-                  <button key={k} type="button" onClick={() => setEdit({ ...edit, ui: k, kind: k === "fs" || k === "s3" ? k : "webdav", options: k === "rclone" ? { endpoint: "http://127.0.0.1:8090/" } : k === "openlist" ? { endpoint: "http://127.0.0.1:8471/dav/" } : {} })} aria-pressed={edit.ui === k}
+                  <button key={k} type="button" onClick={() => setEdit({ ...edit, ui: k, kind: k === "fs" || k === "s3" || k === "pikpak" || k === "p115" ? k : "webdav", options: k === "rclone" ? { endpoint: "http://127.0.0.1:8090/" } : k === "openlist" ? { endpoint: "http://127.0.0.1:8471/dav/" } : {} })} aria-pressed={edit.ui === k}
                     className={`flex flex-col items-start gap-1 rounded-xl border p-3 text-left ${edit.ui === k ? "border-accent bg-accent-soft" : "border-line hover:bg-hover"}`}>
                     <I className="size-5 text-accent" />
                     <span className="text-[13px] font-medium">{label}</span>

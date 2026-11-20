@@ -675,7 +675,7 @@ pub async fn mounts(
             .map(|m| {
                 let mut c = m.cfg.clone();
                 for (k, v) in c.options.iter_mut() {
-                    if ["secret", "password", "token"]
+                    if ["secret", "password", "token", "cookie"]
                         .iter()
                         .any(|s| k.contains(s))
                     {
