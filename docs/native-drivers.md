@@ -34,7 +34,7 @@ Initiate/UploadPart/Complete 分片，单片失败重试 2 次，无 5 GB 上限
 |---|---|
 | `cookie` | `UID=…; CID=…; SEID=…; KID=…`（浏览器登录 115 后获取） |
 | `root_id` | 可选，默认 `0` |
-| `user_agent` | 可选，默认 `Mozilla/5.0 115Browser/27.0.5.7`；下载链接与 UA/Cookie 绑定 |
+| `user_agent` | 可选，用于 API（登录/列目录/上传），默认 115Browser UA。下载直链与 CDN 固定使用桌面 Chrome UA（115Browser 会令 CDN 返回 403 no cookie value） |
 | `page_size` | 可选，默认 1000（上限 1150） |
 | `upload_part_size` | 可选，OSS 分片大小（字节，默认 16 MiB） |
 
@@ -54,4 +54,6 @@ Initiate/UploadPart/Complete 分片，单片失败重试 2 次，无 5 GB 上限
 `cargo test -p drivehub-storage`：`tests/pikpak_mock.rs`、`tests/p115_mock.rs` 用进程内 mock 服务器
 （PikPak user/drive/OSS 接口；115 webapi/proapi/passport/uplb/OSS，m115 用测试 RSA 密钥、ec115 用测试 P-224 密钥，
 OSS V1 签名逐字校验）跑与 fs/s3/webdav 相同的
-驱动一致性用例。真实账号测试需要 PikPak 账号密码、115 Cookie。
+驱动一致性用例。真实账号测试（列目录 / Range 下载 / 上传 / 跨盘复制到本地 fs）在设置
+`DRIVEHUB_TEST_PIKPAK_USER` / `DRIVEHUB_TEST_PIKPAK_PASS` 与 `DRIVEHUB_TEST_115_COOKIE` 时自动跑：
+`cargo test -p drivehub-storage`。115 下载走桌面 Chrome UA；不要把 `user_agent` 设成 115Browser，CDN 会 403。

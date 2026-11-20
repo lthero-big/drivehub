@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use base64::Engine;
-use drivehub_storage::drivers::p115::{self, ec115};
+use drivehub_storage::drivers::p115::{self, ec115, UA_DEFAULT};
 use drivehub_storage::{build_driver, drivers::p115::m115, ByteRange, StorageError};
 use futures::StreamExt;
 use num_bigint::BigUint;
@@ -213,7 +213,7 @@ async fn downurl(
     h: HeaderMap,
     Form(f): Form<HashMap<String, String>>,
 ) -> Json<Value> {
-    assert_eq!(h["user-agent"], "Mozilla/5.0 115Browser/27.0.5.7");
+    assert_eq!(h["user-agent"], UA_DEFAULT);
     let (key, body) = server_decode(&f["data"]);
     let req: Value = serde_json::from_slice(&body).unwrap();
     let pc = req["pickcode"].as_str().unwrap().to_string();
@@ -343,7 +343,7 @@ async fn initupload(
 
 async fn gettoken() -> Json<Value> {
     Json(
-        json!({"StatusCode": "200", "AccessKeyID": "AK", "AccessKeySecret": "SKEY", "SecurityToken": "STS"}),
+        json!({"StatusCode": "200", "AccessKeyId": "AK", "AccessKeySecret": "SKEY", "SecurityToken": "STS"}),
     )
 }
 
@@ -664,47 +664,73 @@ async fn p115_bad_cookie_and_missing_cookie() {
     assert!(build_driver("p115", &HashMap::new()).is_err());
 }
 
-/// Live 115 test (read-side; upload not ported); runs only with DRIVEHUB_TEST_115_COOKIE.
-/// Optional DRIVEHUB_TEST_115_FILE = path of an existing file (>=100 bytes) to Range-read and copy to fs.
+/// Live 115 test; runs only with DRIVEHUB_TEST_115_COOKIE.
+/// Works under a scratch folder `drivehub-live-test/` and cross-copies to a local fs mount.
 #[tokio::test]
 async fn p115_live_if_configured() {
     let Ok(cookie) = std::env::var("DRIVEHUB_TEST_115_COOKIE") else {
         return;
     };
     let drv = build_driver("p115", &HashMap::from([("cookie".to_string(), cookie)])).unwrap();
-    drv.list("").await.unwrap();
+    drv.list("").await.expect("115 list root");
     let root = "drivehub-live-test";
-    drv.delete(root).await.unwrap();
-    drv.mkdir(&format!("{root}/sub")).await.unwrap();
-    drv.rename(&format!("{root}/sub"), &format!("{root}/sub2"))
+    drv.delete(root).await.expect("115 cleanup leftover");
+    drv.mkdir(root).await.expect("115 mkdir");
+    let data: Vec<u8> = (0..2_000_000u32).map(|i| (i % 251) as u8).collect();
+    drv.write(&format!("{root}/a.bin"), bytes::Bytes::from(data.clone()))
         .await
-        .unwrap();
-    if let Ok(f) = std::env::var("DRIVEHUB_TEST_115_FILE") {
-        let part = collect(
-            drv.read(
-                &f,
-                Some(ByteRange {
-                    start: 10,
-                    end: Some(110),
-                }),
-            )
+        .expect("115 upload write");
+    assert_eq!(
+        drv.stat(&format!("{root}/a.bin"))
             .await
-            .unwrap(),
+            .expect("115 stat upload")
+            .size,
+        data.len() as u64
+    );
+    let part = collect(
+        drv.read(
+            &format!("{root}/a.bin"),
+            Some(ByteRange {
+                start: 1000,
+                end: Some(1100),
+            }),
         )
-        .await;
-        assert_eq!(part.len(), 100);
-        let tmp = tempfile::tempdir().unwrap();
-        let fs = build_driver(
-            "fs",
-            &HashMap::from([("root".to_string(), tmp.path().to_string_lossy().to_string())]),
-        )
-        .unwrap();
-        let n = fs
-            .write_stream("x", drv.read(&f, None).await.unwrap(), &|_| {})
+        .await
+        .expect("115 range read"),
+    )
+    .await;
+    assert_eq!(part, &data[1000..1100], "115 range bytes");
+    drv.copy(&format!("{root}/a.bin"), &format!("{root}/b.bin"))
+        .await
+        .expect("115 server-side copy");
+    drv.rename(&format!("{root}/b.bin"), &format!("{root}/c.bin"))
+        .await
+        .expect("115 rename");
+    let tmp = tempfile::tempdir().unwrap();
+    let fs = build_driver(
+        "fs",
+        &HashMap::from([("root".to_string(), tmp.path().to_string_lossy().to_string())]),
+    )
+    .unwrap();
+    let s = drv
+        .read(&format!("{root}/c.bin"), None)
+        .await
+        .expect("115 read for fs copy");
+    assert_eq!(
+        fs.write_stream("c.bin", s, &|_| {}).await.unwrap(),
+        data.len() as u64,
+        "115 -> fs size"
+    );
+    let s = fs.read("c.bin", None).await.unwrap();
+    drv.write_stream(&format!("{root}/d.bin"), s, &|_| {})
+        .await
+        .expect("fs -> 115 upload stream");
+    assert_eq!(
+        drv.stat(&format!("{root}/d.bin"))
             .await
-            .unwrap();
-        assert_eq!(n, drv.stat(&f).await.unwrap().size);
-        drv.copy(&f, &format!("{root}/copy")).await.unwrap();
-    }
-    drv.delete(root).await.unwrap();
+            .expect("115 stat stream upload")
+            .size,
+        data.len() as u64
+    );
+    drv.delete(root).await.expect("115 final cleanup");
 }

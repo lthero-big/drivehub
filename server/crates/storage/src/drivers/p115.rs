@@ -23,6 +23,11 @@ use tokio::sync::Mutex;
 
 pub const UA_115_BROWSER: &str = "Mozilla/5.0 115Browser/27.0.5.7";
 
+/// Default UA for API + CDN. 115 CDN returns 403 "no cookie value" when the
+/// download request uses the 115Browser UA (OpenList #2349 / #2502); a regular
+/// browser UA must be used both to mint the downurl and to fetch it.
+pub const UA_DEFAULT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
+
 /// m115 envelope used by the 115 download API (port of 115driver/pkg/crypto/m115).
 pub mod m115 {
     use num_bigint::BigUint;
@@ -321,6 +326,33 @@ fn sval(v: &Value, k: &str) -> String {
     }
 }
 
+/// Look up a string field under any of `keys` (exact, then case-insensitive).
+/// 115's gettoken.php returns Aliyun STS casing `AccessKeyId`; older samples used `AccessKeyID`.
+fn sval_keys(v: &Value, keys: &[&str]) -> String {
+    for k in keys {
+        let s = sval(v, k);
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    if let Some(obj) = v.as_object() {
+        for k in keys {
+            if let Some(val) = obj
+                .iter()
+                .find(|(ok, _)| ok.eq_ignore_ascii_case(k))
+                .map(|(_, val)| val)
+            {
+                return match val {
+                    Value::String(s) => s.clone(),
+                    Value::Number(n) => n.to_string(),
+                    _ => String::new(),
+                };
+            }
+        }
+    }
+    String::new()
+}
+
 pub struct P115Driver {
     http: reqwest::Client,
     cookie: String,
@@ -449,6 +481,15 @@ impl P115Driver {
             .request(m, url)
             .header("Cookie", &self.cookie)
             .header("User-Agent", &self.ua)
+    }
+
+    /// downurl + CDN must share a regular browser UA. The 115Browser API UA
+    /// triggers CDN 403 no-cookie-value (OpenList issues 2349 and 2502).
+    fn download_req(&self, m: reqwest::Method, url: &str) -> reqwest::RequestBuilder {
+        self.http
+            .request(m, url)
+            .header("Cookie", &self.cookie)
+            .header("User-Agent", UA_DEFAULT)
     }
 
     async fn login_check(&self) -> Result<()> {
@@ -636,10 +677,19 @@ impl P115Driver {
         use base64::Engine;
         use hmac::{Hmac, Mac};
         let (ak, sk, sts) = (
-            sval(tok, "AccessKeyID"),
-            sval(tok, "AccessKeySecret"),
-            sval(tok, "SecurityToken"),
+            sval_keys(tok, &["AccessKeyId", "AccessKeyID"]),
+            sval_keys(tok, &["AccessKeySecret"]),
+            sval_keys(tok, &["SecurityToken"]),
         );
+        if ak.is_empty() || sk.is_empty() {
+            let names = tok
+                .as_object()
+                .map(|o| o.keys().cloned().collect::<Vec<_>>().join(","))
+                .unwrap_or_default();
+            return Err(be(format!(
+                "oss: missing AccessKeyId/Secret in gettoken (fields: {names})"
+            )));
+        }
         let q = if sub.is_empty() {
             String::new()
         } else {
@@ -981,7 +1031,7 @@ impl P115Driver {
             .as_secs()
             .to_string();
         let v: Value = self
-            .req(
+            .download_req(
                 reqwest::Method::POST,
                 &format!("{}/app/chrome/downurl", self.proapi),
             )
@@ -1070,7 +1120,7 @@ impl StorageDriver for P115Driver {
         }
         let url = self.download_url(&f.pick_code).await?;
         // 115 CDN checks the UA (and cookie) used to obtain the link.
-        let mut rb = self.req(reqwest::Method::GET, &url);
+        let mut rb = self.download_req(reqwest::Method::GET, &url);
         if let Some(r) = range {
             rb = rb.header(
                 "Range",
@@ -1082,7 +1132,11 @@ impl StorageDriver for P115Driver {
         }
         let resp = rb.send().await.map_err(be)?;
         if !resp.status().is_success() {
-            return Err(be(format!("download HTTP {}", resp.status())));
+            let st = resp.status();
+            let host = resp.url().host_str().unwrap_or("").to_string();
+            let body = resp.text().await.unwrap_or_default();
+            let snippet: String = body.chars().take(200).collect();
+            return Err(be(format!("download HTTP {st} host={host}: {snippet}")));
         }
         Ok(resp.bytes_stream().map_err(std::io::Error::other).boxed())
     }
@@ -1143,35 +1197,53 @@ impl StorageDriver for P115Driver {
         let (_, fname) = Self::split(from)?;
         let (tp, tname) = Self::split(to)?;
         let f = self.resolve(from).await?;
-        let pid = self.mkdir_id(&tp).await?;
-        let before: Vec<String> = self
-            .list_id(&pid)
-            .await?
-            .into_iter()
-            .map(|x| x.id)
-            .collect();
+        self.mkdir_id(&tp).await?;
+        // Same-directory copy would create a second file named `fname` in `tp`.
+        // 115 silently no-ops that, so always copy into a fresh staging folder first.
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let stage = if tp.is_empty() {
+            format!("dh-copy-{stamp}")
+        } else {
+            format!("{tp}/dh-copy-{stamp}")
+        };
+        let stage_id = self.mkdir_id(&stage).await?;
         self.form(
             "/files/copy",
-            &[("pid".into(), pid.clone()), ("fid[0]".into(), f.id.clone())],
+            &[
+                ("pid".into(), stage_id.clone()),
+                ("fid[0]".into(), f.id.clone()),
+            ],
         )
         .await?;
-        if fname != tname {
-            let new = self
-                .list_id(&pid)
+        let mut copied = None;
+        for i in 0..20 {
+            if i > 0 {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            copied = self
+                .list_id(&stage_id)
                 .await?
                 .into_iter()
-                .find(|x| !before.contains(&x.id) && x.id != f.id)
-                .ok_or_else(|| be("copied object not found"))?;
-            self.form(
-                "/files/batch_rename",
-                &[
-                    ("fid".into(), new.id.clone()),
-                    ("file_name".into(), tname.clone()),
-                    (format!("files_new_name[{}]", new.id), tname),
-                ],
-            )
-            .await?;
+                .find(|x| x.id != f.id && x.name == fname);
+            if copied.is_some() {
+                break;
+            }
         }
+        copied.ok_or_else(|| be("copied object not found"))?;
+        let staged = format!("{stage}/{fname}");
+        let dest = if tp.is_empty() {
+            tname.clone()
+        } else {
+            format!("{tp}/{tname}")
+        };
+        // move + rename into place, then drop the empty staging dir.
+        if staged != dest {
+            self.rename(&staged, &dest).await?;
+        }
+        let _ = self.delete(&stage).await;
         Ok(())
     }
 

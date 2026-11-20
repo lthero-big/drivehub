@@ -681,3 +681,24 @@ async fn pikpak_live_if_configured() {
     );
     drv.delete(root).await.unwrap();
 }
+
+#[test]
+fn oss_virtual_host_strips_pikpak_node() {
+    use drivehub_storage::drivers::pikpak::oss_virtual_host;
+    assert_eq!(
+        oss_virtual_host("vip-lixian-07", "upload-a10b.mypikpak.com"),
+        "https://vip-lixian-07.mypikpak.com"
+    );
+    assert_eq!(
+        oss_virtual_host("vip-lixian-07", "vip-lixian-07.mypikpak.net"),
+        "https://vip-lixian-07.mypikpak.net"
+    );
+    assert_eq!(
+        oss_virtual_host("vip-lixian-07", "mypikpak.com"),
+        "https://vip-lixian-07.mypikpak.com"
+    );
+    assert_eq!(
+        oss_virtual_host("bkt", "oss-ap-southeast-1.aliyuncs.com"),
+        "https://bkt.oss-ap-southeast-1.aliyuncs.com"
+    );
+}

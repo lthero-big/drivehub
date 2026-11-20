@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- 原生 115 / PikPak 驱动真实账号验证中发现的问题（DEPTAI-481）：
+  - 115 gettoken 的 STS 字段是 `AccessKeyId`（先前只读 `AccessKeyID`，OSS 签名变成 `OSS :...` 导致 400）；
+  - 115 下载直链与 CDN 使用桌面 Chrome UA（`115Browser` UA 会让 CDN 返回 403 no cookie value）；API 仍用 115Browser UA，避免 initupload 提示「请升级到最新版本」；
+  - 115 / PikPak 同目录复制先进入临时目录再改名移回（115 会静默空操作，PikPak 返回 `file_move_or_copy_to_cur`）；115 复制后轮询直到对象可见；
+  - PikPak OSS 虚拟主机去掉 endpoint 上多余的节点标签（`upload-a10b.mypikpak.com` → `{bucket}.mypikpak.com`，否则 NXDOMAIN）；瞬时 TLS/代理错误自动重试。
+- `p115_live_if_configured` 补上上传、Range 下载与跨盘复制（不再依赖 `DRIVEHUB_TEST_115_FILE`）。
+
 ### Changed
 - **许可证由 MIT 改为 AGPL-3.0-only**（DEPTAI-481）：LICENSE 全文替换，Cargo workspace / 各 crate、web/package.json、Android、Docker 镜像 label 同步；新增 `NOTICE` 与 `THIRD_PARTY.md`，保留 OpenList（AGPL-3.0）版权与来源说明，为移植其 115 / PikPak 驱动做准备。
 

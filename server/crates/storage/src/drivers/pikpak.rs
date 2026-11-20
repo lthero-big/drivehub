@@ -208,8 +208,42 @@ fn xml_tag(body: &str, tag: &str) -> Option<String> {
     Some(body[a..b].to_string())
 }
 
+fn err_chain(e: &dyn std::error::Error) -> String {
+    let mut msg = e.to_string();
+    let mut src = e.source();
+    while let Some(s) = src {
+        msg.push_str(" -> ");
+        msg.push_str(&s.to_string());
+        src = s.source();
+    }
+    msg
+}
+
 fn be(e: impl std::fmt::Display) -> StorageError {
     StorageError::Backend(format!("pikpak: {e}"))
+}
+
+fn be_err(e: impl std::error::Error) -> StorageError {
+    StorageError::Backend(format!("pikpak: {}", err_chain(&e)))
+}
+
+async fn send_with_retry(req: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+    let mut last = None;
+    for i in 0..3 {
+        let rb = req
+            .try_clone()
+            .ok_or_else(|| be("request body not retryable"))?;
+        match rb.send().await {
+            Ok(r) => return Ok(r),
+            Err(e) => {
+                last = Some(e);
+                if i < 2 {
+                    tokio::time::sleep(Duration::from_millis(400 * (i as u64 + 1))).await;
+                }
+            }
+        }
+    }
+    Err(be_err(last.expect("retry loop")))
 }
 
 #[derive(Clone, Debug)]
@@ -268,6 +302,30 @@ fn parse_rfc3339(s: &str) -> Option<i64> {
     Some(t)
 }
 
+/// Virtual-host URL for PikPak's OSS params.
+/// PikPak may return endpoint=`upload-a10b.mypikpak.com` (or `vip-lixian-07.mypikpak.net`);
+/// `{bucket}.{endpoint}` is then an NXDOMAIN. OpenList drops the first label so the host is
+/// `{bucket}.mypikpak.com` / `{bucket}.mypikpak.net`.
+pub fn oss_virtual_host(bucket: &str, endpoint: &str) -> String {
+    let ep = endpoint
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+    let parts: Vec<&str> = ep.split('.').filter(|s| !s.is_empty()).collect();
+    let ep = if parts.len() >= 3 {
+        let base = parts[parts.len() - 2..].join(".");
+        if base == "mypikpak.com" || base == "mypikpak.net" {
+            base
+        } else {
+            ep.to_string()
+        }
+    } else {
+        ep.to_string()
+    };
+    format!("https://{bucket}.{ep}")
+}
+
 impl PikPakDriver {
     pub fn new(opts: &HashMap<String, String>) -> Result<Self> {
         let get = |k: &str| opts.get(k).cloned().filter(|s| !s.is_empty());
@@ -285,7 +343,7 @@ impl PikPakDriver {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
             .build()
-            .map_err(be)?;
+            .map_err(be_err)?;
         let captcha = if refresh.is_empty() {
             get("captcha_token").unwrap_or_default()
         } else {
@@ -339,17 +397,15 @@ impl PikPakDriver {
     }
 
     async fn post_auth(&self, url: &str, body: Value) -> Result<Value> {
-        let r = self
+        let req = self
             .http
             .post(url)
             .query(&[("client_id", self.p.client_id)])
             .header("User-Agent", self.p.user_agent)
             .header("X-Device-ID", &self.device_id)
-            .json(&body)
-            .send()
-            .await
-            .map_err(be)?;
-        let v: Value = r.json().await.map_err(be)?;
+            .json(&body);
+        let r = send_with_retry(req).await?;
+        let v: Value = r.json().await.map_err(be_err)?;
         Ok(v)
     }
 
@@ -514,7 +570,7 @@ impl PikPakDriver {
             if let Some(b) = &body {
                 rb = rb.json(b);
             }
-            let r = rb.send().await.map_err(be)?;
+            let r = send_with_retry(rb).await?;
             let status = r.status();
             let text = r.text().await.map_err(be)?;
             let v: Value = if text.is_empty() {
@@ -695,7 +751,7 @@ impl PikPakDriver {
         };
         let url = match &self.oss_ep {
             Some(ep) => format!("{}/{bucket}/{key}{q}", ep.trim_end_matches('/')),
-            None => format!("https://{bucket}.{}/{key}{q}", s("endpoint")),
+            None => format!("{}/{key}{q}", oss_virtual_host(&bucket, &s("endpoint"))),
         };
         let date = httpdate::fmt_http_date(SystemTime::now());
         let to_sign = format!(
@@ -705,7 +761,7 @@ impl PikPakDriver {
         mac.update(to_sign.as_bytes());
         use base64::Engine;
         let sig = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
-        let r = self
+        let req = self
             .http
             .request(method, url)
             .header("Date", date)
@@ -716,10 +772,8 @@ impl PikPakDriver {
                 "User-Agent",
                 "aliyun-sdk-android/2.9.13(Linux/Android 14/M2004j7ac;UKQ1.231108.001)",
             )
-            .body(data)
-            .send()
-            .await
-            .map_err(be)?;
+            .body(data);
+        let r = send_with_retry(req).await?;
         if !r.status().is_success() {
             let st = r.status();
             return Err(be(format!(
@@ -926,7 +980,7 @@ impl StorageDriver for PikPakDriver {
             };
             rb = rb.header("Range", h);
         }
-        let resp = rb.send().await.map_err(be)?;
+        let resp = send_with_retry(rb).await?;
         if !resp.status().is_success() {
             return Err(be(format!("download HTTP {}", resp.status())));
         }
@@ -1010,35 +1064,51 @@ impl StorageDriver for PikPakDriver {
         let (_, fname) = Self::split(from)?;
         let (tp, tname) = Self::split(to)?;
         let f = self.resolve(from).await?;
-        let pid = self.mkdir_id(&tp).await?;
-        let before: Vec<String> = self
-            .list_id(&pid)
-            .await?
-            .into_iter()
-            .map(|x| x.id)
-            .collect();
+        self.mkdir_id(&tp).await?;
+        // PikPak rejects same-directory copy (`file_move_or_copy_to_cur`).
+        // Stage into a fresh folder, then move/rename into place.
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let stage = if tp.is_empty() {
+            format!("dh-copy-{stamp}")
+        } else {
+            format!("{tp}/dh-copy-{stamp}")
+        };
+        let stage_id = self.mkdir_id(&stage).await?;
         self.api(
             reqwest::Method::POST,
             "/drive/v1/files:batchCopy",
             &[],
-            Some(json!({"ids": [f.id], "to": {"parent_id": pid}})),
+            Some(json!({"ids": [f.id], "to": {"parent_id": stage_id}})),
         )
         .await?;
-        if fname != tname {
-            let new = self
-                .list_id(&pid)
+        let mut copied = None;
+        for i in 0..20 {
+            if i > 0 {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            copied = self
+                .list_id(&stage_id)
                 .await?
                 .into_iter()
-                .find(|x| !before.contains(&x.id) && x.id != f.id)
-                .ok_or_else(|| be("copied object not found"))?;
-            self.api(
-                reqwest::Method::PATCH,
-                &format!("/drive/v1/files/{}", new.id),
-                &[],
-                Some(json!({"name": tname})),
-            )
-            .await?;
+                .find(|x| x.id != f.id && x.name == fname);
+            if copied.is_some() {
+                break;
+            }
         }
+        copied.ok_or_else(|| be("copied object not found"))?;
+        let staged = format!("{stage}/{fname}");
+        let dest = if tp.is_empty() {
+            tname.clone()
+        } else {
+            format!("{tp}/{tname}")
+        };
+        if staged != dest {
+            self.rename(&staged, &dest).await?;
+        }
+        let _ = self.delete(&stage).await;
         Ok(())
     }
 
