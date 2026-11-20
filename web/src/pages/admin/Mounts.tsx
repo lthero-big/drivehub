@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 import { Cloud, HardDrive, Pencil, Plus, RefreshCw, Server, Trash2, Terminal } from "lucide-react";
 import { call, client, ok, type MountConfig } from "../../lib/api";
 import { errMsg } from "../../lib/util";
-import { ConfirmButton, Badge, Button, Card, Empty, Field, IconButton, Input, Modal, Select, Switch, toast, PageHeader, Pager, usePaged } from "../../ui/ui";
+import { ConfirmButton, Badge, Button, Card, Empty, Field, IconButton, Input, Modal, Switch, toast, PageHeader, Pager, usePaged } from "../../ui/ui";
+import { SegmentedDrag } from "../../ui/motion";
 import { SkCards } from "../../ui/r6";
+
+type TransferMode = "auto" | "direct" | "proxy";
 
 type Kind = "fs" | "s3" | "webdav" | "rclone" | "openlist" | "pikpak" | "p115";
 const KINDS: { k: Kind; label: string; desc: string; icon: typeof HardDrive }[] = [
@@ -13,7 +16,7 @@ const KINDS: { k: Kind; label: string; desc: string; icon: typeof HardDrive }[] 
   { k: "rclone", label: "rclone 桥接", desc: "70+ 网盘，经 rclone serve webdav", icon: Terminal },
   { k: "openlist", label: "OpenList 桥接", desc: "115 / PikPak 等，经 OpenList /dav", icon: Server },
   { k: "pikpak", label: "PikPak（原生）", desc: "内置驱动，账号密码登录", icon: Cloud },
-  { k: "p115", label: "115（原生，预览）", desc: "内置驱动，Cookie 登录；上传暂未支持", icon: Cloud },
+  { k: "p115", label: "115（原生）", desc: "内置驱动，用 UID / CID / SEID / KID 登录", icon: Cloud },
 ];
 const FIELDS: Record<string, { key: string; label: string; ph?: string; secret?: boolean; req?: boolean }[]> = {
   fs: [{ key: "root", label: "根目录", ph: "/srv/files", req: true }],
@@ -41,12 +44,60 @@ const FIELDS: Record<string, { key: string; label: string; ph?: string; secret?:
     { key: "root_id", label: "根目录 ID（可选）" },
   ],
   p115: [
-    { key: "cookie", label: "Cookie", ph: "UID=…; CID=…; SEID=…; KID=…", secret: true, req: true },
+    { key: "uid", label: "UID", ph: "用户 ID", secret: true, req: true },
+    { key: "cid", label: "CID", secret: true, req: true },
+    { key: "seid", label: "SEID", secret: true, req: true },
+    { key: "kid", label: "KID", secret: true, req: true },
     { key: "root_id", label: "根目录 ID（可选，默认 0）", ph: "0" },
     { key: "page_size", label: "分页大小（可选）", ph: "1000" },
   ],
 };
 const fieldsOf = (k: Kind) => FIELDS[k === "rclone" || k === "openlist" ? "webdav" : k];
+const TRANSFER_OPTS: { value: TransferMode; label: string; title: string }[] = [
+  { value: "auto", label: "自动", title: "有直链时浏览器直连，否则由服务器中转" },
+  { value: "direct", label: "直链", title: "浏览器直连后端（direct）" },
+  { value: "proxy", label: "中转", title: "始终由服务器中转（proxy）" },
+];
+const P115_KEYS = ["uid", "cid", "seid", "kid"] as const;
+
+/** Split a stored 115 cookie into UID/CID/SEID/KID for the form. Masked "***" becomes empty (leave blank to keep). */
+function splitP115Options(kind: string, options: Record<string, string> | undefined): Record<string, string> {
+  const o = { ...(options ?? {}) };
+  if (kind !== "p115" && kind !== "115") return o;
+  if (P115_KEYS.some((k) => o[k] && o[k] !== "***")) {
+    delete o.cookie;
+    for (const k of P115_KEYS) if (o[k] === "***") o[k] = "";
+    return o;
+  }
+  const cookie = o.cookie ?? "";
+  delete o.cookie;
+  if (!cookie || cookie === "***") return o;
+  for (const part of cookie.split(";")) {
+    const i = part.indexOf("=");
+    if (i < 0) continue;
+    const k = part.slice(0, i).trim().toLowerCase();
+    if ((P115_KEYS as readonly string[]).includes(k)) o[k] = part.slice(i + 1).trim();
+  }
+  return o;
+}
+
+/** Compose split 115 fields back into cookie. On edit, empty fields keep the stored cookie via "***". */
+function assembleP115(opts: Record<string, string>, isNew: boolean): Record<string, string> {
+  const { uid, cid, seid, kid, cookie: _ignored, ...rest } = opts;
+  const vals = [uid, cid, seid, kid].map((v) => (v ?? "").trim());
+  const filled = vals.filter((v) => v && v !== "***");
+  if (filled.length === 4 && vals.every((v) => v && v !== "***")) {
+    return { ...rest, cookie: ["UID=" + vals[0], "CID=" + vals[1], "SEID=" + vals[2], "KID=" + vals[3]].join("; ") };
+  }
+  if (!isNew && filled.length === 0) return { ...rest, cookie: "***" };
+  throw new Error("请完整填写 UID / CID / SEID / KID");
+}
+
+function fieldAutoComplete(f: { key: string; secret?: boolean }) {
+  if (f.secret) return "new-password";
+  if (f.key === "username") return "username";
+  return "off";
+}
 
 const blank = (): MountConfig & { ui: Kind } => ({ ui: "fs", name: "", kind: "fs", options: {}, read_only: false, hidden: false, sort_order: 0, transfer_mode: "auto" });
 
@@ -66,8 +117,13 @@ export function MountsPage() {
     if (!edit) return;
     setBusy(true);
     try {
-      const { ui: _ui, ...cfg } = edit;
-      await ok(client.POST("/api/mounts", { body: { ...cfg, options: Object.fromEntries(Object.entries(cfg.options ?? {}).filter(([, v]) => v !== "")) } }));
+      const { ui, ...cfg } = edit;
+      let options = { ...(cfg.options ?? {}) } as Record<string, string>;
+      if (ui === "p115" || cfg.kind === "p115" || cfg.kind === "115") {
+        options = assembleP115(options, isNew);
+      }
+      options = Object.fromEntries(Object.entries(options).filter(([, v]) => v !== ""));
+      await ok(client.POST("/api/mounts", { body: { ...cfg, options } }));
       toast.ok(isNew ? "挂载点已添加，正在后台建立索引" : "已保存");
       setEdit(null);
       load();
@@ -79,6 +135,10 @@ export function MountsPage() {
   };
   const opts = (edit?.options ?? {}) as Record<string, string>;
   const setOpt = (k: string, v: string) => edit && setEdit({ ...edit, options: { ...opts, [k]: v } });
+  const openEdit = (m: MountConfig) => {
+    setIsNew(false);
+    setEdit({ ...m, ui: m.kind as Kind, options: splitP115Options(m.kind, (m.options ?? {}) as Record<string, string>) });
+  };
   return (
     <div className="space-y-4">
       <PageHeader title="挂载点" desc="本地目录、S3、WebDAV 等存储后端" actions={<>
@@ -97,7 +157,7 @@ export function MountsPage() {
           <Card key={m.name} title={<span className="flex items-center gap-2">{m.name} <Badge>{m.kind}</Badge>{m.read_only && <Badge tone="warn">只读</Badge>}{m.hidden && <Badge>隐藏</Badge>}</span>}
             actions={
               <>
-                <IconButton label="编辑" onClick={() => (setIsNew(false), setEdit({ ...m, ui: m.kind as Kind }))}><Pencil className="size-4" /></IconButton>
+                <IconButton label="编辑" onClick={() => openEdit(m)}><Pencil className="size-4" /></IconButton>
                 <ConfirmButton iconOnly icon={<Trash2 />} label={`删除挂载点 ${m.name}（不删除后端文件）`} confirmLabel="删除挂载" onConfirm={() => ok(client.DELETE("/api/mounts/{name}", { params: { path: { name: m.name } } })).then(load).catch((e) => toast.err(errMsg(e)))} />
               </>
             }>
@@ -146,19 +206,21 @@ export function MountsPage() {
             {edit.ui === "openlist" && <p className="rounded-lg border border-line bg-panel-2 p-3 text-[12.5px] text-muted">填写 OpenList 的 WebDAV 地址（形如 <code>http://主机:端口/dav/</code>）和 OpenList 账号。</p>}
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="名称（显示为顶层文件夹）">
-                <Input value={edit.name} disabled={!isNew} onChange={(e) => setEdit({ ...edit, name: e.target.value.replace(/\//g, "") })} required />
+                <Input name="mount-display-name" autoComplete="off" autoCorrect="off" spellCheck={false} value={edit.name} disabled={!isNew} onChange={(e) => setEdit({ ...edit, name: e.target.value.replace(/\//g, "") })} required />
               </Field>
               {fieldsOf(edit.ui).map((f) => (
-                <Field key={f.key} label={f.label + (f.req ? "" : "")} hint={f.secret && !isNew ? "留 *** 表示不修改" : undefined}>
-                  <Input type={f.secret ? "password" : "text"} placeholder={f.ph} value={opts[f.key] ?? ""} onChange={(e) => setOpt(f.key, e.target.value)} required={f.req} autoComplete="off" />
+                <Field key={f.key} label={f.label} hint={f.secret && !isNew ? "留空表示不修改" : undefined}>
+                  <Input name={"mount-opt-" + f.key} type={f.secret ? "password" : "text"} placeholder={f.ph} value={opts[f.key] ?? ""} onChange={(e) => setOpt(f.key, e.target.value)} required={!!f.req && isNew} autoComplete={fieldAutoComplete(f)} />
                 </Field>
               ))}
-              <Field label="传输方式" hint="direct：有直链时浏览器直连后端；proxy：始终由服务器中转">
-                <Select value={edit.transfer_mode} onChange={(e) => setEdit({ ...edit, transfer_mode: e.target.value })}>
-                  <option value="auto">auto</option>
-                  <option value="direct">direct</option>
-                  <option value="proxy">proxy</option>
-                </Select>
+              <Field label="传输方式" hint="自动：有直链时浏览器直连；直链：始终直连；中转：始终由服务器中转">
+                <SegmentedDrag
+                  className="w-full min-w-0"
+                  label="传输方式"
+                  value={((edit.transfer_mode as TransferMode) || "auto")}
+                  onChange={(v) => setEdit({ ...edit, transfer_mode: v })}
+                  options={TRANSFER_OPTS}
+                />
               </Field>
               <Field label="排序（越小越靠前）">
                 <Input type="number" value={edit.sort_order ?? 0} onChange={(e) => setEdit({ ...edit, sort_order: Number(e.target.value) })} />

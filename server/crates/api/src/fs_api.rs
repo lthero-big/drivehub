@@ -662,6 +662,29 @@ pub async fn delete(
 }
 
 /// All mount points (including hidden ones).
+
+fn secret_opt_key(k: &str) -> bool {
+    let l = k.to_ascii_lowercase();
+    ["secret", "password", "token", "cookie"]
+        .iter()
+        .any(|s| l.contains(s))
+        || matches!(l.as_str(), "uid" | "cid" | "seid" | "kid")
+}
+
+/// Accept split 115 fields, persist only the composed cookie, and drop the
+/// split keys so they are not stored in cleartext next to the cookie.
+fn normalize_p115_options(cfg: &mut MountConfig) {
+    if cfg.kind != "p115" && cfg.kind != "115" {
+        return;
+    }
+    if let Ok(cookie) = drivehub_storage::drivers::p115::cookie_from_options(&cfg.options) {
+        cfg.options.insert("cookie".into(), cookie);
+        for k in ["uid", "cid", "seid", "kid", "UID", "CID", "SEID", "KID"] {
+            cfg.options.remove(k);
+        }
+    }
+}
+
 #[utoipa::path(get, path = "/api/mounts", responses((status = 200, body = Vec<MountConfig>)))]
 pub async fn mounts(
     State(st): State<AppState>,
@@ -675,10 +698,7 @@ pub async fn mounts(
             .map(|m| {
                 let mut c = m.cfg.clone();
                 for (k, v) in c.options.iter_mut() {
-                    if ["secret", "password", "token", "cookie"]
-                        .iter()
-                        .any(|s| k.contains(s))
-                    {
+                    if secret_opt_key(k) {
                         *v = "***".into(); // never echo credentials
                     }
                 }
@@ -706,6 +726,7 @@ pub async fn add_mount(
             }
         }
     }
+    normalize_p115_options(&mut cfg);
     let name = cfg.name.clone();
     let summary = format!(
         "kind={} read_only={} mode={:?}",

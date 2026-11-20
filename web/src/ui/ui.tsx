@@ -370,17 +370,23 @@ export function Empty({ icon, title, children }: { icon?: ReactNode; title: stri
 
 export function Modal({ open, onClose, title, children, footer, wide, dataAttr }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean; dataAttr?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
-    const f = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const f = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", f);
-    setTimeout(() => ref.current?.querySelector<HTMLElement>("input:not([type=checkbox]),textarea,button[data-autofocus]")?.focus(), 0);
+    // Autofocus only when the dialog opens. Do not depend on onClose — callers often
+    // pass an inline lambda, which would re-run this effect on every keystroke and
+    // steal focus back to the first field (e.g. PikPak password → 名称).
+    const t = setTimeout(() => ref.current?.querySelector<HTMLElement>("input:not([type=checkbox]),textarea,button[data-autofocus]")?.focus(), 0);
     return () => {
       window.removeEventListener("keydown", f);
+      clearTimeout(t);
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-0 backdrop-blur-sm backdrop-in sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
