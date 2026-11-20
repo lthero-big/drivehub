@@ -14,6 +14,7 @@ import com.drivehub.app.data.*
 import com.drivehub.app.update.ApkInstaller
 import com.drivehub.app.work.Transfers
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -67,12 +68,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var api: ApiClient? = null
     private var cache: OfflineCache? = null
 
+    companion object {
+        const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+    }
+
     init {
         boot()
         viewModelScope.launch {
             ApkInstaller.results.collect { r ->
                 appUpdate.value = appUpdate.value.copy(installing = false, error = if (r.success) null else r.userFacing)
                 if (r.success) message.value = r.userFacing
+            }
+        }
+        // Acceptance: check the server package list on a timer, not only at connect.
+        viewModelScope.launch {
+            while (true) {
+                delay(CHECK_INTERVAL_MS)
+                maybeRefreshAppUpdate()
             }
         }
     }
@@ -199,7 +211,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val cur = appUpdate.value
         if (cur.needsPermission && cur.pkg != null && ApkInstaller.canInstall(getApplication())) {
             startAppUpdate()
+            return
         }
+        maybeRefreshAppUpdate()
+    }
+
+    private fun maybeRefreshAppUpdate() {
+        if (api == null) return
+        val cur = appUpdate.value
+        if (cur.downloading || cur.installing || cur.checking) return
+        refreshAppUpdate()
     }
 
     fun installPermissionIntent() = ApkInstaller.permissionSettingsIntent(getApplication())
