@@ -35,3 +35,9 @@ export const tagStore = {
     call<{ path: string; name: string; tags: Tag[] }[]>("GET", `/api/tags/files?tags=${ids.join(",")}&mode=${mode}${under ? `&under=${encodeURIComponent(under)}` : ""}`),
 };
 export const useTags = () => useSyncExternalStore(tagStore.subscribe, tagStore.get);
+
+/** Reserved / conventional names that mark a cover as blurred. */
+const BLUR_NAMES = new Set(["模糊", "blur", "nsfw", "spoiler", "遮挡"]);
+export const BLUR_TAG_NAME = "模糊";
+export const isBlurTag = (tag: Tag) => BLUR_NAMES.has(tag.name.trim().toLowerCase());
+export const isBlurred = (tags?: Tag[]) => (tags ?? []).some(isBlurTag);

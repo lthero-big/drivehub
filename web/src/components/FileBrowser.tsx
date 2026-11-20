@@ -27,6 +27,8 @@ import { tagStore, useTags, type Tag } from "../lib/tags";
 import { usePrefs } from "../lib/prefs";
 import { ChipGroup, useHoverReveal } from "../ui/r5";
 import { FileIcon, FolderIcon } from "./FileIcon";
+import { MediaCover } from "./MediaCover";
+import { isBlurred } from "../lib/tags";
 
 /** nearest vertically scrollable ancestor (rubber-band auto-scroll). */
 function scroller(el: HTMLElement | null): HTMLElement {
@@ -238,8 +240,40 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
     return ts?.length ? <TagRow tags={ts} className={grid ? "mt-1 w-full" : "max-w-[45%] min-w-12"} /> : null;
   };
   const selected = useMemo(() => list.filter((i) => sel.has(i.path)), [list, sel]);
-  const images = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "image"), [list]);
   const audios = useMemo(() => list.filter((i) => !i.is_dir && kindOf(i.name) === "audio"), [list]);
+  const isMedia = (i: FsItem) => !i.is_dir && (kindOf(i.name) === "image" || kindOf(i.name) === "video");
+  const [galleryAll, setGalleryAll] = useState<FsItem[] | null>(null);
+  useEffect(() => {
+    if (view !== "gallery") return;
+    let live = true;
+    (async () => {
+      const acc: FsItem[] = [];
+      let pg = 1, total = Infinity;
+      while (live && acc.length < total) {
+        const r = await ok(client.GET("/api/fs/list", { params: { query: { path, page: pg, per_page: 1000, sort: sort.by, order: sort.desc ? "desc" : "asc" } } }));
+        total = r.total;
+        acc.push(...r.items);
+        if (!r.items.length || acc.length >= total) break;
+        pg += 1;
+      }
+      if (live) setGalleryAll(acc);
+    })().catch(() => { if (live) setGalleryAll([]); });
+    return () => { live = false; };
+  }, [view, path, sort.by, sort.desc, fsVersion]);
+  const galleryItems = useMemo(() => {
+    const src = (galleryAll ?? all).filter((i) => !gone.has(i.path) && isMedia(i));
+    let l = q.trim() ? src.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())) : src;
+    if (tagFilter.length) {
+      const want = tagFilter.map(Number);
+      l = l.filter((i) => {
+        const has = (tagMap[i.path] ?? []).map((t) => t.id);
+        return tagMode === "all" ? want.every((w) => has.includes(w)) : want.some((w) => has.includes(w));
+      });
+    }
+    return l;
+  }, [galleryAll, all, gone, q, tagFilter, tagMode, tagMap]);
+  const galleryImages = galleryItems.filter((i) => kindOf(i.name) === "image");
+  const galleryVideos = galleryItems.filter((i) => kindOf(i.name) === "video");
   const phs = useMemo(() => placeholdersFor(ups, path, new Set((items ?? []).map((i) => i.name)), Date.now()), [ups, path, items, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const last = Math.max(0, ...ups.filter((u) => u.status === "done").map((u) => u.doneAt ?? 0));
@@ -705,14 +739,14 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
                 onClick={(e) => click(e, i, idx)}
                 onDoubleClick={() => open(i)}
                 onContextMenu={(e) => onItemContext(e, i)}
-                {...hover.bind(pf.hoverPreview && !i.is_dir && kindOf(i.name) === "image" ? fileUrl(i.path) : null)}
+                {...hover.bind(pf.hoverPreview && !i.is_dir && (kindOf(i.name) === "image" || kindOf(i.name) === "video") ? fileUrl(i.path) : null, { blur: isBlurred(tagMap[i.path]) })}
                 className={cx("group grid cursor-default grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 border-b border-line px-3 py-1.5 last:border-b-0 sm:grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover", dragCls(i))}
               >
                 <span role="gridcell" onClick={(e) => e.stopPropagation()}>
                   <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx(!sel.has(i.path) && "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100")} />
                 </span>
                 <span role="gridcell" className="flex min-w-0 items-center gap-2.5">
-                  {i.is_dir && !i.mount_kind ? <FolderIcon size={22} open={opening === i.path} /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} />}
+                  {i.is_dir && !i.mount_kind ? <FolderIcon size={22} open={opening === i.path} /> : isMedia(i) ? <MediaCover path={i.path} name={i.name} tags={tagMap[i.path]} className="size-8 shrink-0 rounded-md" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} />}
                   <span className="min-w-0">
                     <a data-row-link href={i.is_dir ? filesHref(i.path) : undefined} onClick={(e) => { if (!i.is_dir) return; if (e.metaKey || e.ctrlKey || e.shiftKey) e.preventDefault(); }} className="block truncate text-[13.5px]">
                       {i.name}
@@ -737,11 +771,11 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           <ul aria-label="文件网格" className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
             {phs.map((p) => <PhCard key={"ph:" + p.key} p={p} />)}
             {list.map((i, idx) => {
-              const img = !i.is_dir && kindOf(i.name) === "image";
+              const cover = isMedia(i);
               return (
                 <li key={i.path} {...dragProps(i)} aria-selected={sel.has(i.path)} onClick={(e) => click(e, i, idx)} onDoubleClick={() => open(i)} onContextMenu={(e) => onItemContext(e, i)} className={cx("group relative flex cursor-default flex-col overflow-hidden rounded-xl border bg-panel", sel.has(i.path) ? "border-accent ring-2 ring-accent/30" : "border-line hover:bg-hover", dragCls(i))}>
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-panel-2">
-                    {img ? <img src={fileUrl(i.path)} alt="" loading="lazy" decoding="async" draggable={false} className="size-full object-cover" /> : i.is_dir && !i.mount_kind ? <FolderIcon size={60} open={opening === i.path} className="mt-3" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} className="size-10" />}
+                    {cover ? <MediaCover path={i.path} name={i.name} tags={tagMap[i.path]} alt={i.name} className="size-full" /> : i.is_dir && !i.mount_kind ? <FolderIcon size={60} open={opening === i.path} className="mt-3" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} className="size-10" />}
                   </div>
                   <div className="flex items-center gap-1 px-2 py-1.5">
                     <span className="min-w-0 flex-1">
@@ -758,23 +792,22 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           </ul>
         )}
 
-        {list.length > 0 && view === "gallery" && (
+        {view === "gallery" && (galleryAll !== null || list.length > 0) && (
           <>
             <div className="mb-2 flex items-center gap-3 text-xs text-muted">
-              <span>{images.length} 张图片</span>
+              <span data-gallery-count>{galleryImages.length} 张图片{galleryVideos.length ? ` · ${galleryVideos.length} 个视频` : ""}（整个文件夹）</span>
               <label className="flex items-center gap-2">
                 列数
                 <input type="range" min={2} max={8} value={cols} onChange={(e) => setCols(Number(e.target.value))} aria-label="相册列数" className="accent-[var(--accent)]" />
               </label>
-              {list.length - images.length > 0 && <span>（另有 {list.length - images.length} 个非图片项，切换到列表查看）</span>}
             </div>
-            {images.length === 0 ? (
-              <Empty icon={<Images className="size-10" />} title="此文件夹没有图片" />
+            {galleryItems.length === 0 ? (
+              <Empty icon={<Images className="size-10" />} title={galleryAll === null ? "正在加载相册…" : "此文件夹没有图片或视频"} />
             ) : (
-              <div style={{ columnCount: cols }} className="gap-2 [column-gap:0.5rem] max-sm:![column-count:2]">
-                {images.map((i) => (
+              <div style={{ columnCount: cols }} className="gap-2 [column-gap:0.5rem] max-sm:![column-count:2]" data-gallery>
+                {galleryItems.map((i) => (
                   <button key={i.path} {...dragProps(i)} onClick={() => tabs.open(i)} onContextMenu={(e) => onItemContext(e, i)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-lg border border-line bg-panel-2" aria-label={`查看 ${i.name}`}>
-                    <img src={fileUrl(i.path)} alt={i.name} loading="lazy" decoding="async" draggable={false} className="w-full" />
+                    <MediaCover path={i.path} name={i.name} tags={tagMap[i.path]} alt={i.name} className="w-full" imgClass="w-full h-auto object-cover" />
                   </button>
                 ))}
               </div>
@@ -782,7 +815,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
           </>
         )}
 
-        {items && !err && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total - (items ? items.length - all.length : 0)} size={PAGE} sizes={PAGE_SIZES} unit="项" setSize={(n) => (localStorage.setItem("dh_pagesize_files", String(n)), setPAGE(n))} setPage={(n) => (setSel(new Set()), load(false, n))} />}
+        {items && !err && view !== "gallery" && <Pager page={page} pages={Math.max(1, Math.ceil(total / PAGE))} total={total - (items ? items.length - all.length : 0)} size={PAGE} sizes={PAGE_SIZES} unit="项" setSize={(n) => (localStorage.setItem("dh_pagesize_files", String(n)), setPAGE(n))} setPage={(n) => (setSel(new Set()), load(false, n))} />}
         {readme && <Readme item={readme} />}
       </div>
 

@@ -246,6 +246,7 @@ export function useScrollTimeline(root: RefObject<HTMLElement | null>, deps: unk
 /* ───────── HoverReveal: preview follows the pointer at +26px, q tween 0.25 s easeOutCubic ───────── */
 export function useHoverReveal() {
   const [src, setSrc] = useState<string | null>(null);
+  const [blur, setBlur] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
   const st = useRef({ q: 0, from: 0, to: 0, t0: 0, x: 0, y: 0, raf: 0 });
   const frame = useCallback(() => {
@@ -272,13 +273,14 @@ export function useHoverReveal() {
     if (!s.raf) s.raf = requestAnimationFrame(frame);
   };
   useEffect(() => () => cancelAnimationFrame(st.current.raf), []);
-  const bind = (url: string | null) =>
+  const bind = (url: string | null, opts?: { blur?: boolean }) =>
     url
       ? {
           onPointerEnter: (e: React.PointerEvent) => {
             if (e.pointerType === "touch") return;
             st.current.x = e.clientX;
             st.current.y = e.clientY;
+            setBlur(!!opts?.blur);
             setSrc(url);
             go(1);
           },
@@ -287,8 +289,9 @@ export function useHoverReveal() {
         }
       : {};
   const node = src ? (
-    <div ref={box} className="hrv" data-hover-reveal style={{ opacity: 0 }} aria-hidden>
+    <div ref={box} className={cx("hrv", blur && "dh-cover-blur")} data-hover-reveal data-blur={blur ? "" : undefined} style={{ opacity: 0 }} aria-hidden>
       <img src={src} alt="" />
+      {blur && <span className="dh-cover-hint">已模糊</span>}
     </div>
   ) : null;
   return { bind, node };
