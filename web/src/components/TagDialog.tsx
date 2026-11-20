@@ -2,10 +2,10 @@
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import type { FsItem } from "../lib/api";
-import { TAG_COLORS, tagStore, useTags, type Tag } from "../lib/tags";
+import { BLUR_TAG_NAME, TAG_COLORS, isBlurTag, tagStore, useTags, type Tag } from "../lib/tags";
 import { cx, errMsg } from "../lib/util";
 import { AnimatedTags } from "../ui/r5";
-import { Button, Input, Modal, toast } from "../ui/ui";
+import { Button, Input, Modal, Switch, toast } from "../ui/ui";
 
 export function TagDialog({ items, current, onClose, onChanged }: { items: FsItem[]; current: Record<string, Tag[]>; onClose: () => void; onChanged: (m: Record<string, Tag[]>) => void }) {
   const all = useTags();
@@ -25,6 +25,21 @@ export function TagDialog({ items, current, onClose, onChanged }: { items: FsIte
       setSel(common());
     }
   };
+
+  const blurOn = paths.every((p) => (current[p] ?? []).some(isBlurTag));
+  const toggleBlur = async (on: boolean) => {
+    try {
+      let id = all.find(isBlurTag)?.id;
+      if (on && !id) {
+        const created = await tagStore.create(BLUR_TAG_NAME, "gray");
+        id = created.id;
+      }
+      if (!id) return;
+      onChanged(await tagStore.assign(paths, on ? { add: [id] } : { remove: [id] }));
+    } catch (e) {
+      toast.err(errMsg(e));
+    }
+  };
   const create = async () => {
     const n = name.trim();
     if (!n) return;
@@ -41,6 +56,13 @@ export function TagDialog({ items, current, onClose, onChanged }: { items: FsIte
     <Modal open onClose={onClose} title={items.length === 1 ? `标签 · ${items[0].name}` : `标签 · ${items.length} 项`} footer={<Button variant="primary" onClick={onClose}>完成</Button>}>
       <div className="space-y-4" data-tag-dialog>
         <AnimatedTags options={all.map((t) => ({ id: String(t.id), label: t.name, color: t.color }))} selected={sel} onChange={toggle} emptyText="点下面的标签加进来" />
+        <label className="flex items-center justify-between gap-3 rounded-xl border border-line bg-panel-2 px-3 py-2" data-blur-toggle>
+          <span>
+            <span className="block text-[13px] font-medium">模糊封面</span>
+            <span className="block text-[11px] text-muted">给图片 / 视频封面加模糊（标签名：模糊，也可使用 blur / nsfw / spoiler / 遮挡）</span>
+          </span>
+          <Switch checked={blurOn} onChange={toggleBlur} label="模糊封面" />
+        </label>
         <form className="space-y-2 border-t border-dashed border-line pt-3" onSubmit={(e) => (e.preventDefault(), create())}>
           <div className="flex gap-2">
             <Input placeholder="新标签名" value={name} onChange={(e) => setName(e.target.value)} aria-label="新标签名" maxLength={32} />

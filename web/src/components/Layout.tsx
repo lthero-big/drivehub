@@ -46,6 +46,48 @@ function ThemeSwitch({ theme, setTheme }: { theme: ThemePref; setTheme: (t: Them
 /** Favorites shown before "查看全部" (the rest live in a scroll area once expanded). */
 const FAV_LIMIT = 6;
 
+
+function NavSection({
+  id, title, icon, count, collapsed, onToggle, mini, href, hrefActive, onHrefClick, showToggle, showMiniLine, children, footer,
+}: {
+  id: string; title: string; icon?: ReactNode; count?: number; collapsed: boolean; onToggle: () => void; mini: boolean;
+  href?: string; hrefActive?: boolean; onHrefClick?: () => void; showToggle?: boolean; showMiniLine?: boolean; children: ReactNode; footer?: ReactNode;
+}) {
+  const bodyId = `nav-${id}`;
+  const toggleLabel = collapsed ? `展开${title}` : `收起${title}`;
+  const headCls = "sec-head flex w-full items-center gap-1 rounded-lg px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-faint";
+  const chevron = <ChevronRight className={cx("size-3 transition-transform duration-200", !collapsed && "rotate-90")} />;
+  return (
+    <div data-sec={id}>
+      {!mini ? (
+        href ? (
+          <div className={headCls}>
+            {showToggle !== false && (
+              <button type="button" aria-expanded={!collapsed} aria-controls={bodyId} aria-label={toggleLabel} data-files-toggle={id === "files" ? "" : undefined} data-sec-toggle={id} onClick={onToggle} className="flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-hover hover:text-fg">
+                {chevron}
+              </button>
+            )}
+            <a href={href} onClick={onHrefClick} aria-current={hrefActive ? "page" : undefined} className={cx("flex min-w-0 flex-1 items-center gap-1 rounded-md py-0.5 hover:text-fg", hrefActive && "text-accent")}>
+              {icon}<span className="truncate">{title}</span>
+            </a>
+            {count != null && <span className="font-normal tabular-nums">{count}</span>}
+          </div>
+        ) : (
+          <button type="button" aria-expanded={!collapsed} aria-controls={bodyId} onClick={onToggle} className={cx(headCls, "hover:text-fg")}>
+            {chevron}{icon}{title}{count != null && <span className="ml-auto font-normal tabular-nums">{count}</span>}
+          </button>
+        )
+      ) : showMiniLine !== false ? <div className="mx-3 h-px bg-line" /> : null}
+      <div id={bodyId} className="sec-body" data-closed={collapsed && !mini ? "" : undefined}>
+        <div className="min-h-0 overflow-hidden">
+          {children}
+          {footer}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const useCollapsed = (): [boolean, (v: boolean) => void] => {
   const [v, set] = useState(() => localStorage.getItem("dh_sidebar_collapsed") === "1");
   return [v, (x) => (set(x), localStorage.setItem("dh_sidebar_collapsed", x ? "1" : "0"))];
@@ -92,17 +134,9 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         {!mini && <button className="rounded-md p-1 text-muted hover:bg-hover lg:hidden" aria-label="关闭菜单" onClick={() => setDrawer(false)}><X className="size-4" /></button>}
       </div>
       <div className="space-y-0.5">
-        <div data-sec="files">
-          <div className="relative">
-            <NavLink mini={mini} href="#/files" icon={<FolderOpen />} active={at("files", "")} onClick={toFolder}>全部文件</NavLink>
-            {!mini && mounts.length > 0 && (
-              <button type="button" aria-expanded={!pf.filesCollapsed} aria-controls="nav-files" aria-label={pf.filesCollapsed ? "展开全部文件" : "收起全部文件"} data-files-toggle
-                onClick={() => prefs.set({ filesCollapsed: !pf.filesCollapsed })} className="absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg text-faint hover:bg-active hover:text-fg">
-                <ChevronRight className={cx("size-3.5 transition-transform duration-200", !pf.filesCollapsed && "rotate-90")} />
-              </button>
-            )}
-          </div>
-          <div id="nav-files" className="sec-body" data-closed={pf.filesCollapsed && !mini ? "" : undefined}><div className={cx("min-h-0 space-y-0.5 overflow-hidden", !mini && "nav-tree")}>
+        <NavSection id="files" title="全部文件" icon={<FolderOpen className="size-3" />} collapsed={pf.filesCollapsed} onToggle={() => prefs.set({ filesCollapsed: !pf.filesCollapsed })} mini={mini} href="#/files" hrefActive={at("files", "")} onHrefClick={toFolder} showToggle={!mini && mounts.length > 0} showMiniLine={false}>
+          <div className={cx("min-h-0 space-y-0.5 overflow-hidden", !mini && "nav-tree")}>
+          {mini && <NavLink mini={mini} href="#/files" icon={<FolderOpen />} active={at("files", "")} onClick={toFolder}>全部文件</NavLink>}
           {mounts.map((m) => {
             const on = filesPath === m.path || filesPath.startsWith(m.path + "/");
             return (
@@ -112,8 +146,8 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
               </a>
             );
           })}
-          </div></div>
-        </div>
+          </div>
+        </NavSection>
         <NavLink mini={mini} href="#/search" icon={<Search />} active={at("search")}>搜索</NavLink>
         <NavLink mini={mini} href="#/tasks" icon={<ListChecks />} active={at("tasks")}>任务中心</NavLink>
         {me && <NavLink mini={mini} href="#/shares" icon={<Share2 />} active={at("shares")}>我的分享</NavLink>}
@@ -121,13 +155,11 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
         {me && <NavLink mini={mini} href="#/account" icon={<User />} active={at("account")}>账户设置</NavLink>}
       </div>
       {favs.length > 0 && (
-        <div className="space-y-0.5" data-sec="favs">
-          {!mini ? (
-            <button type="button" aria-expanded={!pf.favsCollapsed} aria-controls="nav-favs" onClick={() => prefs.set({ favsCollapsed: !pf.favsCollapsed })} className="sec-head flex w-full items-center gap-1 rounded-lg px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-faint hover:text-fg">
-              <ChevronRight className={cx("size-3 transition-transform duration-200", !pf.favsCollapsed && "rotate-90")} /><Star className="size-3" /> 收藏 <span className="ml-auto font-normal tabular-nums">{favs.length}</span>
+        <NavSection id="favs" title="收藏" icon={<Star className="size-3" />} count={favs.length} collapsed={pf.favsCollapsed} onToggle={() => prefs.set({ favsCollapsed: !pf.favsCollapsed })} mini={mini} footer={!mini && favs.length > FAV_LIMIT ? (
+            <button type="button" data-favs-more tabIndex={pf.favsCollapsed ? -1 : undefined} onClick={() => prefs.set({ favsShowAll: !pf.favsShowAll })} className="ml-7 flex min-h-8 items-center gap-1 rounded-lg px-2 text-[12px] text-accent hover:bg-hover">
+              {pf.favsShowAll ? "只显示前 " + FAV_LIMIT + " 个" : "查看全部 " + favs.length + " 个"}
             </button>
-          ) : <div className="mx-3 h-px bg-line" />}
-          <div id="nav-favs" className="sec-body" data-closed={pf.favsCollapsed && !mini ? "" : undefined}><div className="min-h-0 overflow-hidden">
+          ) : undefined}>
           <div className={cx("space-y-0.5", !mini && "nav-tree", !mini && pf.favsShowAll && favs.length > FAV_LIMIT && "scroll-thin max-h-72 overflow-y-auto")} data-favs-list data-favs-shown={mini || pf.favsShowAll ? favs.length : Math.min(FAV_LIMIT, favs.length)}>
           {(mini || pf.favsShowAll ? favs : favs.slice(0, FAV_LIMIT)).map((f) => (
             <a
@@ -144,22 +176,11 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
             </a>
           ))}
           </div>
-          {!mini && favs.length > FAV_LIMIT && (
-            <button type="button" data-favs-more tabIndex={pf.favsCollapsed ? -1 : undefined} onClick={() => prefs.set({ favsShowAll: !pf.favsShowAll })} className="ml-7 flex min-h-8 items-center gap-1 rounded-lg px-2 text-[12px] text-accent hover:bg-hover">
-              {pf.favsShowAll ? "收起" : `查看全部 ${favs.length} 个`}
-            </button>
-          )}
-          </div></div>
-        </div>
+        </NavSection>
       )}
       {(isAdmin || caps.length > 0) && (
-        <div className="space-y-0.5" data-sec="admin">
-          {!mini ? (
-            <button type="button" aria-expanded={!pf.adminCollapsed} aria-controls="nav-admin" onClick={() => prefs.set({ adminCollapsed: !pf.adminCollapsed })} className="sec-head flex w-full items-center gap-1 rounded-lg px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-faint uppercase hover:text-fg">
-              <ChevronRight className={cx("size-3 transition-transform duration-200", !pf.adminCollapsed && "rotate-90")} /> 管理后台
-            </button>
-          ) : <div className="mx-3 h-px bg-line" />}
-          <div id="nav-admin" className="sec-body" data-closed={pf.adminCollapsed && !mini ? "" : undefined}><div className="min-h-0 space-y-0.5 overflow-hidden">
+        <NavSection id="admin" title="管理后台" icon={<Shield className="size-3" />} collapsed={pf.adminCollapsed} onToggle={() => prefs.set({ adminCollapsed: !pf.adminCollapsed })} mini={mini}>
+          <div className="min-h-0 space-y-0.5 overflow-hidden">
           {isAdmin && <NavLink mini={mini} href="#/admin/dashboard" icon={<LayoutDashboard />} active={at("admin", "dashboard")}>仪表盘</NavLink>}
           {can("admin_mounts") && <NavLink mini={mini} href="#/admin/mounts" icon={<HardDrive />} active={at("admin", "mounts")}>挂载点</NavLink>}
           {can("admin_users") && <NavLink mini={mini} href="#/admin/users" icon={<User />} active={at("admin", "users")}>用户</NavLink>}
@@ -168,8 +189,8 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
           {can("admin_acl") && <NavLink mini={mini} href="#/admin/acl" icon={<Shield />} active={at("admin", "acl")}>目录权限</NavLink>}
           {can("admin_audit") && <NavLink mini={mini} href="#/admin/audit" icon={<ScrollText />} active={at("admin", "audit")}>审计日志</NavLink>}
           {can("admin_settings") && <NavLink mini={mini} href="#/admin/settings" icon={<Settings />} active={route.name === "admin" && route.rest.startsWith("settings")}>后台设置</NavLink>}
-          </div></div>
-        </div>
+          </div>
+        </NavSection>
       )}
       <div className="mt-auto space-y-2">
         <Menu

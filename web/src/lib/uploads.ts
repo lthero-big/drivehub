@@ -62,7 +62,7 @@ export const uploads = {
       call("DELETE", `/api/fs/uploads/${j.session}`).catch(() => {});
       localStorage.removeItem(resumeKey(j));
     }
-    patch(j, { status: "canceled", xhr: undefined });
+    patch(j, { status: "canceled", xhr: undefined, doneAt: Date.now() });
     pump();
   },
   retry(id: number) {
@@ -73,6 +73,12 @@ export const uploads = {
   },
   clearFinished() {
     jobs = jobs.filter((j) => j.status === "queued" || j.status === "uploading" || j.status === "error");
+    emit();
+  },
+  dismiss(id: number) {
+    const j = jobs.find((x) => x.id === id);
+    if (!j || j.status === "queued" || j.status === "uploading") return;
+    jobs = jobs.filter((x) => x.id !== id);
     emit();
   },
   cancelAll() {
