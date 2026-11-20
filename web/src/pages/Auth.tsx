@@ -130,7 +130,7 @@ export function AuthPage({ status, onDone, totpTicket }: { status: AuthStatus; o
           </Field>
         )}
         {msg && <p className={msg.ok ? "text-[13px] text-ok" : "text-[13px] text-danger"} role="alert">{msg.text}</p>}
-        <Button type="submit" variant="primary" className="mx-auto w-full" phase={phase} data-auth-submit>
+        <Button type="submit" variant="primary" className="lb-center w-full" phase={phase} data-auth-submit>
           {init ? "创建管理员" : totpTicket ? "验证" : tab === "register" ? "注册" : tab === "forgot" ? "发送重置邮件" : "登录"}
         </Button>
       </form>

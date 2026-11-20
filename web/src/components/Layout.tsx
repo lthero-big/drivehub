@@ -55,12 +55,12 @@ function NavSection({
 }) {
   const bodyId = `nav-${id}`;
   const toggleLabel = collapsed ? `展开${title}` : `收起${title}`;
-  const headCls = "sec-head flex w-full min-h-10 items-center gap-2.5 rounded-xl px-3 py-1.5 text-[14px] font-medium [&>svg]:size-[18px] [&>svg]:shrink-0 [&>a>svg]:size-[18px] [&>a>svg]:shrink-0";
+  const headCls = "sec-head flex w-full min-h-10 items-center gap-2.5 rounded-xl px-3 py-1.5 text-left text-[14px] font-medium [&>svg]:size-[18px] [&>svg]:shrink-0 [&>a>svg]:size-[18px] [&>a>svg]:shrink-0";
   const chevron = <ChevronRight data-sec-chevron className={cx("size-4 shrink-0 text-faint transition-transform duration-200", !collapsed && "rotate-90")} />;
   const titleRow = (
     <>
       {icon}
-      <span className="min-w-0 flex-1 truncate">{title}</span>
+      <span className="min-w-0 flex-1 truncate text-left">{title}</span>
       {count != null && <span className="text-[12px] font-normal tabular-nums text-faint">{count}</span>}
     </>
   );
@@ -68,20 +68,22 @@ function NavSection({
     <div data-sec={id}>
       {!mini ? (
         href ? (
-          <div className={cx(headCls, hrefActive ? "bg-accent-soft text-accent" : "text-muted")}>
-            <a href={href} onClick={onHrefClick} aria-current={hrefActive ? "page" : undefined} className="flex min-w-0 flex-1 items-center gap-2.5 hover:text-fg">
+          <div className={cx(headCls, hrefActive ? "bg-accent-soft text-accent" : "text-muted", "hover:bg-hover hover:text-fg")}>
+            <a href={href} onClick={onHrefClick} aria-current={hrefActive ? "page" : undefined} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
               {titleRow}
             </a>
             {showToggle !== false && (
-              <button type="button" aria-expanded={!collapsed} aria-controls={bodyId} aria-label={toggleLabel} data-files-toggle={id === "files" ? "" : undefined} data-sec-toggle={id} onClick={onToggle} className="flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-hover hover:text-fg">
+              <button type="button" aria-expanded={!collapsed} aria-controls={bodyId} aria-label={toggleLabel} data-files-toggle={id === "files" ? "" : undefined} data-sec-toggle={id} onClick={onToggle} className="flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-active hover:text-fg">
                 {chevron}
               </button>
             )}
           </div>
         ) : (
-          <button type="button" aria-expanded={!collapsed} aria-controls={bodyId} data-sec-toggle={id} onClick={onToggle} className={cx(headCls, "hover:bg-hover hover:text-fg text-muted")}>
+          <button type="button" aria-expanded={!collapsed} aria-controls={bodyId} data-sec-toggle={id} onClick={onToggle} className={cx(headCls, "text-left hover:bg-hover hover:text-fg text-muted")}>
             {titleRow}
-            {chevron}
+            <span className="flex size-8 shrink-0 items-center justify-center" aria-hidden>
+              {chevron}
+            </span>
           </button>
         )
       ) : showMiniLine !== false ? <div className="mx-3 h-px bg-line" /> : null}
@@ -238,16 +240,17 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
   const TITLES: Record<string, string> = { stats: "访问统计", shares: "我的分享", files: "文件", search: "搜索", tasks: "任务中心", account: "账户设置", admin: "管理后台" };
   const crumb = route.name === "files" ? (filesPath === "/" ? "全部文件" : filesPath.split("/").filter(Boolean).slice(-1)[0]) : TITLES[route.name] ?? "DriveHub";
   return (
-    <div className="flex h-full bg-panel">
-      <aside aria-label="侧栏" data-collapsed={collapsed ? "" : undefined} className={cx("sidebar scroll-thin hidden shrink-0 overflow-x-hidden overflow-y-auto border-r border-line bg-panel lg:block", collapsed ? "w-[68px]" : "w-64")}>{nav(collapsed)}</aside>
+    <div className="flex h-full bg-bg">
+      <aside aria-label="侧栏" data-collapsed={collapsed ? "" : undefined} className={cx("sidebar scroll-thin hidden shrink-0 overflow-x-hidden overflow-y-auto lg:block", collapsed ? "w-[68px]" : "w-64")}>{nav(collapsed)}</aside>
       {drawer && (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="菜单">
           <div className="backdrop-in absolute inset-0 bg-black/35 backdrop-blur-sm" onClick={() => setDrawer(false)} />
-          <aside className="drawer-in scroll-thin absolute inset-y-0 left-0 w-72 overflow-y-auto border-r border-line bg-panel shadow-pop">{nav(false)}</aside>
+          <aside className="drawer-in scroll-thin absolute inset-y-0 left-0 w-72 overflow-y-auto bg-bg shadow-pop">{nav(false)}</aside>
         </div>
       )}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-panel px-3 lg:px-4">
+      <div className="flex min-w-0 flex-1 flex-col p-2 sm:p-2.5 sm:pl-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-panel shadow-card ring-1 ring-line/80">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line/80 bg-panel/80 px-3 backdrop-blur-xl lg:px-5">
           <IconButton label="打开菜单" className="lg:hidden" onClick={() => setDrawer(true)}><MenuIcon className="size-5" /></IconButton>
           <IconButton label={collapsed ? "展开侧栏（Ctrl/⌘ B）" : "收起侧栏（Ctrl/⌘ B）"} aria-expanded={!collapsed} className="max-lg:hidden" onClick={() => setCollapsed(!collapsed)}>
             {collapsed ? <PanelLeftOpen className="size-[18px]" /> : <PanelLeftClose className="size-[18px]" />}
@@ -256,7 +259,8 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
           <IconButton label="搜索（⌘K）" onClick={openPalette}><Search className="size-[18px]" /></IconButton>
           <ThemeSwitch theme={theme} setTheme={setTheme} />
         </header>
-        <main id="main" className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-panel px-4 sm:px-8">{children}</main>
+        <main id="main" className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-panel px-4 pt-5 pb-8 sm:px-8">{children}</main>
+        </div>
       </div>
     </div>
   );

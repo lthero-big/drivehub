@@ -3,6 +3,9 @@
 :root { --mo-ease: cubic-bezier(.22, 1, .36, 1); --mo-io: cubic-bezier(.65, 0, .35, 1); --mo-ok: #1e9e5a; }
 
 /* ---- unified loading button (mp-loading-button): pill → 36 circle + white arc → green check + 完成 ---- */
+/* Full-width morph buttons stay centered when they shrink to a circle. */
+.lb.lb-center { display: flex; margin-inline: auto; }
+
 .lb { position: relative; overflow: hidden; transition: width .3s var(--mo-io), background-color .3s, border-color .3s, color .3s, transform .18s var(--mo-ease), box-shadow .18s; will-change: width; }
 .lb .lb-label { display: inline-flex; align-items: center; gap: .375rem; transition: opacity .12s, transform .2s var(--mo-ease); }
 .lb .lb-spin, .lb .lb-done { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: .4rem; opacity: 0; pointer-events: none; }

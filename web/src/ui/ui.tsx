@@ -280,10 +280,10 @@ export function Pager({ page, pages, setPage, total, size, setSize, sizes = PAGE
 
 export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-end gap-3 pb-2">
+    <div className="flex flex-wrap items-end gap-3 pb-3">
       <div className="min-w-0 flex-1">
-        <h1 className="text-[26px] leading-tight font-semibold tracking-tight">{title}</h1>
-        {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+        <h1 className="text-[28px] leading-none font-semibold tracking-tight">{title}</h1>
+        {desc && <p className="mt-2 text-sm text-muted">{desc}</p>}
       </div>
       {actions && <div className="ctl-sm flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
