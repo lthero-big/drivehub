@@ -10,6 +10,8 @@ import { Layout } from "./components/Layout";
 import { FilesArea } from "./components/Editor";
 import { UploadQueue } from "./components/UploadQueue";
 import { CommandPalette } from "./components/CommandPalette";
+import { UpdateBanner } from "./components/UpdateBanner";
+import { startVersionWatch, useVersion } from "./lib/version";
 
 const SearchPage = lazy(() => import("./pages/Search").then((m) => ({ default: m.SearchPage })));
 const TasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.TasksPage })));
@@ -25,6 +27,7 @@ const StatsPage = lazy(() => import("./pages/Stats").then((m) => ({ default: m.S
 const SharesPage = lazy(() => import("./pages/Shares").then((m) => ({ default: m.SharesPage })));
 const SharePublicPage = lazy(() => import("./pages/SharePublic").then((m) => ({ default: m.SharePublicPage })));
 const PickupBox = lazy(() => import("./pages/SharePublic").then((m) => ({ default: m.PickupBox })));
+const UpdatePage = lazy(() => import("./pages/admin/Update").then((m) => ({ default: m.UpdatePage })));
 const SettingsPage = lazy(() => import("./pages/admin/Settings").then((m) => ({ default: m.SettingsPage })));
 
 type Compat = { status: string; min_version?: string; reason?: string };
@@ -41,6 +44,7 @@ export default function App() {
   const [guest, setGuest] = useState(() => sessionStorage.getItem("dh_guest") === "1");
   const [oauthTicket, setOauthTicket] = useState<string | null>(null);
   const [oauthErr, setOauthErr] = useState<string | null>(null);
+  const live = useVersion();
 
   const reload = useCallback(() => {
     setGuest(sessionStorage.getItem("dh_guest") === "1");
@@ -63,6 +67,7 @@ export default function App() {
       }
     }
     ok(client.GET("/api/version")).then(setVer).catch(() => {});
+    startVersionWatch();
     fetch("/api/v1/health", { headers: CLIENT_HEADERS }).then(async (r) => {
       if (r.status === 426 || r.status === 400) setCompat(await r.json());
     });
@@ -107,6 +112,7 @@ export default function App() {
   if (location.pathname.startsWith("/s/"))
     return (
       <>
+        <UpdateBanner />
         <Suspense fallback={<div className="mx-auto max-w-3xl p-6"><SkFileRows rows={5} /></div>}>
           <SharePublicPage />
         </Suspense>
@@ -128,6 +134,7 @@ export default function App() {
     return (
       <Ctx.Provider value={ctx}>
         {banner}
+        <UpdateBanner />
         {oauthErr && <p className="bg-danger/10 px-4 py-2 text-center text-[13px] text-danger">第三方登录失败：{oauthErr}</p>}
         <AuthPage status={status} onDone={() => (setOauthTicket(null), reload())} totpTicket={oauthTicket} />
         {status.initialized && !oauthTicket && (
@@ -159,7 +166,7 @@ export default function App() {
         if (!admin && !(me?.caps?.length)) return <p className="py-10 text-center text-sm text-muted">仅管理员可用</p>;
         return (
           <div className="mx-auto max-w-6xl py-4">
-            {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "groups" ? <GroupsPage /> : route.rest === "roles" ? <RolesPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest.split("/")[0] === "settings" ? <SettingsPage tab={route.rest.split("/")[1]} /> : <DashboardPage />}
+            {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "groups" ? <GroupsPage /> : route.rest === "roles" ? <RolesPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest.split("/")[0] === "settings" ? <SettingsPage tab={route.rest.split("/")[1]} /> : route.rest === "update" ? <UpdatePage /> : <DashboardPage />}
           </div>
         );
       default:
@@ -171,8 +178,9 @@ export default function App() {
     <Ctx.Provider value={ctx}>
       <div className="flex h-full flex-col">
         {banner}
+        <UpdateBanner />
         <div className="min-h-0 flex-1">
-          <Layout route={route} theme={theme} setTheme={setTheme} serverVersion={ver?.server_version}>
+          <Layout route={route} theme={theme} setTheme={setTheme} serverVersion={live.current ?? ver?.server_version} updateAvailable={live.updateAvailable}>
             <Suspense fallback={<PageSkeleton kind={routeSkeleton(route.name, route.rest)} />}><div key={route.name === "admin" ? `admin/${route.rest.split("/")[0]}` : route.name} className="page-in h-full">{page}</div></Suspense>
           </Layout>
         </div>

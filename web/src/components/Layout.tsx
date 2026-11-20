@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   ChevronsUpDown, FolderOpen, HardDrive, LayoutDashboard, ListChecks, LogIn, LogOut, Menu as MenuIcon, Monitor, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Search, Settings, Shield, Star, Sun, User, Users, X,
-  BadgeCheck, Share2, ChevronRight, BarChart3,
+  BadgeCheck, Share2, ChevronRight, BarChart3, ArrowUpCircle,
 } from "lucide-react";
 import { call, client, ok, tokens, WEB_VERSION, type FsItem } from "../lib/api";
 import { useApp } from "../lib/app";
@@ -102,7 +102,7 @@ const useCollapsed = (): [boolean, (v: boolean) => void] => {
   return [v, (x) => (set(x), localStorage.setItem("dh_sidebar_collapsed", x ? "1" : "0"))];
 };
 
-export function Layout({ route, theme, setTheme, children, serverVersion }: { route: Route; theme: ThemePref; setTheme: (t: ThemePref) => void; children: ReactNode; serverVersion?: string }) {
+export function Layout({ route, theme, setTheme, children, serverVersion, updateAvailable }: { route: Route; theme: ThemePref; setTheme: (t: ThemePref) => void; children: ReactNode; serverVersion?: string; updateAvailable?: boolean }) {
   const { me, isAdmin, openPalette, fsVersion, reload } = useApp();
   const caps: string[] = me?.caps ?? [];
   const can = (c: string) => isAdmin || caps.includes(c);
@@ -197,6 +197,7 @@ export function Layout({ route, theme, setTheme, children, serverVersion }: { ro
           {can("admin_roles") && <NavLink mini={mini} href="#/admin/roles" icon={<BadgeCheck />} active={at("admin", "roles")}>角色</NavLink>}
           {can("admin_acl") && <NavLink mini={mini} href="#/admin/acl" icon={<Shield />} active={at("admin", "acl")}>目录权限</NavLink>}
           {can("admin_audit") && <NavLink mini={mini} href="#/admin/audit" icon={<ScrollText />} active={at("admin", "audit")}>审计日志</NavLink>}
+          {isAdmin && <NavLink mini={mini} href="#/admin/update" icon={<ArrowUpCircle />} active={at("admin", "update")}><span className="flex items-center gap-1.5">系统更新{updateAvailable && <span className="size-1.5 rounded-full bg-accent" aria-label="有可用更新" />}</span></NavLink>}
           {can("admin_settings") && <NavLink mini={mini} href="#/admin/settings" icon={<Settings />} active={route.name === "admin" && route.rest.startsWith("settings")}>后台设置</NavLink>}
           </div>
         </NavSection>

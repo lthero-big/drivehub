@@ -7,6 +7,7 @@
 //! - `webdav` generic WebDAV — also the bridge to rclone (`rclone serve webdav`) and
 //!   OpenList/AList (`/dav`), which covers drives OpenDAL lacks (115, PikPak, Aliyun ...).
 pub mod drivers;
+mod fs_list;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -14,6 +15,7 @@ use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use opendal::{ErrorKind, Operator};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -172,11 +174,23 @@ fn to_entry(path: &str, m: &opendal::Metadata) -> Entry {
 pub struct OpendalDriver {
     kind: &'static str,
     op: Operator,
+    /// Local root for the fs driver; when set, list/list_recursive skip stale mounts.
+    fs_root: Option<PathBuf>,
 }
 
 impl OpendalDriver {
     pub fn new(kind: &'static str, op: Operator) -> Self {
-        Self { kind, op }
+        Self {
+            kind,
+            op,
+            fs_root: None,
+        }
+    }
+    pub fn with_fs_root(self, root: PathBuf) -> Self {
+        Self {
+            fs_root: Some(root),
+            ..self
+        }
     }
     pub fn operator(&self) -> &Operator {
         &self.op
@@ -197,7 +211,9 @@ pub fn build_driver(kind: &str, opts: &HashMap<String, String>) -> Result<Box<dy
             let root = need("root")?;
             std::fs::create_dir_all(root).map_err(|e| StorageError::Config(e.to_string()))?;
             let b = opendal::services::Fs::default().root(root);
-            Ok(Box::new(OpendalDriver::new("fs", Operator::new(b)?)))
+            Ok(Box::new(
+                OpendalDriver::new("fs", Operator::new(b)?).with_fs_root(PathBuf::from(root)),
+            ))
         }
         "s3" => {
             let mut b = opendal::services::S3::default()
@@ -250,6 +266,9 @@ impl StorageDriver for OpendalDriver {
 
     async fn list(&self, path: &str) -> Result<Vec<Entry>> {
         let p = norm(path)?;
+        if let Some(root) = &self.fs_root {
+            return fs_list::list_dir(root, &p).await;
+        }
         let key = dir_key(&p);
         let mut out = Vec::new();
         for e in self.op.list(&key).await? {
@@ -273,6 +292,9 @@ impl StorageDriver for OpendalDriver {
 
     async fn list_recursive(&self, path: &str) -> Result<Vec<Entry>> {
         let p = norm(path)?;
+        if let Some(root) = &self.fs_root {
+            return fs_list::list_recursive(root, &p).await;
+        }
         let mut out = Vec::new();
         let mut l = self.op.lister_with(&dir_key(&p)).recursive(true).await?;
         while let Some(e) = l.try_next().await? {

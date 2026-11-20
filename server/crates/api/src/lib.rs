@@ -15,6 +15,8 @@ pub mod stats_api;
 pub mod tags_api;
 pub mod tasks;
 pub mod transfer_api;
+pub mod update;
+pub mod update_api;
 pub mod vfs;
 
 use axum::{
@@ -52,6 +54,12 @@ pub struct AppState {
     pub audit_log: Arc<audit::AuditLog>,
     /// Share PIN brute-force protection (DEPTAI-474).
     pub share_guard: Arc<share_api::ShareGuard>,
+    /// Directory of the built web bundle (for version.json / web_build).
+    pub web_dir: Option<PathBuf>,
+    /// Persistent data directory (None = in-memory test instance).
+    pub data_dir: Option<PathBuf>,
+    /// Auto-update engine (DEPTAI-484).
+    pub updater: Arc<update::Updater>,
 }
 
 impl AppState {
@@ -76,9 +84,14 @@ impl AppState {
             ))
         });
         let audit_log = audit::AuditLog::start(db.clone(), auth.clone()).await?;
+        let updater =
+            update::Updater::new(db.clone(), data_dir, audit_log.clone(), auth.clone()).await;
         let st = Self {
+            updater,
+            data_dir: data_dir.map(|d| d.to_path_buf()),
             audit_log,
             share_guard: Arc::new(share_api::ShareGuard::from_env()),
+            web_dir: None,
             auth,
             upload_dir,
             tasks: tasks::Tasks::new(db.clone()),
@@ -296,7 +309,13 @@ impl AppState {
         admin_api::delete_rule,
         admin_api::list_gates,
         admin_api::put_gate,
-        admin_api::effective
+        admin_api::effective,
+        update_api::status,
+        update_api::check,
+        update_api::apply,
+        update_api::put_settings,
+        update_api::android_latest,
+        update_api::android_download
     ),
     components(schemas(
         VersionInfo,
@@ -345,7 +364,16 @@ impl AppState {
         share_api::ClaimBody,
         share_api::Captcha,
         tags_api::TagBody,
-        tags_api::AssignBody
+        tags_api::AssignBody,
+        update_api::UpdateOverview,
+        update_api::ApplyBody,
+        update_api::ClientPackage,
+        update::UpdateSettings,
+        update::UpdateStatus,
+        update::LastCheck,
+        update::Effective,
+        update::manifest::Manifest,
+        update::manifest::Artifact
     ))
 )]
 pub struct ApiDoc;
@@ -358,18 +386,29 @@ pub struct Health {
 
 /// Server / API versions and minimum client versions for negotiation.
 #[utoipa::path(get, path = "/api/version", responses((status = 200, body = VersionInfo)))]
-pub async fn version() -> Json<VersionInfo> {
-    Json(VersionInfo::current())
+pub async fn version(State(st): State<AppState>) -> Json<VersionInfo> {
+    Json(st.updater.version_info())
 }
 
 /// Liveness plus database check.
 #[utoipa::path(get, path = "/api/v1/health", responses((status = 200, body = Health)))]
-pub async fn health(State(st): State<AppState>) -> Json<Health> {
+pub async fn health(State(st): State<AppState>) -> Response {
     let db = sqlx::query_scalar::<_, i64>("SELECT 1")
         .fetch_one(&st.db)
         .await
         .is_ok();
-    Json(Health { status: "ok", db })
+    // Rollback drills: a build stamped DRIVEHUB_BUILD_FAULT=unhealthy reports itself down.
+    if drivehub_core::version::fault().as_deref() == Some("unhealthy") {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(Health {
+                status: "fault",
+                db,
+            }),
+        )
+            .into_response();
+    }
+    Json(Health { status: "ok", db }).into_response()
 }
 
 async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
@@ -403,7 +442,9 @@ async fn version_gate(headers: HeaderMap, req: Request, next: Next) -> Response 
     next.run(req).await
 }
 
-pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
+pub fn router(mut state: AppState, web_dir: Option<PathBuf>) -> Router {
+    state.web_dir = web_dir.clone();
+    state.updater.set_web_dir(web_dir.clone());
     let v1 = Router::new()
         .route("/health", get(health))
         .layer(middleware::from_fn(version_gate));
@@ -565,6 +606,15 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
         )
         .route("/acl/effective", get(admin_api::effective))
         .route("/acl/catalog", get(admin_api::catalog))
+        .route("/admin/update/status", get(update_api::status))
+        .route("/admin/update/check", post(update_api::check))
+        .route("/admin/update/apply", post(update_api::apply))
+        .route("/admin/update/settings", put(update_api::put_settings))
+        .route("/client/android/latest", get(update_api::android_latest))
+        .route(
+            "/client/android/download",
+            get(update_api::android_download),
+        )
         .layer(DefaultBodyLimit::disable())
         .layer(middleware::from_fn_with_state(state.clone(), auth::authn))
         .layer(middleware::from_fn(version_gate));
@@ -618,7 +668,17 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
         );
         app = app.layer(middleware::from_fn(static_headers));
     }
-    app.layer(tower_http::trace::TraceLayer::new_for_http())
+    app.layer(middleware::map_response(server_version_header))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+}
+
+/// Every response names the running server version so open web pages notice an upgrade.
+async fn server_version_header(mut res: Response) -> Response {
+    if let Ok(v) = axum::http::HeaderValue::from_str(drivehub_core::version::server_version()) {
+        res.headers_mut()
+            .insert("x-drivehub-server-version", v);
+    }
+    res
 }
 
 /// Long-lived caching for hashed build assets, no-cache for the SPA shell, and baseline
