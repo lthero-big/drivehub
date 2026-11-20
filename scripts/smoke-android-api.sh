@@ -39,6 +39,20 @@ R=$(curl -sS -o /tmp/d477-426.json -w '%{http_code}' -H "x-drivehub-client: app/
 chk "$R" 426 "app speaking API v99 → 426"; chk "$(jq -r .status /tmp/d477-426.json)" server_too_old "  body.status = server_too_old"
 chk "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H 'x-drivehub-client: app/0.0.1' "$BASE/api/auth/login" -d '{"login":"x","password":"y"}')" 426 "login also gated for old app → 426"
 
+echo "== android package (not version-gated)"
+R=$(curl -sS -o /tmp/d484-latest.json -w '%{http_code}' -H "x-drivehub-client: app/0.0.1" -H "x-drivehub-api: 1" "$BASE/api/client/android/latest")
+[[ "$R" != 426 ]] && ok "old app GET /api/client/android/latest → HTTP $R (not 426)" || fail "latest gated 426 for old app"
+if [[ "$R" == 200 ]]; then
+  jq -e '.sha256 and .url' /tmp/d484-latest.json >/dev/null && ok "latest body has url+sha256" || fail "latest missing url/sha256"
+  R=$(curl -sS -o /tmp/d484-dl.bin -w '%{http_code}' -H "x-drivehub-client: app/0.0.1" -H "x-drivehub-api: 1" "$BASE/api/client/android/download")
+  [[ "$R" != 426 ]] && ok "old app GET /api/client/android/download → HTTP $R (not 426)" || fail "download gated 426"
+  if [[ "$R" == 200 ]]; then
+    GOT=$(sha256sum /tmp/d484-dl.bin | awk '{print $1}')
+    WANT=$(jq -r .sha256 /tmp/d484-latest.json)
+    chk "$GOT" "$WANT" "downloaded APK sha256 matches latest"
+  fi
+fi
+
 echo "== login"
 if [ "$(j "$BASE/api/auth/status" | jq -r .initialized)" = false ]; then
   j -X POST "$BASE/api/auth/init" -d "{\"username\":\"$ADMIN\",\"email\":\"admin@example.com\",\"password\":\"$ADMIN_PW\"}" >/dev/null && ok "admin initialized"

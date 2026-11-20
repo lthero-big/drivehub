@@ -610,14 +610,20 @@ pub fn router(mut state: AppState, web_dir: Option<PathBuf>) -> Router {
         .route("/admin/update/check", post(update_api::check))
         .route("/admin/update/apply", post(update_api::apply))
         .route("/admin/update/settings", put(update_api::put_settings))
+        .layer(DefaultBodyLimit::disable())
+        .layer(middleware::from_fn_with_state(state.clone(), auth::authn))
+        .layer(middleware::from_fn(version_gate));
+    // Android package discovery/download keeps the same authn boundary (anonymous is
+    // allowed; a bad bearer is still 401) but is not version-gated, so an app that
+    // the server already considers too old can still fetch an upgrade APK.
+    let client_pkg = Router::new()
         .route("/client/android/latest", get(update_api::android_latest))
         .route(
             "/client/android/download",
             get(update_api::android_download),
         )
         .layer(DefaultBodyLimit::disable())
-        .layer(middleware::from_fn_with_state(state.clone(), auth::authn))
-        .layer(middleware::from_fn(version_gate));
+        .layer(middleware::from_fn_with_state(state.clone(), auth::authn));
     // WebDAV (M2 / DEPTAI-473): same authn middleware, ACL enforced per operation.
     let dav = Router::new()
         .route("/dav", any(dav::serve))
@@ -654,7 +660,7 @@ pub fn router(mut state: AppState, web_dir: Option<PathBuf>) -> Router {
         .route("/api/version", get(version))
         .route("/api/openapi.json", get(openapi_json))
         .nest("/api/v1", v1)
-        .nest("/api", m1)
+        .nest("/api", client_pkg.merge(m1))
         .merge(dav)
         .merge(public)
         .with_state(state);
@@ -675,8 +681,7 @@ pub fn router(mut state: AppState, web_dir: Option<PathBuf>) -> Router {
 /// Every response names the running server version so open web pages notice an upgrade.
 async fn server_version_header(mut res: Response) -> Response {
     if let Ok(v) = axum::http::HeaderValue::from_str(drivehub_core::version::server_version()) {
-        res.headers_mut()
-            .insert("x-drivehub-server-version", v);
+        res.headers_mut().insert("x-drivehub-server-version", v);
     }
     res
 }

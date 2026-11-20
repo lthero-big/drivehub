@@ -6,6 +6,14 @@
 ## [Unreleased]
 
 ### Added
+- Android 应用内更新（DEPTAI-484）：检查 `GET /api/client/android/latest`、下载 APK、SHA-256 校验后走系统 PackageInstaller；普通新版本提示与 `ClientTooOld` 强制升级页均可安装。安装未知来源权限和系统确认都不会被跳过。覆盖安装必须与已安装应用使用同一签名证书。
+- `scripts/make-release.sh --android` 与 `scripts/emit-release-manifest.sh` 把 APK 纳入发布清单；CI 在提供 `DRIVEHUB_RELEASE_KEY` 时签名，未提供时只写未签名清单。
+
+### Fixed
+- `/api/client/android/latest` 与 `/download` 不再被版本门控 426 拦住，过旧客户端仍能发现并下载升级包（鉴权边界不变）。
+- 本地托管 APK 按版本 / `versionCode` 选择，并能解析 CI 文件名 `drivehub-<ver>-android-<signing>.apk`。
+
+### Added
 - 挂载点支持启用/停用（DEPTAI-464）：停用后保留配置，但不出现在侧栏、「全部文件」根目录、搜索和 WebDAV 中，直接访问返回 403；管理页卡片和编辑表单都可以开关。新建默认启用。
 
 ### Changed

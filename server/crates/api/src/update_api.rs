@@ -133,12 +133,110 @@ fn android_dir(st: &AppState) -> Option<PathBuf> {
     st.data_dir.as_ref().map(|d| d.join("clients/android"))
 }
 
-fn newest_apk(st: &AppState) -> Option<PathBuf> {
+struct LocalApk {
+    path: PathBuf,
+    version: Option<String>,
+    version_code: Option<u64>,
+    modified: Option<std::time::SystemTime>,
+}
+
+/// Semver from an APK file name. Understands `drivehub-0.2.0.apk` and CI names
+/// `drivehub-0.2.0-android-release-key.apk` / `drivehub-0.2.0-beta.1-android-debug-key.apk`.
+pub fn version_from_apk_name(name: &str) -> Option<String> {
+    let lower = name.to_ascii_lowercase();
+    let stem = if let Some(s) = name
+        .get(..name.len().saturating_sub(4))
+        .filter(|_| lower.ends_with(".apk"))
+    {
+        s
+    } else {
+        name
+    };
+    let before_android = stem
+        .split_once("-android-")
+        .or_else(|| stem.split_once("_android_"))
+        .map(|(l, _)| l)
+        .unwrap_or(stem);
+    parse_semver_tail(before_android)
+}
+
+fn parse_semver_tail(s: &str) -> Option<String> {
+    let s = s
+        .trim_start_matches("drivehub-")
+        .trim_start_matches("drivehub_");
+    let cand = s.trim_start_matches('v');
+    if semver::Version::parse(cand).is_ok() {
+        return Some(cand.to_string());
+    }
+    s.rsplit(['-', '_']).find_map(|t| {
+        let t = t.trim_start_matches('v');
+        semver::Version::parse(t).ok().map(|_| t.to_string())
+    })
+}
+
+/// Same formula as `scripts/bump-version.sh`: X*10000 + Y*100 + Z (pre-release suffix ignored).
+pub fn version_code_from_semver(v: &str) -> Option<u64> {
+    let p = semver::Version::parse(v.trim_start_matches('v')).ok()?;
+    Some(p.major.saturating_mul(10000) + p.minor.saturating_mul(100) + p.patch)
+}
+
+fn inspect_apk(path: PathBuf) -> LocalApk {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let version = version_from_apk_name(&name);
+    let version_code = version.as_deref().and_then(version_code_from_semver);
+    let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    LocalApk {
+        path,
+        version,
+        version_code,
+        modified,
+    }
+}
+
+fn better_apk(a: &LocalApk, b: &LocalApk) -> bool {
+    match (a.version_code, b.version_code) {
+        (Some(x), Some(y)) if x != y => return x > y,
+        _ => {}
+    }
+    match (
+        a.version
+            .as_deref()
+            .and_then(|v| semver::Version::parse(v).ok()),
+        b.version
+            .as_deref()
+            .and_then(|v| semver::Version::parse(v).ok()),
+    ) {
+        (Some(x), Some(y)) if x != y => return x > y,
+        (Some(_), None) => return true,
+        (None, Some(_)) => return false,
+        _ => {}
+    }
+    a.modified > b.modified
+}
+
+fn newest_apk(st: &AppState) -> Option<LocalApk> {
     let rd = std::fs::read_dir(android_dir(st)?).ok()?;
     rd.flatten()
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".apk"))
-        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
         .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.to_ascii_lowercase().ends_with(".apk"))
+                .unwrap_or(false)
+        })
+        .map(inspect_apk)
+        .max_by(|a, b| {
+            if better_apk(a, b) {
+                std::cmp::Ordering::Greater
+            } else if better_apk(b, a) {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
 }
 
 /// Latest Android client: a package hosted by this server (`<data>/clients/android/*.apk`)
@@ -146,7 +244,7 @@ fn newest_apk(st: &AppState) -> Option<PathBuf> {
 #[utoipa::path(get, path = "/api/client/android/latest", responses((status = 200, body = ClientPackage), (status = 404, description = "no package known")))]
 pub async fn android_latest(State(st): State<AppState>) -> ApiResult<Json<ClientPackage>> {
     if let Some(apk) = newest_apk(&st) {
-        let p = apk.clone();
+        let p = apk.path.clone();
         let (sha, size) = tokio::task::spawn_blocking(move || {
             (
                 install::file_sha256(&p).unwrap_or_default(),
@@ -155,17 +253,11 @@ pub async fn android_latest(State(st): State<AppState>) -> ApiResult<Json<Client
         })
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let name = apk.file_name().unwrap().to_string_lossy().to_string();
-        let version = name
-            .trim_end_matches(".apk")
-            .rsplit(['-', '_'])
-            .next()
-            .filter(|v| semver::Version::parse(v.trim_start_matches('v')).is_ok())
-            .map(|v| v.trim_start_matches('v').to_string());
+        let name = apk.path.file_name().unwrap().to_string_lossy().to_string();
         return Ok(Json(ClientPackage {
             source: "local".into(),
-            version,
-            version_code: None,
+            version: apk.version,
+            version_code: apk.version_code,
             url: "/api/client/android/download".into(),
             sha256: sha,
             size,
@@ -197,11 +289,11 @@ pub async fn android_latest(State(st): State<AppState>) -> ApiResult<Json<Client
 #[utoipa::path(get, path = "/api/client/android/download", responses((status = 200, description = "APK"), (status = 404, description = "none hosted")))]
 pub async fn android_download(State(st): State<AppState>) -> ApiResult<Response> {
     let apk = newest_apk(&st).ok_or_else(|| ApiError::not_found("no APK hosted on this server"))?;
-    let f = tokio::fs::File::open(&apk)
+    let f = tokio::fs::File::open(&apk.path)
         .await
         .map_err(|e| ApiError::not_found(e.to_string()))?;
     let len = f.metadata().await.map(|m| m.len()).unwrap_or(0);
-    let name = apk.file_name().unwrap().to_string_lossy().to_string();
+    let name = apk.path.file_name().unwrap().to_string_lossy().to_string();
     Response::builder()
         .header(
             header::CONTENT_TYPE,
@@ -214,4 +306,72 @@ pub async fn android_download(State(st): State<AppState>) -> ApiResult<Response>
         )
         .body(Body::from_stream(tokio_util::io::ReaderStream::new(f)))
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+#[cfg(test)]
+mod apk_name_tests {
+    use super::*;
+    use std::fs;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn parses_plain_and_ci_filenames() {
+        assert_eq!(
+            version_from_apk_name("drivehub-0.2.0.apk").as_deref(),
+            Some("0.2.0")
+        );
+        assert_eq!(
+            version_from_apk_name("drivehub-0.2.0-android-release-key.apk").as_deref(),
+            Some("0.2.0")
+        );
+        assert_eq!(
+            version_from_apk_name("drivehub-0.2.0-android-debug-key.apk").as_deref(),
+            Some("0.2.0")
+        );
+        assert_eq!(
+            version_from_apk_name("drivehub-0.2.0-beta.1-android-release-key.apk").as_deref(),
+            Some("0.2.0-beta.1")
+        );
+        assert_eq!(
+            version_from_apk_name("drivehub-v1.2.3.apk").as_deref(),
+            Some("1.2.3")
+        );
+        assert_eq!(version_from_apk_name("app.apk"), None);
+        assert_eq!(version_code_from_semver("0.2.0"), Some(200));
+        assert_eq!(version_code_from_semver("1.2.3"), Some(10203));
+        assert_eq!(version_code_from_semver("0.2.0-beta.1"), Some(200));
+    }
+
+    #[test]
+    fn picks_higher_version_not_newer_mtime() {
+        let dir = std::env::temp_dir().join(format!("dh-apk-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let old = dir.join("drivehub-0.1.0-android-debug-key.apk");
+        let newp = dir.join("drivehub-0.2.0-android-release-key.apk");
+        fs::write(&old, b"old").unwrap();
+        fs::write(&newp, b"new").unwrap();
+        let later = SystemTime::now() + Duration::from_secs(3600);
+        let early = SystemTime::now() - Duration::from_secs(3600);
+        filetime(&old, later);
+        filetime(&newp, early);
+        let mut apks = vec![inspect_apk(old), inspect_apk(newp)];
+        apks.sort_by(|a, b| {
+            if better_apk(a, b) {
+                std::cmp::Ordering::Greater
+            } else if better_apk(b, a) {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+        assert_eq!(apks.last().unwrap().version.as_deref(), Some("0.2.0"));
+        assert_eq!(apks.last().unwrap().version_code, Some(200));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn filetime(p: &std::path::Path, t: SystemTime) {
+        let f = fs::File::options().write(true).open(p).unwrap();
+        f.set_modified(t).unwrap();
+    }
 }
