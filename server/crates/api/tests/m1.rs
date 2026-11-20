@@ -1,9 +1,9 @@
 //! M1 API integration tests: mounts, unified tree, file ops, Range, tasks, search.
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use drivehub_api::{connect, router, AppState};
+use drivehub_api::{AppState, connect, router};
 use http_body_util::BodyExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
 struct Ctx {
@@ -120,6 +120,77 @@ async fn root_lists_mounts_sorted_and_hides_hidden() {
     assert_eq!(s, StatusCode::NOT_IMPLEMENTED);
     let (s, _) = req(&c, "DELETE", "/api/mounts/secret", None).await;
     assert_eq!(s, StatusCode::OK);
+}
+
+fn item_names(v: &Value) -> Vec<String> {
+    v["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn disabled_mount_excluded_until_enabled() {
+    let c = ctx().await;
+    let (s, _) = req(
+        &c,
+        "POST",
+        "/api/mounts",
+        Some(json!({"name": "parked", "kind": "fs", "options": {"root": c.a}, "enabled": false})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+
+    let (_, v) = req(&c, "GET", "/api/fs/list?path=/", None).await;
+    let n = item_names(&v);
+    assert!(!n.iter().any(|x| x == "parked"), "{n:?}");
+    assert!(n.iter().any(|x| x == "local"), "{n:?}");
+
+    let (_, v) = req(&c, "GET", "/api/mounts", None).await;
+    let parked = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["name"] == "parked")
+        .expect("parked in admin list");
+    assert_eq!(parked["enabled"], false);
+
+    let (s, _) = req(&c, "GET", "/api/fs/list?path=/parked", None).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+
+    let (s, _) = req(
+        &c,
+        "POST",
+        "/api/mounts",
+        Some(json!({"name": "fresh", "kind": "fs", "options": {"root": c.b}})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v) = req(&c, "GET", "/api/mounts", None).await;
+    let fresh = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["name"] == "fresh")
+        .expect("fresh in admin list");
+    assert_eq!(fresh["enabled"], true);
+    let (_, v) = req(&c, "GET", "/api/fs/list?path=/", None).await;
+    let n = item_names(&v);
+    assert!(n.iter().any(|x| x == "fresh"), "{n:?}");
+
+    let (s, _) = req(
+        &c,
+        "POST",
+        "/api/mounts",
+        Some(json!({"name": "parked", "kind": "fs", "options": {"root": c.a}, "enabled": true})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v) = req(&c, "GET", "/api/fs/list?path=/", None).await;
+    let n = item_names(&v);
+    assert!(n.iter().any(|x| x == "parked"), "{n:?}");
 }
 
 #[tokio::test]

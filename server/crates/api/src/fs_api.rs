@@ -1,16 +1,16 @@
 //! Core file API (DEPTAI-469): mounts, unified tree, list/stat/download(Range)/upload/
 //! mkdir/rename/move/copy/delete, tasks.
-use crate::auth::{Principal, CH_API};
+use crate::AppState;
+use crate::auth::{CH_API, Principal};
 use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::tasks::TaskInfo;
 use crate::vfs::{MountConfig, Resolved};
-use crate::AppState;
 use axum::{
+    Extension, Json,
     body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
-    Extension, Json,
 };
 use drivehub_core::acl::{COPY, CREATE, DELETE, DOWNLOAD, EDIT, MOVE, READ, RENAME, UPLOAD};
 use drivehub_storage::{ByteRange, Entry, TransferMode};
@@ -100,7 +100,7 @@ pub async fn list(
             .vfs
             .mounts()
             .into_iter()
-            .filter(|m| !m.cfg.hidden && st.can_see_mount(&p, &m.cfg.name))
+            .filter(|m| m.cfg.listed() && st.can_see_mount(&p, &m.cfg.name))
             .map(|m| FsItem {
                 name: m.cfg.name.clone(),
                 path: format!("/{}", m.cfg.name),
@@ -332,7 +332,7 @@ pub(crate) async fn serve_entry(
                     StatusCode::RANGE_NOT_SATISFIABLE,
                     [(header::CONTENT_RANGE, format!("bytes */{}", e.size))],
                 )
-                    .into_response())
+                    .into_response());
             }
         },
         None => None,
@@ -661,7 +661,7 @@ pub async fn delete(
     }))
 }
 
-/// All mount points (including hidden ones).
+/// All mount points (including hidden and disabled ones).
 
 fn secret_opt_key(k: &str) -> bool {
     let l = k.to_ascii_lowercase();
@@ -728,9 +728,10 @@ pub async fn add_mount(
     }
     normalize_p115_options(&mut cfg);
     let name = cfg.name.clone();
+    let enabled = cfg.enabled;
     let summary = format!(
-        "kind={} read_only={} mode={:?}",
-        cfg.kind, cfg.read_only, cfg.transfer_mode
+        "kind={} read_only={} enabled={} mode={:?}",
+        cfg.kind, cfg.read_only, enabled, cfg.transfer_mode
     );
     st.vfs.add(cfg).await?;
     st.audit(
@@ -741,7 +742,12 @@ pub async fn add_mount(
         true,
         &summary,
     );
-    st.after_change(&name);
+    if enabled {
+        st.after_change(&name);
+    } else {
+        st.vfs.invalidate(&name);
+        let _ = st.search.remove_mount(&name);
+    }
     Ok(Json(OkResp {
         ok: true,
         task_id: None,

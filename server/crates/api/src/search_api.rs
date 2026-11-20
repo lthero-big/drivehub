@@ -1,10 +1,10 @@
 //! Search API + mount indexer (DEPTAI-470).
+use crate::AppState;
 use crate::auth::Principal;
 use crate::error::{ApiError, ApiResult, ErrorBody};
-use crate::AppState;
 use axum::{
-    extract::{Query, State},
     Extension, Json,
+    extract::{Query, State},
 };
 use drivehub_search::{AclFilter, FileDoc, SearchMode};
 use serde::{Deserialize, Serialize};
@@ -98,7 +98,7 @@ pub async fn search(
             .vfs
             .mounts()
             .iter()
-            .filter(|m| !m.cfg.hidden)
+            .filter(|m| m.cfg.listed())
             .map(|m| m.cfg.name.clone())
             .collect(),
         st: &st,
@@ -160,7 +160,13 @@ pub async fn reindex(
                 .ok_or_else(|| ApiError::not_found("no such mount"))?;
             vec![m]
         }
-        None => st.vfs.mounts().iter().map(|m| m.cfg.name.clone()).collect(),
+        None => st
+            .vfs
+            .mounts()
+            .iter()
+            .filter(|m| m.cfg.enabled)
+            .map(|m| m.cfg.name.clone())
+            .collect(),
     };
     let mut files = 0;
     for n in &names {

@@ -1,6 +1,6 @@
 //! Mount registry + unified virtual tree (`/<mount>/<path>`) + TTL directory cache.
 use crate::error::{ApiError, ApiResult};
-use drivehub_storage::{build_driver, norm, Entry, StorageDriver, TransferMode};
+use drivehub_storage::{Entry, StorageDriver, TransferMode, build_driver, norm};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -22,6 +22,9 @@ pub struct MountConfig {
     pub read_only: bool,
     #[serde(default)]
     pub hidden: bool,
+    /// When false the mount keeps its config but is omitted from listings and cannot be accessed.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     #[serde(default)]
     pub sort_order: i64,
     /// direct | proxy | auto
@@ -33,9 +36,18 @@ fn default_mode() -> String {
     "auto".into()
 }
 
+fn default_true() -> bool {
+    true
+}
+
 impl MountConfig {
     pub fn mode(&self) -> TransferMode {
         TransferMode::parse(&self.transfer_mode).unwrap_or_default()
+    }
+
+    /// Shown in the virtual root / sidebar (enabled and not hidden).
+    pub fn listed(&self) -> bool {
+        self.enabled && !self.hidden
     }
 }
 
@@ -101,18 +113,19 @@ impl Vfs {
             cache: Mutex::new(HashMap::new()),
             ttl,
         };
-        let rows: Vec<(String, String, String, i64, i64, i64, String)> = sqlx::query_as(
-            "SELECT name, kind, options, read_only, hidden, sort_order, transfer_mode FROM mounts",
+        let rows: Vec<(String, String, String, i64, i64, i64, String, i64)> = sqlx::query_as(
+            "SELECT name, kind, options, read_only, hidden, sort_order, transfer_mode, enabled FROM mounts",
         )
         .fetch_all(&vfs.db)
         .await?;
-        for (name, kind, options, ro, hidden, sort_order, mode) in rows {
+        for (name, kind, options, ro, hidden, sort_order, mode, enabled) in rows {
             let cfg = MountConfig {
                 name: name.clone(),
                 kind,
                 options: serde_json::from_str(&options).unwrap_or_default(),
                 read_only: ro != 0,
                 hidden: hidden != 0,
+                enabled: enabled != 0,
                 sort_order,
                 transfer_mode: mode,
             };
@@ -153,10 +166,10 @@ impl Vfs {
         let driver = build_driver(&cfg.kind, &cfg.options)?;
         driver.set_option_sink(option_sink(self.db.clone(), cfg.name.clone()));
         sqlx::query(
-            "INSERT INTO mounts (name, kind, options, read_only, hidden, sort_order, transfer_mode, created_at)
-             VALUES (?,?,?,?,?,?,?,?)
+            "INSERT INTO mounts (name, kind, options, read_only, hidden, sort_order, transfer_mode, enabled, created_at)
+             VALUES (?,?,?,?,?,?,?,?,?)
              ON CONFLICT(name) DO UPDATE SET kind=excluded.kind, options=excluded.options, read_only=excluded.read_only,
-               hidden=excluded.hidden, sort_order=excluded.sort_order, transfer_mode=excluded.transfer_mode",
+               hidden=excluded.hidden, sort_order=excluded.sort_order, transfer_mode=excluded.transfer_mode, enabled=excluded.enabled",
         )
         .bind(&cfg.name)
         .bind(&cfg.kind)
@@ -165,6 +178,7 @@ impl Vfs {
         .bind(cfg.hidden as i64)
         .bind(cfg.sort_order)
         .bind(&cfg.transfer_mode)
+        .bind(cfg.enabled as i64)
         .bind(now())
         .execute(&self.db)
         .await?;
@@ -203,6 +217,9 @@ impl Vfs {
         let mount = self
             .get(name)
             .ok_or_else(|| ApiError::not_found(format!("no such mount: {name}")))?;
+        if !mount.cfg.enabled {
+            return Err(ApiError::forbidden(format!("mount '{name}' is disabled")));
+        }
         Ok(Resolved::InMount {
             mount,
             rel: rel.to_string(),

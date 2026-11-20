@@ -1542,6 +1542,8 @@ export interface components {
         };
         /** @description Mount point definition (stored in SQLite `mounts`). */
         MountConfig: {
+            /** @description When false the mount keeps its config but is omitted from listings and cannot be accessed. */
+            enabled?: boolean;
             hidden?: boolean;
             /** @description Driver kind: fs | s3 | webdav (rclone / OpenList bridge via webdav). */
             kind: string;

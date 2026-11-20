@@ -2,10 +2,10 @@
 //! Credentials: Basic with account password (not when TOTP is on), app password or API
 //! token as password; Bearer also works. Every operation goes through
 //! [`AppState::authorize`] (same ACL as the HTTP API) and is audited on channel `webdav`.
-use crate::auth::{dav_challenge, Principal, CH_DAV};
+use crate::AppState;
+use crate::auth::{CH_DAV, Principal, dav_challenge};
 use crate::error::ApiError;
 use crate::vfs::Resolved;
-use crate::AppState;
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -83,7 +83,7 @@ impl Backend for DavSession {
                 .vfs
                 .mounts()
                 .into_iter()
-                .filter(|m| !m.cfg.hidden && self.st.can_see_mount(&self.p, &m.cfg.name))
+                .filter(|m| m.cfg.listed() && self.st.can_see_mount(&self.p, &m.cfg.name))
                 .map(|m| Self::root_entry(&m.cfg.name))
                 .collect()),
             Resolved::InMount { mount, rel } => {

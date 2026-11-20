@@ -3952,6 +3952,10 @@
           "kind"
         ],
         "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "When false the mount keeps its config but is omitted from listings and cannot be accessed."
+          },
           "hidden": {
             "type": "boolean"
           },

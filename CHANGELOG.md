@@ -5,7 +5,17 @@
 
 ## [Unreleased]
 
+### Added
+- 挂载点支持启用/停用（DEPTAI-464）：停用后保留配置，但不出现在侧栏、「全部文件」根目录、搜索和 WebDAV 中，直接访问返回 403；管理页卡片和编辑表单都可以开关。新建默认启用。
+
+### Changed
+- 挂载编辑里原「在根目录隐藏」改为「在侧栏和根目录显示」（DEPTAI-464）。
+- 115 挂载改为 UID / CID / SEID / KID 分栏输入，保存时拼成 Cookie（DEPTAI-464）。
+- 添加/编辑挂载的「传输方式」改用全站统一的分段选择器（自动 / 直链 / 中转）（DEPTAI-464）。
+
 ### Fixed
+- 添加、保存或删除挂载后，左侧「全部文件」侧栏会立即刷新（DEPTAI-464）。
+- 打开 PikPak 挂载编辑时，密码框焦点不再跳到「名称」（DEPTAI-464）。
 - 原生 115 / PikPak 驱动真实账号验证中发现的问题（DEPTAI-481）：
   - 115 gettoken 的 STS 字段是 `AccessKeyId`（先前只读 `AccessKeyID`，OSS 签名变成 `OSS :...` 导致 400）；
   - 115 下载直链与 CDN 使用桌面 Chrome UA（`115Browser` UA 会让 CDN 返回 403 no cookie value）；API 仍用 115Browser UA，避免 initupload 提示「请升级到最新版本」；

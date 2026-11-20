@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Cloud, HardDrive, Pencil, Plus, RefreshCw, Server, Trash2, Terminal } from "lucide-react";
 import { call, client, ok, type MountConfig } from "../../lib/api";
+import { useApp } from "../../lib/app";
 import { errMsg } from "../../lib/util";
 import { ConfirmButton, Badge, Button, Card, Empty, Field, IconButton, Input, Modal, Switch, toast, PageHeader, Pager, usePaged } from "../../ui/ui";
 import { SegmentedDrag } from "../../ui/motion";
@@ -99,9 +100,10 @@ function fieldAutoComplete(f: { key: string; secret?: boolean }) {
   return "off";
 }
 
-const blank = (): MountConfig & { ui: Kind } => ({ ui: "fs", name: "", kind: "fs", options: {}, read_only: false, hidden: false, sort_order: 0, transfer_mode: "auto" });
+const blank = (): MountConfig & { ui: Kind } => ({ ui: "fs", name: "", kind: "fs", options: {}, read_only: false, hidden: false, enabled: true, sort_order: 0, transfer_mode: "auto" });
 
 export function MountsPage() {
+  const { bumpFs } = useApp();
   const [mounts, setMounts] = useState<MountConfig[] | null>(null);
   const [mq, setMq] = useState("");
   const fm = (mounts ?? []).filter((m) => !mq.trim() || m.name.toLowerCase().includes(mq.trim().toLowerCase()));
@@ -110,9 +112,19 @@ export function MountsPage() {
   const [isNew, setIsNew] = useState(false);
   const [busy, setBusy] = useState(false);
   const load = () => ok(client.GET("/api/mounts")).then(setMounts).catch((e) => toast.err(errMsg(e)));
+  const refresh = () => { load(); bumpFs(); };
   useEffect(() => {
     load();
   }, []);
+  const toggleEnabled = async (m: MountConfig, enabled: boolean) => {
+    try {
+      await ok(client.POST("/api/mounts", { body: { ...m, enabled } }));
+      toast.ok(enabled ? "已启用" : "已停用");
+      refresh();
+    } catch (e) {
+      toast.err(errMsg(e));
+    }
+  };
   const save = async () => {
     if (!edit) return;
     setBusy(true);
@@ -126,7 +138,7 @@ export function MountsPage() {
       await ok(client.POST("/api/mounts", { body: { ...cfg, options } }));
       toast.ok(isNew ? "挂载点已添加，正在后台建立索引" : "已保存");
       setEdit(null);
-      load();
+      refresh();
     } catch (e) {
       toast.err(errMsg(e));
     } finally {
@@ -154,11 +166,11 @@ export function MountsPage() {
       {mounts?.length === 0 && <Empty icon={<HardDrive className="size-10" />} title="还没有挂载点">添加一个本地目录、S3 或 WebDAV 存储开始使用</Empty>}
       <div className="grid gap-3 md:grid-cols-2">
         {pm.slice.map((m) => (
-          <Card key={m.name} title={<span className="flex items-center gap-2">{m.name} <Badge>{m.kind}</Badge>{m.read_only && <Badge tone="warn">只读</Badge>}{m.hidden && <Badge>隐藏</Badge>}</span>}
+          <Card key={m.name} title={<span className="flex items-center gap-2">{m.name} <Badge>{m.kind}</Badge>{m.read_only && <Badge tone="warn">只读</Badge>}{m.enabled === false && <Badge tone="warn">已停用</Badge>}{m.hidden && <Badge>隐藏</Badge>}</span>}
             actions={
               <>
                 <IconButton label="编辑" onClick={() => openEdit(m)}><Pencil className="size-4" /></IconButton>
-                <ConfirmButton iconOnly icon={<Trash2 />} label={`删除挂载点 ${m.name}（不删除后端文件）`} confirmLabel="删除挂载" onConfirm={() => ok(client.DELETE("/api/mounts/{name}", { params: { path: { name: m.name } } })).then(load).catch((e) => toast.err(errMsg(e)))} />
+                <ConfirmButton iconOnly icon={<Trash2 />} label={`删除挂载点 ${m.name}（不删除后端文件）`} confirmLabel="删除挂载" onConfirm={() => ok(client.DELETE("/api/mounts/{name}", { params: { path: { name: m.name } } })).then(refresh).catch((e) => toast.err(errMsg(e)))} />
               </>
             }>
             <dl className="grid grid-cols-[7rem_1fr] gap-y-1 text-[12.5px]">
@@ -168,6 +180,8 @@ export function MountsPage() {
                   <dd className="truncate font-mono">{v}</dd>
                 </div>
               ))}
+              <dt className="text-muted">启用</dt>
+              <dd><label className="flex items-center gap-2"><Switch label={m.enabled === false ? "已停用" : "已启用"} checked={m.enabled !== false} onChange={(v) => toggleEnabled(m, v)} /> {m.enabled === false ? "已停用" : "已启用"}</label></dd>
               <dt className="text-muted">传输方式</dt>
               <dd>{m.transfer_mode}</dd>
               <dt className="text-muted">排序</dt>
@@ -227,8 +241,9 @@ export function MountsPage() {
               </Field>
             </div>
             <div className="flex flex-wrap gap-6 text-[13px]">
+              <label className="flex items-center gap-2"><Switch label="启用" checked={edit.enabled !== false} onChange={(v) => setEdit({ ...edit, enabled: v })} /> 启用（关闭后保留配置，但不出现在文件列表中，也无法访问）</label>
+              <label className="flex items-center gap-2"><Switch label="在侧栏和根目录显示" checked={!edit.hidden} onChange={(v) => setEdit({ ...edit, hidden: !v })} /> 在侧栏和根目录显示</label>
               <label className="flex items-center gap-2"><Switch label="只读" checked={!!edit.read_only} onChange={(v) => setEdit({ ...edit, read_only: v })} /> 只读</label>
-              <label className="flex items-center gap-2"><Switch label="隐藏" checked={!!edit.hidden} onChange={(v) => setEdit({ ...edit, hidden: v })} /> 在根目录隐藏</label>
             </div>
           </div>
         )}
