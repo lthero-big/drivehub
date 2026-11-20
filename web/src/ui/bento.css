@@ -170,3 +170,137 @@
   .dh-file-tile:hover { transform: none; }
   .dh-file-tile-media:hover .dh-cover img { transform: none; }
 }
+
+/* Settings bento — same 480ms track reflow, typography for dashboards. */
+.dh-bento-settings {
+  --bento-row: 13.25rem;
+  background: var(--panel);
+}
+.dh-bento-settings .dh-bento-tile {
+  background: var(--panel);
+  container-type: size;
+}
+.dh-bento-settings .dh-bento-tile:hover:not(.focused) {
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+.dh-set-home {
+  height: 100%;
+  padding: 22px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.dh-set-kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.dh-set-ico {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-2, var(--panel)));
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.dh-set-ico svg { width: 15px; height: 15px; }
+.dh-set-label {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  min-width: 0;
+}
+.dh-set-stat {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  line-height: 1.2;
+  margin: 6px 0 2px;
+}
+.dh-set-hint {
+  font-size: 13.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: auto;
+}
+.dh-set-mini {
+  height: 100%;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.dh-set-mini-label {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-set-mini-hint {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+}
+@container (max-width: 10.5rem) {
+  .dh-set-mini { flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; }
+  .dh-set-mini-hint { display: none; margin-left: 0; }
+}
+@container (max-height: 6.5rem) {
+  .dh-set-mini { flex-direction: row; align-items: center; }
+  .dh-set-mini-hint { display: none; }
+}
+.dh-set-full {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--panel);
+  min-height: 0;
+}
+.dh-set-full-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 8px 22px;
+}
+.dh-set-full-ttl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.dh-set-full-ttl h2 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+.dh-set-x {
+  position: static;
+  background: color-mix(in srgb, var(--ink, #1d1b16) 8%, var(--panel));
+  color: inherit;
+}
+.dh-set-x:hover {
+  background: color-mix(in srgb, var(--ink, #1d1b16) 14%, var(--panel));
+  color: inherit;
+}
+.dh-set-full-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 20px 20px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dh-bento-settings .dh-bento-tile:hover:not(.focused) { background: var(--panel); }
+}

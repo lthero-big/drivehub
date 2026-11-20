@@ -6,7 +6,8 @@ import { call, tokens } from "../lib/api";
 import { useApp } from "../lib/app";
 import { go } from "../lib/router";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
-import { ConfirmButton, Badge, Button, Card, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, Switch, Tabs, toast, usePaged } from "../ui/ui";
+import { BentoFocusGrid, type BentoFocusTile } from "../components/BentoFocusGrid";
+import { ConfirmButton, Badge, Button, Card, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, Switch, toast, usePaged } from "../ui/ui";
 
 type Tok = { id: number; name: string; prefix: string; created_at: number; last_used: number | null; expires_at: number | null };
 type App = { id: number; name: string; created_at: number; last_used: number | null };
@@ -105,24 +106,23 @@ export function AccountPage({ tab }: { tab: string }) {
     { id: "tokens", label: "令牌与 WebDAV", icon: <KeyRound /> },
     { id: "devices", label: "登录设备", icon: <Monitor /> },
   ];
-  const cur: Tab = tabs.some((t) => t.id === tab) ? (tab as Tab) : "profile";
-  return (
-    <div className="mx-auto max-w-4xl space-y-5 py-6">
-      <PageHeader title="账户设置" desc={`${me.username} · 管理资料、安全、访问令牌与登录设备`} />
-      <Tabs tabs={tabs} value={cur} onChange={(t) => go(`#/account/${t}`)} />
-      <div key={cur} className="anim-in space-y-4">
-      {cur === "prefs" && (
-        <Card title="界面偏好">
-          <div className="divide-y divide-line text-[13px]" data-prefs>
-            <PrefRow title="原地打开文件" desc="打开文件时替换当前标签页，而不是新开一个标签（保存在本浏览器）" checked={pf.openInPlace} onChange={(v) => prefs.set({ openInPlace: v })} />
-            <PrefRow title="图片悬停预览" desc="在列表视图中鼠标停在图片上时，预览跟随光标浮现" checked={pf.hoverPreview} onChange={(v) => prefs.set({ hoverPreview: v })} />
-            <PrefRow title="收起侧栏「收藏」分组" desc="也可直接点击侧栏中的分组标题切换" checked={pf.favsCollapsed} onChange={(v) => prefs.set({ favsCollapsed: v })} />
-            <PrefRow title="收起侧栏「管理后台」分组" desc="仅管理员 / 有管理权限的用户可见" checked={pf.adminCollapsed} onChange={(v) => prefs.set({ adminCollapsed: v })} />
-          </div>
-        </Card>
-      )}
-      {cur === "profile" && (<>
-        <div className="grid gap-4 sm:grid-cols-3">
+  const focus: Tab | null = tabs.some((t) => t.id === tab) ? (tab as Tab) : null;
+
+  const tiles: BentoFocusTile[] = [
+    {
+      id: "profile",
+      label: "概览",
+      icon: <UserIcon className="size-4" />,
+      hint: `${me.role} · ${fmtSize(me.used_bytes)}${quota ? ` / ${fmtSize(quota)}` : ""}`,
+      home: (
+        <>
+          <p className="dh-set-stat">{me.username}</p>
+          <p className="dh-set-hint">{me.role} · 已用 {fmtSize(me.used_bytes)}{quota ? ` / ${fmtSize(quota)}` : "（不限额）"}</p>
+        </>
+      ),
+      full: (
+        <>
+<div className="grid gap-4 sm:grid-cols-3">
           <StatCard icon={<HardDrive />} label="已用空间" value={fmtSize(me.used_bytes)} hint={quota ? `配额 ${fmtSize(quota)}` : "不限额"} />
           <StatCard icon={<UsersIcon />} label="用户组" value={me.groups.length} tone="ok" hint={me.groups.map((g) => g.name).join("、") || "未加入用户组"} />
           <StatCard icon={<ShieldCheck />} label="两步验证" value={me.totp_enabled ? "已开启" : "未开启"} tone={me.totp_enabled ? "ok" : "warn"} hint={`${sess.length} 个登录设备`} />
@@ -144,9 +144,45 @@ export function AccountPage({ tab }: { tab: string }) {
           </dd>
         </dl>
       </Card>
-      </>)}
-      {cur === "security" && (<>
-      <Card title="修改密码">
+        </>
+      ),
+    },
+    {
+      id: "prefs",
+      label: "偏好",
+      icon: <SlidersHorizontal className="size-4" />,
+      hint: [pf.openInPlace && "原地打开", pf.hoverPreview && "悬停预览"].filter(Boolean).join(" · ") || "界面偏好",
+      home: (
+        <>
+          <p className="dh-set-stat">界面</p>
+          <p className="dh-set-hint">{[pf.openInPlace && "原地打开文件", pf.hoverPreview && "图片悬停预览", pf.favsCollapsed && "收藏已收起"].filter(Boolean).join(" · ") || "使用默认偏好"}</p>
+        </>
+      ),
+      full: (
+<Card title="界面偏好">
+          <div className="divide-y divide-line text-[13px]" data-prefs>
+            <PrefRow title="原地打开文件" desc="打开文件时替换当前标签页，而不是新开一个标签（保存在本浏览器）" checked={pf.openInPlace} onChange={(v) => prefs.set({ openInPlace: v })} />
+            <PrefRow title="图片悬停预览" desc="在列表视图中鼠标停在图片上时，预览跟随光标浮现" checked={pf.hoverPreview} onChange={(v) => prefs.set({ hoverPreview: v })} />
+            <PrefRow title="收起侧栏「收藏」分组" desc="也可直接点击侧栏中的分组标题切换" checked={pf.favsCollapsed} onChange={(v) => prefs.set({ favsCollapsed: v })} />
+            <PrefRow title="收起侧栏「管理后台」分组" desc="仅管理员 / 有管理权限的用户可见" checked={pf.adminCollapsed} onChange={(v) => prefs.set({ adminCollapsed: v })} />
+          </div>
+        </Card>
+      ),
+    },
+    {
+      id: "security",
+      label: "安全",
+      icon: <ShieldCheck className="size-4" />,
+      hint: me.totp_enabled ? "两步验证已开启" : "两步验证未开启",
+      home: (
+        <>
+          <p className="dh-set-stat">{me.totp_enabled ? "已开启" : "未开启"}</p>
+          <p className="dh-set-hint">两步验证{me.has_password ? " · 已设置密码" : ""}</p>
+        </>
+      ),
+      full: (
+        <>
+<Card title="修改密码">
         <form className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end" onSubmit={(e) => (e.preventDefault(), act(async () => { tokens.set(await call("POST", "/api/auth/password/change", { old_password: pw.old || null, new_password: pw.next })); setPw({ old: "", next: "" }); }, "密码已修改，其他设备已下线"))}>
           {me.has_password && (
             <Field label="当前密码">
@@ -206,9 +242,23 @@ export function AccountPage({ tab }: { tab: string }) {
           </ul>
         </Card>
       )}
-      </>)}
-      {cur === "tokens" && (<>
-      <Card title={<span className="flex items-center gap-2"><KeyRound className="size-4" /> API Token</span>}>
+        </>
+      ),
+    },
+    {
+      id: "tokens",
+      label: "令牌与 WebDAV",
+      icon: <KeyRound className="size-4" />,
+      hint: `${toks.length} 个令牌 · ${apps.length} 个应用密码`,
+      home: (
+        <>
+          <p className="dh-set-stat">{toks.length}</p>
+          <p className="dh-set-hint">访问令牌 · {apps.length} 个 WebDAV 应用密码</p>
+        </>
+      ),
+      full: (
+        <>
+<Card title={<span className="flex items-center gap-2"><KeyRound className="size-4" /> API Token</span>}>
         <form className="flex flex-wrap gap-2" onSubmit={(e) => (e.preventDefault(), act(async () => { const r = await call("POST", "/api/auth/tokens", { name: tokName || "token", expires_in_days: tokDays ? Number(tokDays) : null }); setSecret({ kind: "token", v: r.token }); setTokName(""); }))}>
           <Input className="max-w-48" placeholder="名称，如 rclone" value={tokName} onChange={(e) => setTokName(e.target.value)} aria-label="Token 名称" />
           <Select value={tokDays} onChange={(e) => setTokDays(e.target.value)} aria-label="有效期">
@@ -254,9 +304,23 @@ export function AccountPage({ tab }: { tab: string }) {
         </ul>
         <Pager {...pa} />
       </Card>
-      </>)}
-      {cur === "devices" && (<>
-      <Card title="登录设备">
+        </>
+      ),
+    },
+    {
+      id: "devices",
+      label: "登录设备",
+      icon: <Monitor className="size-4" />,
+      hint: `${sess.length} 台设备`,
+      home: (
+        <>
+          <p className="dh-set-stat">{sess.length}</p>
+          <p className="dh-set-hint">台登录设备</p>
+        </>
+      ),
+      full: (
+        <>
+<Card title="登录设备">
         <ul className="divide-y divide-line text-[13px]">
           {ps.slice.map((s) => (
             <li key={s.id} className="flex items-center gap-3 py-2">
@@ -275,8 +339,21 @@ export function AccountPage({ tab }: { tab: string }) {
         </ul>
         <Pager {...ps} />
       </Card>
-      </>)}
-      </div>
+        </>
+      ),
+    },
+  ];
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-5 py-6">
+      <PageHeader title="账户设置" desc={`${me.username} · 管理资料、安全、访问令牌与登录设备`} />
+      <BentoFocusGrid
+        tiles={tiles}
+        focus={focus}
+        onFocus={(id) => go(id ? `#/account/${id}` : "#/account")}
+        cols={3}
+        label="账户设置"
+      />
     </div>
   );
 }
