@@ -17,6 +17,9 @@ pub struct VersionInfo {
     pub api_version: u32,
     pub min_app_version: String,
     pub min_web_version: String,
+    /// Build id of the web bundle currently on disk (web_dir/version.json).
+    /// A loaded page whose own build id differs should offer a reload.
+    pub web_build: Option<String>,
 }
 
 impl VersionInfo {
@@ -26,6 +29,7 @@ impl VersionInfo {
             api_version: API_VERSION,
             min_app_version: MIN_APP_VERSION.into(),
             min_web_version: MIN_WEB_VERSION.into(),
+            web_build: None,
         }
     }
 }
@@ -112,6 +116,7 @@ mod tests {
             "api_version",
             "min_app_version",
             "min_web_version",
+            "web_build",
         ] {
             assert!(v.get(k).is_some(), "missing {k}");
         }

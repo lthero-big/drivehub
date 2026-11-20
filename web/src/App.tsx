@@ -10,6 +10,8 @@ import { Layout } from "./components/Layout";
 import { FilesArea } from "./components/Editor";
 import { UploadQueue } from "./components/UploadQueue";
 import { CommandPalette } from "./components/CommandPalette";
+import { UpdateBanner } from "./components/UpdateBanner";
+import { startVersionWatch } from "./lib/version";
 
 const SearchPage = lazy(() => import("./pages/Search").then((m) => ({ default: m.SearchPage })));
 const TasksPage = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.TasksPage })));
@@ -63,6 +65,7 @@ export default function App() {
       }
     }
     ok(client.GET("/api/version")).then(setVer).catch(() => {});
+    startVersionWatch();
     fetch("/api/v1/health", { headers: CLIENT_HEADERS }).then(async (r) => {
       if (r.status === 426 || r.status === 400) setCompat(await r.json());
     });
@@ -107,6 +110,7 @@ export default function App() {
   if (location.pathname.startsWith("/s/"))
     return (
       <>
+        <UpdateBanner />
         <Suspense fallback={<div className="mx-auto max-w-3xl p-6"><SkFileRows rows={5} /></div>}>
           <SharePublicPage />
         </Suspense>
@@ -128,6 +132,7 @@ export default function App() {
     return (
       <Ctx.Provider value={ctx}>
         {banner}
+        <UpdateBanner />
         {oauthErr && <p className="bg-danger/10 px-4 py-2 text-center text-[13px] text-danger">第三方登录失败：{oauthErr}</p>}
         <AuthPage status={status} onDone={() => (setOauthTicket(null), reload())} totpTicket={oauthTicket} />
         {status.initialized && !oauthTicket && (
@@ -171,6 +176,7 @@ export default function App() {
     <Ctx.Provider value={ctx}>
       <div className="flex h-full flex-col">
         {banner}
+        <UpdateBanner />
         <div className="min-h-0 flex-1">
           <Layout route={route} theme={theme} setTheme={setTheme} serverVersion={ver?.server_version}>
             <Suspense fallback={<PageSkeleton kind={routeSkeleton(route.name, route.rest)} />}><div key={route.name === "admin" ? `admin/${route.rest.split("/")[0]}` : route.name} className="page-in h-full">{page}</div></Suspense>

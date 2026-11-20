@@ -52,6 +52,8 @@ pub struct AppState {
     pub audit_log: Arc<audit::AuditLog>,
     /// Share PIN brute-force protection (DEPTAI-474).
     pub share_guard: Arc<share_api::ShareGuard>,
+    /// Directory of the built web bundle (for version.json / web_build).
+    pub web_dir: Option<PathBuf>,
 }
 
 impl AppState {
@@ -79,6 +81,7 @@ impl AppState {
         let st = Self {
             audit_log,
             share_guard: Arc::new(share_api::ShareGuard::from_env()),
+            web_dir: None,
             auth,
             upload_dir,
             tasks: tasks::Tasks::new(db.clone()),
@@ -358,8 +361,18 @@ pub struct Health {
 
 /// Server / API versions and minimum client versions for negotiation.
 #[utoipa::path(get, path = "/api/version", responses((status = 200, body = VersionInfo)))]
-pub async fn version() -> Json<VersionInfo> {
-    Json(VersionInfo::current())
+pub async fn version(State(st): State<AppState>) -> Json<VersionInfo> {
+    let mut info = VersionInfo::current();
+    info.web_build = read_web_build(st.web_dir.as_deref());
+    Json(info)
+}
+
+/// Build id written by the web Vite build to web_dir/version.json.
+fn read_web_build(web_dir: Option<&std::path::Path>) -> Option<String> {
+    let dir = web_dir?;
+    let bytes = std::fs::read(dir.join("version.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.get("build")?.as_str().map(str::to_string)
 }
 
 /// Liveness plus database check.
@@ -403,7 +416,8 @@ async fn version_gate(headers: HeaderMap, req: Request, next: Next) -> Response 
     next.run(req).await
 }
 
-pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
+pub fn router(mut state: AppState, web_dir: Option<PathBuf>) -> Router {
+    state.web_dir = web_dir.clone();
     let v1 = Router::new()
         .route("/health", get(health))
         .layer(middleware::from_fn(version_gate));
@@ -618,7 +632,17 @@ pub fn router(state: AppState, web_dir: Option<PathBuf>) -> Router {
         );
         app = app.layer(middleware::from_fn(static_headers));
     }
-    app.layer(tower_http::trace::TraceLayer::new_for_http())
+    app.layer(middleware::map_response(server_version_header))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+}
+
+/// Every response names the running server version so open web pages notice an upgrade.
+async fn server_version_header(mut res: Response) -> Response {
+    if let Ok(v) = axum::http::HeaderValue::from_str(drivehub_core::version::SERVER_VERSION) {
+        res.headers_mut()
+            .insert("x-drivehub-server-version", v);
+    }
+    res
 }
 
 /// Long-lived caching for hashed build assets, no-cache for the SPA shell, and baseline

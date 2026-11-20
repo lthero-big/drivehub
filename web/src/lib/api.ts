@@ -1,6 +1,7 @@
 // Typed API client generated from api/openapi.json (`npm run gen:api`) + auth plumbing.
 import createClient, { type Middleware } from "openapi-fetch";
 import type { components, paths } from "../gen/openapi";
+import { noteResponse } from "./version";
 
 export type Schemas = components["schemas"];
 export type FsItem = Schemas["FsItem"];
@@ -95,6 +96,7 @@ const auth: Middleware = {
     return request;
   },
   async onResponse({ request, response }) {
+    noteResponse(response);
     const again = retries.get(request);
     if (response.status === 401 && again && tokens.get() && (await refreshTokens())) {
       for (const [k, v] of Object.entries(authHeaders())) again.headers.set(k, v);
@@ -124,6 +126,7 @@ export async function call<T = any>(method: string, path: string, body?: unknown
     });
   let res = await go();
   if (res.status === 401 && tokens.get() && !path.startsWith("/api/auth/refresh") && (await refreshTokens())) res = await go();
+  noteResponse(res);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data);
   return data as T;

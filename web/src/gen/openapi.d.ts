@@ -1795,6 +1795,10 @@ export interface components {
             min_app_version: string;
             min_web_version: string;
             server_version: string;
+            /**
+             * @description Build id of the web bundle currently on disk (web_dir/version.json). A loaded page whose own build id differs should offer a reload.
+             */
+            web_build?: string | null;
         };
     };
     responses: never;
