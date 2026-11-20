@@ -28,6 +28,7 @@ import { usePrefs } from "../lib/prefs";
 import { ChipGroup, useHoverReveal } from "../ui/r5";
 import { FileIcon, FolderIcon } from "./FileIcon";
 import { MediaCover } from "./MediaCover";
+import { BentoGallery } from "./BentoGallery";
 import { isBlurred } from "../lib/tags";
 
 /** nearest vertically scrollable ancestor (rubber-band auto-scroll). */
@@ -274,6 +275,8 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
   }, [galleryAll, all, gone, q, tagFilter, tagMode, tagMap]);
   const galleryImages = galleryItems.filter((i) => kindOf(i.name) === "image");
   const galleryVideos = galleryItems.filter((i) => kindOf(i.name) === "video");
+  const pageMedia = useMemo(() => list.filter(isMedia).slice(0, 3), [list]);
+  const colsUsed = cols < 3 ? 3 : cols > 5 ? 5 : cols;
   const phs = useMemo(() => placeholdersFor(ups, path, new Set((items ?? []).map((i) => i.name)), Date.now()), [ups, path, items, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const last = Math.max(0, ...ups.filter((u) => u.status === "done").map((u) => u.doneAt ?? 0));
@@ -697,6 +700,24 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
       </div>
 
       <div ref={areaRef} onMouseDown={onAreaDown} data-testid="file-area" className={cx("min-h-[55vh] flex-1 py-3", band && "sel-none")}>
+        <div className="mb-6 flex items-end justify-between gap-4" data-folder-hero>
+          <div className="min-w-0">
+            <h1 className="truncate text-[36px] leading-none font-semibold tracking-tight">{isRoot ? "全部文件" : path.split("/").filter(Boolean).slice(-1)[0]}</h1>
+            {items && !err && (
+              <p className="mt-2.5 text-[13px] text-muted tabular-nums">
+                {total} 项
+                {view === "gallery" && galleryItems.length > 0 ? (" · " + galleryImages.length + " 张图片" + (galleryVideos.length ? " · " + galleryVideos.length + " 个视频" : "")) : pageMedia.length ? " · 含图片或视频" : ""}
+              </p>
+            )}
+          </div>
+          {view !== "gallery" && pageMedia.length > 0 && (
+            <div className="dh-hero-mosaic hidden sm:grid" data-hero-mosaic aria-hidden>
+              {pageMedia.map((i) => (
+                <MediaCover key={i.path} path={i.path} name={i.name} tags={tagMap[i.path]} alt="" className="size-full" />
+              ))}
+            </div>
+          )}
+        </div>
         {items === null && (view === "grid" ? <SkFileGrid /> : <SkFileRows />)}
         {err && (
           <Empty icon={err.status === 401 || err.status === 403 ? <Lock className="size-10" /> : undefined} title={err.status === 401 ? "需要登录或目录密码" : err.status === 403 ? "没有访问权限" : "加载失败"}>
@@ -718,8 +739,8 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         )}
 
         {(list.length > 0 || phs.length > 0) && view === "list" && (
-          <div role="grid" aria-label="文件列表" aria-multiselectable className="overflow-hidden rounded-xl border border-line bg-panel">
-            <div role="row" className="hidden grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem] items-center gap-2 border-b border-line bg-panel-2 px-3 py-2 text-xs font-medium text-muted sm:grid">
+          <div role="grid" aria-label="文件列表" aria-multiselectable className="overflow-hidden rounded-2xl bg-panel-2/70">
+            <div role="row" className="hidden grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem] items-center gap-2 px-3 py-2.5 text-xs font-medium text-muted sm:grid">
               <span role="columnheader">
                 <Checkbox label="全选" checked={sel.size > 0 && sel.size === list.length} indeterminate={sel.size > 0 && sel.size < list.length} onChange={(v) => setSel(v ? new Set(list.map((i) => i.path)) : new Set())} />
               </span>
@@ -740,7 +761,7 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
                 onDoubleClick={() => open(i)}
                 onContextMenu={(e) => onItemContext(e, i)}
                 {...hover.bind(pf.hoverPreview && !i.is_dir && (kindOf(i.name) === "image" || kindOf(i.name) === "video") ? fileUrl(i.path) : null, { blur: isBlurred(tagMap[i.path]) })}
-                className={cx("group grid cursor-default grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 border-b border-line px-3 py-1.5 last:border-b-0 sm:grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover", dragCls(i))}
+                className={cx("group grid cursor-default grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 border-b border-line/70 px-3 py-2.5 last:border-b-0 sm:grid-cols-[2.75rem_1fr_7rem_10rem_2.5rem]", sel.has(i.path) ? "bg-accent-soft" : "hover:bg-hover", dragCls(i))}
               >
                 <span role="gridcell" onClick={(e) => e.stopPropagation()}>
                   <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx(!sel.has(i.path) && "sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100")} />
@@ -768,24 +789,37 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
         )}
 
         {(list.length > 0 || phs.length > 0) && view === "grid" && (
-          <ul aria-label="文件网格" className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
+          <ul aria-label="文件网格" className="grid grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] gap-4">
             {phs.map((p) => <PhCard key={"ph:" + p.key} p={p} />)}
             {list.map((i, idx) => {
               const cover = isMedia(i);
               return (
-                <li key={i.path} {...dragProps(i)} aria-selected={sel.has(i.path)} onClick={(e) => click(e, i, idx)} onDoubleClick={() => open(i)} onContextMenu={(e) => onItemContext(e, i)} className={cx("group relative flex cursor-default flex-col overflow-hidden rounded-xl border bg-panel", sel.has(i.path) ? "border-accent ring-2 ring-accent/30" : "border-line hover:bg-hover", dragCls(i))}>
-                  <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-panel-2">
-                    {cover ? <MediaCover path={i.path} name={i.name} tags={tagMap[i.path]} alt={i.name} className="size-full" /> : i.is_dir && !i.mount_kind ? <FolderIcon size={60} open={opening === i.path} className="mt-3" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} className="size-10" />}
+                <li key={i.path} {...dragProps(i)} aria-selected={sel.has(i.path)} onClick={(e) => click(e, i, idx)} onDoubleClick={() => open(i)} onContextMenu={(e) => onItemContext(e, i)} className={cx("dh-file-tile group relative flex cursor-default flex-col overflow-hidden rounded-[20px] bg-panel", cover && "dh-file-tile-media", sel.has(i.path) ? "ring-2 ring-accent/35" : "ring-1 ring-line/80", dragCls(i))}>
+                  <div className={cx("flex items-center justify-center overflow-hidden bg-panel-2", cover ? "aspect-[4/5]" : "aspect-[4/3]")}>
+                    {cover ? <MediaCover path={i.path} name={i.name} tags={tagMap[i.path]} alt={i.name} className="size-full" /> : i.is_dir && !i.mount_kind ? <FolderIcon size={64} open={opening === i.path} className="mt-3" /> : <FileIcon name={i.name} isDir={i.is_dir} mountKind={i.mount_kind} className="size-11" />}
                   </div>
-                  <div className="flex items-center gap-1 px-2 py-1.5">
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px]">{i.name}</span>
-                      <span className="block text-[11px] text-faint">{i.is_dir ? "文件夹" : fmtSize(i.size)}</span>
+                  {cover ? (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent px-2.5 pb-2.5 pt-12">
+                      <span className="block truncate text-[13.5px] font-medium tracking-tight text-white">{i.name}</span>
+                      <span className="block text-[11px] text-white/70">{fmtSize(i.size)}</span>
                       {tagPills(i, true)}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 px-2.5 py-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13.5px] font-medium tracking-tight">{i.name}</span>
+                        <span className="block text-[11px] text-faint">{i.is_dir ? "文件夹" : fmtSize(i.size)}</span>
+                        {tagPills(i, true)}
+                      </span>
+                      <ItemMenu i={i} />
+                    </div>
+                  )}
+                  {cover && (
+                    <span className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                      <ItemMenu i={i} />
                     </span>
-                    <ItemMenu i={i} />
-                  </div>
-                  <Checkbox label={`选择 ${i.name}`} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx("absolute top-1 left-1 bg-panel !min-h-10 !min-w-10 shadow-card", !sel.has(i.path) && "opacity-0 group-hover:opacity-100")} />
+                  )}
+                  <Checkbox label={"选择 " + i.name} checked={sel.has(i.path)} onChange={() => toggle(i)} stopClick className={cx("absolute top-1 left-1 bg-panel !min-h-10 !min-w-10 shadow-card", !sel.has(i.path) && "opacity-0 group-hover:opacity-100")} />
                 </li>
               );
             })}
@@ -794,23 +828,18 @@ export function FileBrowser({ path, hidden }: { path: string; hidden?: boolean }
 
         {view === "gallery" && (galleryAll !== null || list.length > 0) && (
           <>
-            <div className="mb-2 flex items-center gap-3 text-xs text-muted">
-              <span data-gallery-count>{galleryImages.length} 张图片{galleryVideos.length ? ` · ${galleryVideos.length} 个视频` : ""}（整个文件夹）</span>
-              <label className="flex items-center gap-2">
-                列数
-                <input type="range" min={2} max={8} value={cols} onChange={(e) => setCols(Number(e.target.value))} aria-label="相册列数" className="accent-[var(--accent)]" />
-              </label>
+            <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted">
+              <span data-gallery-count>{galleryImages.length} 张图片{galleryVideos.length ? " · " + galleryVideos.length + " 个视频" : ""}（整个文件夹）</span>
+              <span className="hidden sm:inline text-faint">点击格子在原位展开，Esc 收起</span>
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-faint">列数</span>
+                <SegmentedDrag<string> label="相册列数" size="sm" value={String(colsUsed)} onChange={(v) => setCols(Number(v))} options={[{ value: "3", label: "3" }, { value: "4", label: "4" }, { value: "5", label: "5" }]} />
+              </div>
             </div>
             {galleryItems.length === 0 ? (
               <Empty icon={<Images className="size-10" />} title={galleryAll === null ? "正在加载相册…" : "此文件夹没有图片或视频"} />
             ) : (
-              <div style={{ columnCount: cols }} className="gap-2 [column-gap:0.5rem] max-sm:![column-count:2]" data-gallery>
-                {galleryItems.map((i) => (
-                  <button key={i.path} {...dragProps(i)} onClick={() => tabs.open(i)} onContextMenu={(e) => onItemContext(e, i)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-lg border border-line bg-panel-2" aria-label={`查看 ${i.name}`}>
-                    <MediaCover path={i.path} name={i.name} tags={tagMap[i.path]} alt={i.name} className="w-full" imgClass="w-full h-auto object-cover" />
-                  </button>
-                ))}
-              </div>
+              <BentoGallery items={galleryItems} tagMap={tagMap} cols={colsUsed} onOpen={(i) => tabs.open(i)} onContext={onItemContext} itemProps={(i) => dragProps(i)} />
             )}
           </>
         )}

@@ -27,7 +27,6 @@ const StatsPage = lazy(() => import("./pages/Stats").then((m) => ({ default: m.S
 const SharesPage = lazy(() => import("./pages/Shares").then((m) => ({ default: m.SharesPage })));
 const SharePublicPage = lazy(() => import("./pages/SharePublic").then((m) => ({ default: m.SharePublicPage })));
 const PickupBox = lazy(() => import("./pages/SharePublic").then((m) => ({ default: m.PickupBox })));
-const UpdatePage = lazy(() => import("./pages/admin/Update").then((m) => ({ default: m.UpdatePage })));
 const SettingsPage = lazy(() => import("./pages/admin/Settings").then((m) => ({ default: m.SettingsPage })));
 
 type Compat = { status: string; min_version?: string; reason?: string };
@@ -166,7 +165,7 @@ export default function App() {
         if (!admin && !(me?.caps?.length)) return <p className="py-10 text-center text-sm text-muted">仅管理员可用</p>;
         return (
           <div className="mx-auto max-w-6xl py-4">
-            {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "groups" ? <GroupsPage /> : route.rest === "roles" ? <RolesPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest.split("/")[0] === "settings" ? <SettingsPage tab={route.rest.split("/")[1]} /> : route.rest === "update" ? <UpdatePage /> : <DashboardPage />}
+            {route.rest === "mounts" ? <MountsPage /> : route.rest === "users" ? <UsersPage /> : route.rest === "groups" ? <GroupsPage /> : route.rest === "roles" ? <RolesPage /> : route.rest === "acl" ? <AclPage initialPath={route.q.get("path") ?? "/"} /> : route.rest === "audit" ? <AuditPage /> : route.rest.split("/")[0] === "settings" ? <SettingsPage tab={route.rest.split("/")[1]} /> : route.rest === "update" ? <SettingsPage tab="update" /> : <DashboardPage />}
           </div>
         );
       default:
@@ -181,7 +180,7 @@ export default function App() {
         <UpdateBanner />
         <div className="min-h-0 flex-1">
           <Layout route={route} theme={theme} setTheme={setTheme} serverVersion={live.current ?? ver?.server_version} updateAvailable={live.updateAvailable}>
-            <Suspense fallback={<PageSkeleton kind={routeSkeleton(route.name, route.rest)} />}><div key={route.name === "admin" ? `admin/${route.rest.split("/")[0]}` : route.name} className="page-in h-full">{page}</div></Suspense>
+            <Suspense fallback={<PageSkeleton kind={routeSkeleton(route.name, route.rest)} />}><div key={route.name === "admin" ? `admin/${route.rest === "update" || route.rest.split("/")[0] === "settings" ? "settings" : route.rest.split("/")[0]}` : route.name} className="page-in h-full">{page}</div></Suspense>
           </Layout>
         </div>
       </div>
