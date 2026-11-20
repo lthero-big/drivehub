@@ -4,11 +4,26 @@
     "title": "DriveHub API",
     "description": "DriveHub multi-cloud-drive manager",
     "license": {
-      "name": ""
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
     },
     "version": "0.1.0"
   },
   "paths": {
+    "/api/acl/catalog": {
+      "get": {
+        "tags": [
+          "admin_api"
+        ],
+        "summary": "Permission catalog (DEPTAI-485 r5): every grantable permission with its category and\nlabel. `global` permissions only take effect on root-level rules / roles.",
+        "operationId": "catalog",
+        "responses": {
+          "200": {
+            "description": "permission catalog"
+          }
+        }
+      }
+    },
     "/api/acl/effective": {
       "get": {
         "tags": [
@@ -1129,6 +1144,113 @@
         }
       }
     },
+    "/api/admin/update/apply": {
+      "post": {
+        "tags": [
+          "update_api"
+        ],
+        "summary": "Starts installing the latest release (download → verify → DB backup → swap → restart →\nhealth check, automatic rollback). Progress: GET /api/admin/update/status (admin).",
+        "operationId": "apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateOverview"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "busy / disabled / not possible"
+          }
+        }
+      }
+    },
+    "/api/admin/update/check": {
+      "post": {
+        "tags": [
+          "update_api"
+        ],
+        "summary": "Checks the update source now (signature-verified) (admin).",
+        "operationId": "check",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateOverview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/update/settings": {
+      "put": {
+        "tags": [
+          "update_api"
+        ],
+        "summary": "Update settings: mode (notify / download / install), maintenance window, source, channel,\ninterval, notifications (admin).",
+        "operationId": "put_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateOverview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/update/status": {
+      "get": {
+        "tags": [
+          "update_api"
+        ],
+        "summary": "Update status: current / latest version, release notes, progress, settings (admin).",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateOverview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/users": {
       "get": {
         "tags": [
@@ -1913,6 +2035,47 @@
         }
       }
     },
+    "/api/client/android/download": {
+      "get": {
+        "tags": [
+          "update_api"
+        ],
+        "summary": "Downloads the APK hosted by this server.",
+        "operationId": "android_download",
+        "responses": {
+          "200": {
+            "description": "APK"
+          },
+          "404": {
+            "description": "none hosted"
+          }
+        }
+      }
+    },
+    "/api/client/android/latest": {
+      "get": {
+        "tags": [
+          "update_api"
+        ],
+        "summary": "Latest Android client: a package hosted by this server (`<data>/clients/android/*.apk`)\nor the APK listed in the latest verified release manifest.",
+        "operationId": "android_latest",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientPackage"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no package known"
+          }
+        }
+      }
+    },
     "/api/fs/copy": {
       "post": {
         "tags": [
@@ -2653,7 +2816,6 @@
         "tags": [
           "fs_api"
         ],
-        "summary": "All mount points (including hidden ones).",
         "operationId": "mounts",
         "responses": {
           "200": {
@@ -3379,6 +3541,583 @@
         }
       }
     },
+    "/api/stats/access": {
+      "get": {
+        "tags": [
+          "stats_api"
+        ],
+        "summary": "Aggregated access statistics over shares (and, for admins, direct file access):\ntotals, per-action / per-day breakdown, top shares / files / IPs and a paged event list.",
+        "operationId": "access_stats",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "shares (default) | files | all — `files` / `all` are admin-only (others get `shares`)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "share_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "path prefix, e.g. `/local/docs` (or an exact file)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "visit | download | upload | preview | denied, or exact action names (comma list)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "unix seconds, inclusive",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "unix seconds, exclusive",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "free text in path / username / ua",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "all",
+            "in": "query",
+            "description": "Admin: include every user's shares (default true for admin).",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "description": "Visitor region filter (r6 #4): ISO country code (\"CN\", \"US\"…) or \"LAN\" for private networks",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "description": "Visitor province / state within `country`, e.g. \"广东省\"",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "`/api/stats/ips` ordering: count (default) | last | bytes",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "summary + rows"
+          }
+        }
+      }
+    },
+    "/api/stats/ips": {
+      "get": {
+        "tags": [
+          "stats_api"
+        ],
+        "summary": "Per-visitor-IP statistics (r6 #4): events, first / last seen, users, shares, downloads,\nuploads, traffic, denied count, clients, last user agent and the IP's region.",
+        "operationId": "access_ips",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "shares (default) | files | all — `files` / `all` are admin-only (others get `shares`)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "share_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "path prefix, e.g. `/local/docs` (or an exact file)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "visit | download | upload | preview | denied, or exact action names (comma list)",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "unix seconds, inclusive",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "unix seconds, exclusive",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "free text in path / username / ua",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "all",
+            "in": "query",
+            "description": "Admin: include every user's shares (default true for admin).",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "description": "Visitor region filter (r6 #4): ISO country code (\"CN\", \"US\"…) or \"LAN\" for private networks",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "description": "Visitor province / state within `country`, e.g. \"广东省\"",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "`/api/stats/ips` ordering: count (default) | last | bytes",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "paged IP table"
+          }
+        }
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "tags": [
+          "tags_api"
+        ],
+        "summary": "My tags with usage counts.",
+        "operationId": "tags_list",
+        "responses": {
+          "200": {
+            "description": "tags"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tags_api"
+        ],
+        "summary": "Creates a tag (returns the existing one if the name is taken).",
+        "operationId": "tags_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "tag"
+          }
+        }
+      }
+    },
+    "/api/tags/assign": {
+      "post": {
+        "tags": [
+          "tags_api"
+        ],
+        "summary": "Tags / untags paths (needs `read` on each). Returns the resulting tags per path.",
+        "operationId": "tags_assign",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "path -> tags"
+          }
+        }
+      }
+    },
+    "/api/tags/files": {
+      "get": {
+        "tags": [
+          "tags_api"
+        ],
+        "summary": "Paths carrying the given tags (any / all), filtered by read permission.",
+        "operationId": "tags_files",
+        "parameters": [
+          {
+            "name": "tags",
+            "in": "query",
+            "description": "Tag ids, comma separated.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "description": "any (default) | all",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "under",
+            "in": "query",
+            "description": "Restrict to a directory subtree.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tagged paths"
+          }
+        }
+      }
+    },
+    "/api/tags/of": {
+      "get": {
+        "tags": [
+          "tags_api"
+        ],
+        "summary": "Tags of the direct children of `dir` (or of one `path`): `{ \"/local/a.txt\": [tag…] }`.",
+        "operationId": "tags_of",
+        "parameters": [
+          {
+            "name": "dir",
+            "in": "query",
+            "description": "Directory: tags of its direct children.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Or one path.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "path -> tags"
+          }
+        }
+      }
+    },
+    "/api/tags/{id}": {
+      "delete": {
+        "tags": [
+          "tags_api"
+        ],
+        "summary": "Deletes a tag and removes it from every path.",
+        "operationId": "tags_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "deleted"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "tags_api"
+        ],
+        "summary": "Renames / recolours a tag.",
+        "operationId": "tags_patch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "tag"
+          }
+        }
+      }
+    },
     "/api/tasks": {
       "get": {
         "tags": [
@@ -3560,6 +4299,99 @@
           }
         }
       },
+      "ApplyBody": {
+        "type": "object",
+        "properties": {
+          "download_only": {
+            "type": "boolean",
+            "description": "Only download + verify (state `ready`), do not install.",
+            "default": false
+          }
+        }
+      },
+      "Artifact": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "image": {
+            "type": "string",
+            "description": "Docker runtime image reference, e.g. `ghcr.io/lthero-big/drivehub:0.2.0`."
+          },
+          "kind": {
+            "type": "string",
+            "description": "server | web | docker | android"
+          },
+          "platform": {
+            "type": "string",
+            "description": "linux-amd64 | linux-arm64 (server), android, \"\" (web / docker)"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "url": {
+            "type": "string",
+            "description": "Absolute URL or relative to the manifest URL (server / web / android)."
+          },
+          "version_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Android versionCode.",
+            "minimum": 0
+          }
+        }
+      },
+      "AssignBody": {
+        "type": "object",
+        "required": [
+          "paths"
+        ],
+        "properties": {
+          "add": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Tag ids to attach."
+          },
+          "add_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag names to attach (created when missing)."
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Virtual paths (files or folders)."
+          },
+          "remove": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Tag ids to detach."
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "Replace the tag set of every path with `add` + `add_names`."
+          }
+        }
+      },
       "AuthStatus": {
         "type": "object",
         "required": [
@@ -3659,6 +4491,58 @@
           }
         }
       },
+      "ClientPackage": {
+        "type": "object",
+        "required": [
+          "source",
+          "url",
+          "sha256",
+          "size"
+        ],
+        "properties": {
+          "min_client_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string",
+            "description": "local (hosted by this server) | manifest (release download)"
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "CodeBody": {
         "type": "object",
         "required": [
@@ -3747,6 +4631,78 @@
           }
         ],
         "description": "Outcome of negotiating a client against this server."
+      },
+      "Effective": {
+        "type": "object",
+        "description": "Effective configuration (config file / env merged with admin settings).",
+        "required": [
+          "check_enabled",
+          "source_url",
+          "channel",
+          "interval_secs",
+          "deployment",
+          "platform",
+          "restart",
+          "can_auto_install",
+          "trusted_key_ids",
+          "db_backups"
+        ],
+        "properties": {
+          "can_auto_install": {
+            "type": "boolean",
+            "description": "The server can install updates itself (binary with data dir, or Docker with socket)."
+          },
+          "channel": {
+            "type": "string"
+          },
+          "check_enabled": {
+            "type": "boolean",
+            "description": "`DRIVEHUB_UPDATE_CHECK`: false disables every network check."
+          },
+          "db_backups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deployment": {
+            "type": "string",
+            "description": "binary | docker"
+          },
+          "docker_socket": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exe_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "interval_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "platform": {
+            "type": "string"
+          },
+          "restart": {
+            "type": "string",
+            "description": "exec | exit"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "trusted_key_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "ErrorBody": {
         "type": "object",
@@ -3889,6 +4845,55 @@
           }
         }
       },
+      "LastCheck": {
+        "type": "object",
+        "description": "Result of the most recent check (stored in `meta`).",
+        "required": [
+          "checked_at",
+          "source_url",
+          "channel",
+          "update_available"
+        ],
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "checked_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Key id that signed the manifest."
+          },
+          "latest": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Manifest",
+                "description": "Verified manifest (only ever set after its signature checked out)."
+              }
+            ]
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "update_available": {
+            "type": "boolean"
+          }
+        }
+      },
       "ListResp": {
         "type": "object",
         "required": [
@@ -3941,6 +4946,45 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "Manifest": {
+        "type": "object",
+        "required": [
+          "version",
+          "api_version",
+          "min_client_version"
+        ],
+        "properties": {
+          "api_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Artifact"
+            }
+          },
+          "channel": {
+            "type": "string",
+            "description": "stable | beta"
+          },
+          "min_client_version": {
+            "type": "string",
+            "description": "Oldest web / Android client the new server still accepts."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Release notes (Markdown)."
+          },
+          "released_at": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -4007,6 +5051,20 @@
           "paths"
         ],
         "properties": {
+          "allow_download": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Room / share: visitors may download (default true)."
+          },
+          "allow_upload": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Room: visitors may upload (default true)."
+          },
           "days": {
             "type": [
               "integer",
@@ -4023,12 +5081,28 @@
             "format": "int64",
             "description": "Alternative to `days` (seconds)."
           },
+          "max_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Room: max total uploaded bytes."
+          },
           "max_downloads": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
+          },
+          "max_uploads": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Room: max number of uploaded files."
           },
           "max_visits": {
             "type": [
@@ -4070,6 +5144,10 @@
           },
           "require_login": {
             "type": "boolean"
+          },
+          "room": {
+            "type": "boolean",
+            "description": "Drop room (快传房间): `paths` = [parent folder]; a fresh folder\n`<parent>/.droprooms/<rand>` is created and shared as a whole."
           }
         }
       },
@@ -4425,7 +5503,7 @@
             "items": {
               "type": "string"
             },
-            "description": "read | download | upload | create | edit | delete | share"
+            "description": "permission names, see `GET /api/acl/catalog`"
           }
         }
       },
@@ -4602,6 +5680,24 @@
           }
         }
       },
+      "TagBody": {
+        "type": "object",
+        "properties": {
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "gray | red | orange | yellow | green | teal | blue | indigo | purple | pink"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "TaskInfo": {
         "type": "object",
         "required": [
@@ -4712,6 +5808,168 @@
           }
         }
       },
+      "UpdateOverview": {
+        "type": "object",
+        "required": [
+          "current_version",
+          "status",
+          "settings",
+          "effective"
+        ],
+        "properties": {
+          "current_version": {
+            "type": "string"
+          },
+          "effective": {
+            "$ref": "#/components/schemas/Effective"
+          },
+          "last_check": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LastCheck"
+              }
+            ]
+          },
+          "settings": {
+            "$ref": "#/components/schemas/UpdateSettings"
+          },
+          "status": {
+            "$ref": "#/components/schemas/UpdateStatus"
+          }
+        }
+      },
+      "UpdateSettings": {
+        "type": "object",
+        "description": "Admin-editable update settings (stored in `meta`); empty / 0 = use the server config.",
+        "properties": {
+          "auto_check": {
+            "type": "boolean",
+            "description": "Periodic background checks (manual checks still work when off).",
+            "default": true
+          },
+          "channel": {
+            "type": "string",
+            "description": "stable | beta (\"\" = config default).",
+            "default": ""
+          },
+          "interval_secs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Check interval override in seconds (0 = config default, minimum 60).",
+            "default": 0,
+            "minimum": 0
+          },
+          "mode": {
+            "type": "string",
+            "description": "notify | download | install",
+            "default": "notify"
+          },
+          "notify_email": {
+            "type": "string",
+            "description": "Notify this e-mail address (uses the server mailer).",
+            "default": ""
+          },
+          "notify_webhook": {
+            "type": "string",
+            "description": "Notify this webhook URL about available / installed / rolled back updates.",
+            "default": ""
+          },
+          "source_url": {
+            "type": "string",
+            "description": "Manifest URL override (\"\" = config / GitHub Releases default).",
+            "default": ""
+          },
+          "window_end": {
+            "type": "string",
+            "default": ""
+          },
+          "window_start": {
+            "type": "string",
+            "description": "Maintenance window for automatic installs, \"HH:MM\" UTC (both empty = any time).",
+            "default": ""
+          }
+        }
+      },
+      "UpdateStatus": {
+        "type": "object",
+        "description": "Progress of the current / last update operation.",
+        "required": [
+          "state",
+          "progress_bytes",
+          "total_bytes",
+          "message",
+          "actor",
+          "started_at",
+          "updated_at",
+          "commands",
+          "log"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Operator commands (Docker without socket access)."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "log": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Step log of the operation (\"<unix ts> <text>\")."
+          },
+          "message": {
+            "type": "string"
+          },
+          "progress_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "started_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "type": "string",
+            "description": "idle | checking | downloading | verifying | ready | backing_up | installing |\nrestarting | health_check | rolling_back | succeeded | failed | rolled_back | manual"
+          },
+          "target_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "UploadSession": {
         "type": "object",
         "required": [
@@ -4753,7 +6011,9 @@
           "server_version",
           "api_version",
           "min_app_version",
-          "min_web_version"
+          "min_web_version",
+          "update_available",
+          "min_client_version"
         ],
         "properties": {
           "api_version": {
@@ -4761,8 +6021,19 @@
             "format": "int32",
             "minimum": 0
           },
+          "latest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Latest release seen by the update checker (None = never checked / checks disabled)."
+          },
           "min_app_version": {
             "type": "string"
+          },
+          "min_client_version": {
+            "type": "string",
+            "description": "Minimum client version required by the latest release (falls back to this server's\nown `min_app_version`)."
           },
           "min_web_version": {
             "type": "string"
@@ -4770,12 +6041,16 @@
           "server_version": {
             "type": "string"
           },
+          "update_available": {
+            "type": "boolean",
+            "description": "`latest` is newer than `server_version`."
+          },
           "web_build": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Build id of the web bundle currently on disk (web_dir/version.json). A loaded page whose own build id differs should offer a reload."
+            "description": "Build id of the web bundle currently on disk (`<web_dir>/version.json`); a loaded\npage whose own build id differs should offer a reload."
           }
         }
       }

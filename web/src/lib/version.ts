@@ -12,9 +12,12 @@ export type VersionState = {
   current: string | null;
   /** The page should be reloaded (server upgraded or a newer web bundle is deployed). */
   stale: boolean;
+  /** Admin hint from /api/version. */
+  latest: string | null;
+  updateAvailable: boolean;
 };
 
-let state: VersionState = { initial: null, current: null, stale: false };
+let state: VersionState = { initial: null, current: null, stale: false, latest: null, updateAvailable: false };
 const subs = new Set<() => void>();
 const set = (p: Partial<VersionState>) => {
   const next = { ...state, ...p };
@@ -43,7 +46,7 @@ export async function pollVersion() {
     const v = await r.json();
     noteServerVersion(v.server_version);
     const bundleChanged = import.meta.env.PROD && !!v.web_build && v.web_build !== WEB_BUILD;
-    if (bundleChanged) set({ stale: true });
+    set({ latest: v.latest ?? null, updateAvailable: !!v.update_available, ...(bundleChanged ? { stale: true } : {}) });
   } catch {
     /* server restarting -- try again later */
   }

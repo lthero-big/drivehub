@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/acl/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Permission catalog (DEPTAI-485 r5): every grantable permission with its category and
+         *     label. `global` permissions only take effect on root-level rules / roles.
+         */
+        get: operations["catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/acl/effective": {
         parameters: {
             query?: never;
@@ -336,6 +356,80 @@ export interface paths {
         get: operations["get_settings"];
         /** Updates settings, e.g. `{"open_registration": true}` (admin). */
         put: operations["put_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/update/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Starts installing the latest release (download → verify → DB backup → swap → restart →
+         *     health check, automatic rollback). Progress: GET /api/admin/update/status (admin).
+         */
+        post: operations["apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/update/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Checks the update source now (signature-verified) (admin). */
+        post: operations["check"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/update/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update settings: mode (notify / download / install), maintenance window, source, channel,
+         *     interval, notifications (admin).
+         */
+        put: operations["put_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/update/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Update status: current / latest version, release notes, progress, settings (admin). */
+        get: operations["status"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -869,6 +963,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/client/android/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Downloads the APK hosted by this server. */
+        get: operations["android_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/client/android/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest Android client: a package hosted by this server (`<data>/clients/android/*.apk`)
+         *     or the APK listed in the latest verified release manifest.
+         */
+        get: operations["android_latest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fs/copy": {
         parameters: {
             query?: never;
@@ -1108,7 +1239,6 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** All mount points (including hidden ones). */
         get: operations["mounts"];
         put?: never;
         /** Creates or updates a mount point, then indexes it in the background. */
@@ -1354,6 +1484,133 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stats/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Aggregated access statistics over shares (and, for admins, direct file access):
+         *     totals, per-action / per-day breakdown, top shares / files / IPs and a paged event list.
+         */
+        get: operations["access_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats/ips": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-visitor-IP statistics (r6 #4): events, first / last seen, users, shares, downloads,
+         *     uploads, traffic, denied count, clients, last user agent and the IP's region.
+         */
+        get: operations["access_ips"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My tags with usage counts. */
+        get: operations["tags_list"];
+        put?: never;
+        /** Creates a tag (returns the existing one if the name is taken). */
+        post: operations["tags_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tags/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Tags / untags paths (needs `read` on each). Returns the resulting tags per path. */
+        post: operations["tags_assign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tags/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Paths carrying the given tags (any / all), filtered by read permission. */
+        get: operations["tags_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tags/of": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tags of the direct children of `dir` (or of one `path`): `{ "/local/a.txt": [tag…] }`. */
+        get: operations["tags_of"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tags/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Deletes a tag and removes it from every path. */
+        delete: operations["tags_delete"];
+        options?: never;
+        head?: never;
+        /** Renames / recolours a tag. */
+        patch: operations["tags_patch"];
+        trace?: never;
+    };
     "/api/tasks": {
         parameters: {
             query?: never;
@@ -1442,6 +1699,43 @@ export interface components {
             /** Format: int64 */
             window_secs?: number | null;
         };
+        ApplyBody: {
+            /**
+             * @description Only download + verify (state `ready`), do not install.
+             * @default false
+             */
+            download_only: boolean;
+        };
+        Artifact: {
+            /** @description Docker runtime image reference, e.g. `ghcr.io/lthero-big/drivehub:0.2.0`. */
+            image?: string;
+            /** @description server | web | docker | android */
+            kind: string;
+            /** @description linux-amd64 | linux-arm64 (server), android, "" (web / docker) */
+            platform?: string;
+            sha256?: string;
+            /** Format: int64 */
+            size?: number;
+            /** @description Absolute URL or relative to the manifest URL (server / web / android). */
+            url?: string;
+            /**
+             * Format: int64
+             * @description Android versionCode.
+             */
+            version_code?: number | null;
+        };
+        AssignBody: {
+            /** @description Tag ids to attach. */
+            add?: number[];
+            /** @description Tag names to attach (created when missing). */
+            add_names?: string[];
+            /** @description Virtual paths (files or folders). */
+            paths: string[];
+            /** @description Tag ids to detach. */
+            remove?: number[];
+            /** @description Replace the tag set of every path with `add` + `add_names`. */
+            replace?: boolean;
+        };
         AuthStatus: {
             /** @description false until the first admin is created via POST /api/auth/init */
             initialized: boolean;
@@ -1468,6 +1762,19 @@ export interface components {
             code: string;
             pin?: string | null;
         };
+        ClientPackage: {
+            min_client_version?: string | null;
+            notes?: string | null;
+            sha256: string;
+            /** Format: int64 */
+            size: number;
+            /** @description local (hosted by this server) | manifest (release download) */
+            source: string;
+            url: string;
+            version?: string | null;
+            /** Format: int64 */
+            version_code?: number | null;
+        };
         CodeBody: {
             code: string;
         };
@@ -1488,6 +1795,26 @@ export interface components {
             reason: string;
             /** @enum {string} */
             status: "invalid";
+        };
+        /** @description Effective configuration (config file / env merged with admin settings). */
+        Effective: {
+            /** @description The server can install updates itself (binary with data dir, or Docker with socket). */
+            can_auto_install: boolean;
+            channel: string;
+            /** @description `DRIVEHUB_UPDATE_CHECK`: false disables every network check. */
+            check_enabled: boolean;
+            db_backups: string[];
+            /** @description binary | docker */
+            deployment: string;
+            docker_socket?: string | null;
+            exe_path?: string | null;
+            /** Format: int64 */
+            interval_secs: number;
+            platform: string;
+            /** @description exec | exit */
+            restart: string;
+            source_url: string;
+            trusted_key_ids: string[];
         };
         ErrorBody: {
             error: string;
@@ -1527,6 +1854,18 @@ export interface components {
             password: string;
             username: string;
         };
+        /** @description Result of the most recent check (stored in `meta`). */
+        LastCheck: {
+            channel: string;
+            /** Format: int64 */
+            checked_at: number;
+            error?: string | null;
+            /** @description Key id that signed the manifest. */
+            key_id?: string | null;
+            latest?: null | components["schemas"]["Manifest"];
+            source_url: string;
+            update_available: boolean;
+        };
         ListResp: {
             items: components["schemas"]["FsItem"][];
             page: number;
@@ -1539,6 +1878,19 @@ export interface components {
             login: string;
             password: string;
             totp_code?: string | null;
+        };
+        Manifest: {
+            /** Format: int32 */
+            api_version: number;
+            artifacts?: components["schemas"]["Artifact"][];
+            /** @description stable | beta */
+            channel?: string;
+            /** @description Oldest web / Android client the new server still accepts. */
+            min_client_version: string;
+            /** @description Release notes (Markdown). */
+            notes?: string;
+            released_at?: string;
+            version: string;
         };
         /** @description Mount point definition (stored in SQLite `mounts`). */
         MountConfig: {
@@ -1563,6 +1915,10 @@ export interface components {
             name: string;
         };
         NewShare: {
+            /** @description Room / share: visitors may download (default true). */
+            allow_download?: boolean | null;
+            /** @description Room: visitors may upload (default true). */
+            allow_upload?: boolean | null;
             /**
              * Format: int64
              * @description Valid for N days (default: forever).
@@ -1573,8 +1929,18 @@ export interface components {
              * @description Alternative to `days` (seconds).
              */
             expires_in_secs?: number | null;
+            /**
+             * Format: int64
+             * @description Room: max total uploaded bytes.
+             */
+            max_bytes?: number | null;
             /** Format: int64 */
             max_downloads?: number | null;
+            /**
+             * Format: int64
+             * @description Room: max number of uploaded files.
+             */
+            max_uploads?: number | null;
             /** Format: int64 */
             max_visits?: number | null;
             name?: string | null;
@@ -1587,6 +1953,11 @@ export interface components {
             /** @description Generate a random 4-character PIN. */
             random_pin?: boolean;
             require_login?: boolean;
+            /**
+             * @description Drop room (快传房间): `paths` = [parent folder]; a fresh folder
+             *     `<parent>/.droprooms/<rand>` is created and shared as a whole.
+             */
+            room?: boolean;
         };
         NewTokenBody: {
             /**
@@ -1687,7 +2058,7 @@ export interface components {
         RoleBody: {
             description?: string | null;
             name: string;
-            /** @description read | download | upload | create | edit | delete | share */
+            /** @description permission names, see `GET /api/acl/catalog` */
             permissions?: string[];
         };
         RuleBody: {
@@ -1741,6 +2112,11 @@ export interface components {
             /** @description Source virtual path */
             src: string;
         };
+        TagBody: {
+            /** @description gray | red | orange | yellow | green | teal | blue | indigo | purple | pink */
+            color?: string | null;
+            name?: string | null;
+        };
         TaskInfo: {
             /** Format: int64 */
             created_at: number;
@@ -1775,6 +2151,84 @@ export interface components {
             session_id: string;
             token_type: string;
         };
+        UpdateOverview: {
+            current_version: string;
+            effective: components["schemas"]["Effective"];
+            last_check?: null | components["schemas"]["LastCheck"];
+            settings: components["schemas"]["UpdateSettings"];
+            status: components["schemas"]["UpdateStatus"];
+        };
+        /** @description Admin-editable update settings (stored in `meta`); empty / 0 = use the server config. */
+        UpdateSettings: {
+            /**
+             * @description Periodic background checks (manual checks still work when off).
+             * @default true
+             */
+            auto_check: boolean;
+            /**
+             * @description stable | beta ("" = config default).
+             * @default
+             */
+            channel: string;
+            /**
+             * Format: int64
+             * @description Check interval override in seconds (0 = config default, minimum 60).
+             * @default 0
+             */
+            interval_secs: number;
+            /**
+             * @description notify | download | install
+             * @default notify
+             */
+            mode: string;
+            /**
+             * @description Notify this e-mail address (uses the server mailer).
+             * @default
+             */
+            notify_email: string;
+            /**
+             * @description Notify this webhook URL about available / installed / rolled back updates.
+             * @default
+             */
+            notify_webhook: string;
+            /**
+             * @description Manifest URL override ("" = config / GitHub Releases default).
+             * @default
+             */
+            source_url: string;
+            /** @default  */
+            window_end: string;
+            /**
+             * @description Maintenance window for automatic installs, "HH:MM" UTC (both empty = any time).
+             * @default
+             */
+            window_start: string;
+        };
+        /** @description Progress of the current / last update operation. */
+        UpdateStatus: {
+            actor: string;
+            /** @description Operator commands (Docker without socket access). */
+            commands: string[];
+            error?: string | null;
+            from_version?: string | null;
+            /** @description Step log of the operation ("<unix ts> <text>"). */
+            log: string[];
+            message: string;
+            /** Format: int64 */
+            progress_bytes: number;
+            /** Format: int64 */
+            started_at: number;
+            /**
+             * @description idle | checking | downloading | verifying | ready | backing_up | installing |
+             *     restarting | health_check | rolling_back | succeeded | failed | rolled_back | manual
+             */
+            state: string;
+            target_version?: string | null;
+            /** Format: int64 */
+            total_bytes: number;
+            /** Format: int64 */
+            updated_at: number;
+        };
         UploadSession: {
             /** Format: int64 */
             chunk_size: number;
@@ -1792,11 +2246,21 @@ export interface components {
         VersionInfo: {
             /** Format: int32 */
             api_version: number;
+            /** @description Latest release seen by the update checker (None = never checked / checks disabled). */
+            latest?: string | null;
             min_app_version: string;
+            /**
+             * @description Minimum client version required by the latest release (falls back to this server's
+             *     own `min_app_version`).
+             */
+            min_client_version: string;
             min_web_version: string;
             server_version: string;
+            /** @description `latest` is newer than `server_version`. */
+            update_available: boolean;
             /**
-             * @description Build id of the web bundle currently on disk (web_dir/version.json). A loaded page whose own build id differs should offer a reload.
+             * @description Build id of the web bundle currently on disk (`<web_dir>/version.json`); a loaded
+             *     page whose own build id differs should offer a reload.
              */
             web_build?: string | null;
         };
@@ -1809,6 +2273,24 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description permission catalog */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     effective: {
         parameters: {
             query: {
@@ -2466,6 +2948,97 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Settings"];
+                };
+            };
+        };
+    };
+    apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyBody"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateOverview"];
+                };
+            };
+            /** @description busy / disabled / not possible */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    check: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateOverview"];
+                };
+            };
+        };
+    };
+    put_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSettings"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateOverview"];
+                };
+            };
+        };
+    };
+    status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateOverview"];
                 };
             };
         };
@@ -3203,6 +3776,57 @@ export interface operations {
         responses: {
             /** @description secret */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    android_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description APK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description none hosted */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    android_latest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientPackage"];
+                };
+            };
+            /** @description no package known */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4123,6 +4747,246 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description share */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    access_stats: {
+        parameters: {
+            query?: {
+                /** @description shares (default) | files | all — `files` / `all` are admin-only (others get `shares`) */
+                scope?: string | null;
+                share_id?: number | null;
+                /** @description path prefix, e.g. `/local/docs` (or an exact file) */
+                path?: string | null;
+                /** @description visit | download | upload | preview | denied, or exact action names (comma list) */
+                kind?: string | null;
+                ip?: string | null;
+                /** @description unix seconds, inclusive */
+                from?: number | null;
+                /** @description unix seconds, exclusive */
+                to?: number | null;
+                /** @description free text in path / username / ua */
+                q?: string | null;
+                page?: number | null;
+                per_page?: number | null;
+                /** @description Admin: include every user's shares (default true for admin). */
+                all?: boolean | null;
+                /** @description Visitor region filter (r6 #4): ISO country code ("CN", "US"…) or "LAN" for private networks */
+                country?: string | null;
+                /** @description Visitor province / state within `country`, e.g. "广东省" */
+                region?: string | null;
+                /** @description `/api/stats/ips` ordering: count (default) | last | bytes */
+                sort?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description summary + rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    access_ips: {
+        parameters: {
+            query?: {
+                /** @description shares (default) | files | all — `files` / `all` are admin-only (others get `shares`) */
+                scope?: string | null;
+                share_id?: number | null;
+                /** @description path prefix, e.g. `/local/docs` (or an exact file) */
+                path?: string | null;
+                /** @description visit | download | upload | preview | denied, or exact action names (comma list) */
+                kind?: string | null;
+                ip?: string | null;
+                /** @description unix seconds, inclusive */
+                from?: number | null;
+                /** @description unix seconds, exclusive */
+                to?: number | null;
+                /** @description free text in path / username / ua */
+                q?: string | null;
+                page?: number | null;
+                per_page?: number | null;
+                /** @description Admin: include every user's shares (default true for admin). */
+                all?: boolean | null;
+                /** @description Visitor region filter (r6 #4): ISO country code ("CN", "US"…) or "LAN" for private networks */
+                country?: string | null;
+                /** @description Visitor province / state within `country`, e.g. "广东省" */
+                region?: string | null;
+                /** @description `/api/stats/ips` ordering: count (default) | last | bytes */
+                sort?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description paged IP table */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description tags */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagBody"];
+            };
+        };
+        responses: {
+            /** @description tag */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_assign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignBody"];
+            };
+        };
+        responses: {
+            /** @description path -> tags */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_files: {
+        parameters: {
+            query: {
+                /** @description Tag ids, comma separated. */
+                tags: string;
+                /** @description any (default) | all */
+                mode?: string | null;
+                /** @description Restrict to a directory subtree. */
+                under?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description tagged paths */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_of: {
+        parameters: {
+            query?: {
+                /** @description Directory: tags of its direct children. */
+                dir?: string | null;
+                /** @description Or one path. */
+                path?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description path -> tags */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tags_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagBody"];
+            };
+        };
+        responses: {
+            /** @description tag */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -93,6 +93,50 @@ Web/API、WebDAV、搜索全部走同一个 `AppState::perms/authorize`（`serve
 
 冒烟：`BASE=http://127.0.0.1:8473 FILES=<fs root> ADMIN_PW=… scripts/smoke-m2.sh`（curl + rclone webdav）。
 
+## 自动更新（DEPTAI-484）
+
+**发布清单** `release-manifest.json`（`version / channel(stable|beta) / api_version / min_client_version / released_at / notes / artifacts[]`，产物含 `server`(linux-amd64/arm64) / `web`(tar.gz) / `docker`(镜像 tag) / `android`(APK)，各带 URL + SHA-256 + 大小；URL 可相对清单地址）。
+旁边的 `release-manifest.json.sig` 是对清单原始字节的 **Ed25519 分离签名**（minisign 风格文本：`key: <key id>` / `sig: <base64>`）。官方发布公钥编译进服务端（`update/manifest.rs::RELEASE_PUBKEY`），
+`DRIVEHUB_UPDATE_TRUSTED_KEYS` 可追加信任公钥；验签失败的清单不会被解析、展示或安装。
+
+```bash
+drivehub release keygen --out ~/secrets/release.key          # 打印公钥；私钥绝不入库
+DRIVEHUB_RELEASE_KEY=~/secrets/release.key scripts/make-release.sh 0.2.0 --out dist/v0.2.0 \
+    --notes-file NOTES.md --docker ghcr.io/lthero-big/drivehub:0.2.0   # 构建 + 清单 + 签名 + 自检
+drivehub release verify dist/v0.2.0/release-manifest.json
+```
+
+**配置**（`[update]` 表或环境变量，环境变量优先）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `DRIVEHUB_UPDATE_CHECK` | `true` | `false` = 内网/离线，彻底不访问更新源 |
+| `DRIVEHUB_UPDATE_URL` | GitHub Releases `lthero-big/drivehub` latest | 清单 URL（`http(s)://` 或 `file://`），签名取 `<url>.sig` |
+| `DRIVEHUB_UPDATE_CHANNEL` | `stable` | `beta` 也接收 stable |
+| `DRIVEHUB_UPDATE_INTERVAL_SECS` | `21600` | 后台检查间隔 |
+| `DRIVEHUB_UPDATE_TRUSTED_KEYS` | – | 额外信任公钥（base64，逗号分隔） |
+| `DRIVEHUB_UPDATE_EXE` | 当前可执行文件 | 被替换的程序路径 |
+| `DRIVEHUB_UPDATE_RESTART` | `exec` | `exec` 原地替换进程（PID 不变，pm2/systemd/前台都适用）；`exit` 以退出码 75 退出交给 supervisor 拉起 |
+| `DRIVEHUB_UPDATE_DOCKER_SOCKET` | – | 显式给出 docker.sock 才允许容器内一键更新 |
+| `DRIVEHUB_UPDATE_HEALTH_TIMEOUT_SECS` | `30` | 新版本健康检查预算 |
+
+管理员可在「管理 → 系统更新」或 `PUT /api/admin/update/settings` 设置：后台检查开关、模式（`notify` 仅通知 / `download` 自动下载 / `install` 自动安装）、维护时间窗（UTC HH:MM）、更新源/通道/间隔覆盖、Webhook / 邮件通知（走审计告警的投递通道，记录在告警事件里）。
+
+**API**：`GET /api/version`（新增 `latest / update_available / min_client_version / web_build`，所有响应带 `x-drivehub-server-version` 头）、
+`GET /api/admin/update/status`、`POST /api/admin/update/check`、`POST /api/admin/update/apply`（`{"download_only": true}` 只下载校验）、`PUT /api/admin/update/settings`、
+`GET /api/client/android/latest`（优先 `<data>/clients/android/*.apk` 本地托管，否则清单里的 APK）、`GET /api/client/android/download`。
+
+**二进制更新流程**：拉取清单+验签 → 下载（大小上限 = 清单声明）→ SHA-256 校验（不符即删除并失败）→ 运行 `<新程序> version` 预检版本号 →
+`VACUUM INTO` 备份数据库（`<data>/update/backups`，保留 3 份）→ 原子替换（旧程序留 `<exe>.bak`，Web 包旧目录留 `<web>.bak`）→ 写 `<data>/update/pending.json` →
+优雅停止（最多 10 s）→ exec 新程序。新进程：迁移失败 / 启动失败 / 连续 3 次启动失败 / 健康检查（`/api/v1/health` + 版本号）超时 → 恢复 `.bak`、数据库快照、Web 包并 exec 回旧版本；
+旧版本启动后把本次尝试的审计记录（因数据库回滚而丢失的部分）重放进审计链，并记 `update_rolled_back`。所有步骤写审计（`update_check / update_apply / update_download / update_install / update_applied / update_failed / update_health_failed / update_rolled_back / update_settings`）。
+
+**Docker**：自动识别容器环境。未授权 docker.sock 时 `apply` 返回宿主机要执行的命令；授权后拉取新镜像，并启动一个一次性 helper 容器（`drivehub update docker-swap`）完成「改名旧容器 → 停止 → 用相同配置/挂载/网络创建新容器 → 等待 healthy → 删除旧容器」，不健康则删除新容器并恢复旧容器。
+
+**Web**：构建时写入版本号与构建 id（`dist/version.json`，`DRIVEHUB_WEB_VERSION` 指定版本）；页面通过响应头和定时/聚焦时轮询 `/api/version` 发现服务端或 Web 包变化，顶部提示「刷新以加载新版本」。
+
+回滚演练：`DRIVEHUB_BUILD_FAULT=unhealthy|migrate|crash` 编译出的包会在相应环节失败（仅用于演练，debug 构建另支持运行时 `DRIVEHUB_TEST_VERSION/DRIVEHUB_TEST_FAULT`，release 构建忽略）。集成测试 `server/crates/api/tests/update_e2e.rs` 用真实进程覆盖升级、损坏包、错误签名、健康检查失败回滚、迁移失败回滚。
+
 ## 许可证
 
 DriveHub 以 **GNU Affero General Public License v3.0**（`AGPL-3.0-only`）发布，全文见 [LICENSE](LICENSE)。
