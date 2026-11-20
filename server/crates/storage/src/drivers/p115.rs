@@ -431,15 +431,37 @@ pub fn upload_token(
     )
 }
 
+
+/// Build the 115 Cookie header from a full `cookie` option, or from split
+/// `uid` / `cid` / `seid` / `kid` fields (any case). A non-empty `cookie`
+/// wins if both are present.
+pub fn cookie_from_options(opts: &HashMap<String, String>) -> Result<String> {
+    let get = |k: &str| {
+        opts.iter()
+            .find(|(ok, v)| ok.eq_ignore_ascii_case(k) && !v.is_empty())
+            .map(|(_, v)| v.clone())
+    };
+    if let Some(c) = get("cookie") {
+        return Ok(c);
+    }
+    let mut parts = Vec::new();
+    for k in ["UID", "CID", "SEID", "KID"] {
+        match get(k) {
+            Some(v) => parts.push(format!("{}={}", k, v)),
+            None => {
+                return Err(StorageError::Config(
+                    "115: missing 'cookie' or UID/CID/SEID/KID; QR login not ported yet".into(),
+                ));
+            }
+        }
+    }
+    Ok(parts.join("; "))
+}
+
 impl P115Driver {
     pub fn new(opts: &HashMap<String, String>) -> Result<Self> {
         let get = |k: &str| opts.get(k).cloned().filter(|s| !s.is_empty());
-        let cookie = get("cookie").ok_or_else(|| {
-            StorageError::Config(
-                "115: missing 'cookie' (UID=..; CID=..; SEID=..; KID=..); QR login not ported yet"
-                    .into(),
-            )
-        })?;
+        let cookie = cookie_from_options(opts)?;
         Ok(Self {
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(120))
@@ -1270,3 +1292,49 @@ impl StorageDriver for P115Driver {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod cookie_from_options_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn passthrough_cookie() {
+        let m = HashMap::from([("cookie".into(), "UID=u; CID=c; SEID=s; KID=k".into())]);
+        assert_eq!(cookie_from_options(&m).unwrap(), "UID=u; CID=c; SEID=s; KID=k");
+    }
+
+    #[test]
+    fn compose_split_fields() {
+        let m = HashMap::from([
+            ("uid".into(), "u1".into()),
+            ("CID".into(), "c1".into()),
+            ("seid".into(), "s1".into()),
+            ("kid".into(), "k1".into()),
+        ]);
+        assert_eq!(
+            cookie_from_options(&m).unwrap(),
+            "UID=u1; CID=c1; SEID=s1; KID=k1"
+        );
+    }
+
+    #[test]
+    fn cookie_wins_over_split() {
+        let m = HashMap::from([
+            ("cookie".into(), "UID=keep".into()),
+            ("uid".into(), "other".into()),
+            ("cid".into(), "x".into()),
+            ("seid".into(), "x".into()),
+            ("kid".into(), "x".into()),
+        ]);
+        assert_eq!(cookie_from_options(&m).unwrap(), "UID=keep");
+    }
+
+    #[test]
+    fn missing_rejected() {
+        assert!(cookie_from_options(&HashMap::new()).is_err());
+        let partial = HashMap::from([("uid".into(), "u".into()), ("cid".into(), "c".into())]);
+        assert!(cookie_from_options(&partial).is_err());
+    }
+}
+
