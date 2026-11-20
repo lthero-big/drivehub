@@ -1,0 +1,172 @@
+/* DEPTAI-485 r10 — focus-expanding bento gallery + bolder file tiles.
+   Motion params from https://design.lthero.com/prompt/motion-bento-focus-grid :
+   480ms cubic-bezier(.22,1,.36,1); tracks reflow in place; home/mini/full layers. */
+
+.dh-bento {
+  --bento-row: 10.5rem;
+  --bento-ease: cubic-bezier(.22, 1, .36, 1);
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--panel-2, var(--panel));
+  transition:
+    grid-template-columns 480ms var(--bento-ease),
+    grid-template-rows 480ms var(--bento-ease),
+    height 480ms var(--bento-ease);
+}
+.dh-bento-tile {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  cursor: pointer;
+  background: var(--panel-2, var(--panel));
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.dh-bento-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 1;
+}
+.dh-bento-tile.focused { cursor: default; z-index: 2; }
+
+.dh-bento-layer {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .26s ease, visibility 0s linear .26s;
+}
+.dh-bento-layer.on {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity .34s ease .06s, visibility 0s;
+}
+.dh-bento-layer img,
+.dh-bento-layer .dh-cover,
+.dh-bento-layer video {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.dh-bento-layer.home .dh-cover,
+.dh-bento-layer.mini .dh-cover { height: 100%; }
+.dh-bento-layer.home img,
+.dh-bento-layer.mini img { object-fit: cover; }
+.dh-bento-layer.full {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+.dh-bento-full-media {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+}
+.dh-bento-full-media .dh-cover,
+.dh-bento-full-media img,
+.dh-bento-full-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.dh-bento-name {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 1.6rem 0.7rem 0.6rem;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: #fff;
+  letter-spacing: .01em;
+  text-shadow: 0 1px 4px rgb(0 0 0 / .55);
+  background: linear-gradient(to top, rgb(0 0 0 / .55), transparent);
+  opacity: 0;
+  transition: opacity .2s ease;
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dh-bento-tile:hover .dh-bento-name,
+.dh-bento-tile:focus-visible .dh-bento-name { opacity: 1; }
+.dh-bento-meta {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 12px;
+}
+.dh-bento-meta .ttl {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.dh-bento-meta .sub { font-size: 12px; color: var(--muted); }
+.dh-bento-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  border: 0;
+  background: rgb(0 0 0 / .45);
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 99px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dh-bento-x:hover { background: rgb(0 0 0 / .62); }
+
+.dh-hero-mosaic {
+  display: grid;
+  grid-template-columns: 4.6rem 3.15rem;
+  grid-template-rows: 2.15rem 2.15rem;
+  width: 7.95rem;
+  height: 4.5rem;
+  gap: 3px;
+  border-radius: 12px;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.dh-hero-mosaic > :first-child { grid-row: 1 / 3; }
+.dh-hero-mosaic .dh-cover,
+.dh-hero-mosaic img { width: 100%; height: 100%; object-fit: cover; }
+
+.dh-file-tile {
+  transition: transform .28s var(--bento-ease, cubic-bezier(.22,1,.36,1)), box-shadow .28s ease, background .2s ease;
+}
+.dh-file-tile-media .dh-cover img {
+  transition: transform .5s var(--bento-ease, cubic-bezier(.22,1,.36,1));
+}
+.dh-file-tile-media:hover .dh-cover img { transform: scale(1.05); }
+.dh-file-tile:hover { transform: translateY(-2px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dh-bento { transition-duration: .01ms; }
+  .dh-bento-layer,
+  .dh-bento-name,
+  .dh-file-tile,
+  .dh-file-tile-media .dh-cover img {
+    transition-duration: .01ms !important;
+  }
+  .dh-file-tile:hover { transform: none; }
+  .dh-file-tile-media:hover .dh-cover img { transform: none; }
+}
