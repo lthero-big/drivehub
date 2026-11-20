@@ -89,6 +89,31 @@ release:android:
         SIGNING=debug-key
       fi
       cd android && ./gradlew --no-daemon testDebugUnitTest assembleRelease && cd ..
-      mkdir -p out && cp android/app/build/outputs/apk/release/app-release.apk "out/drivehub-$VERSION-android-$SIGNING.apk"
+      mkdir -p out android-out
+      cp android/app/build/outputs/apk/release/app-release.apk "out/drivehub-$VERSION-android-$SIGNING.apk"
+      cp -a out/. android-out/
       (cd out && sha256sum * > SHA256SUMS)
-  artifacts: { paths: [out/], expire_in: 90 days }
+  artifacts: { paths: [out/, android-out/], expire_in: 90 days }
+
+release:manifest:
+  stage: package
+  image: debian:bookworm-slim
+  rules: [{ if: '$CI_COMMIT_TAG =~ /^v/' }]
+  needs: ["release:server", "release:android"]
+  script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates bash coreutils >/dev/null
+    - VERSION=$(tr -d '[:space:]' < VERSION)
+    - mkdir -p release
+    - cp -a out/. release/ 2>/dev/null || true
+    - cp -a android-out/. release/ 2>/dev/null || true
+    - |
+      if [ -n "${DRIVEHUB_RELEASE_KEY:-}" ]; then
+        KEY=/tmp/drivehub-release.key
+        umask 077
+        printf '%s' "$DRIVEHUB_RELEASE_KEY" > "$KEY"
+        export DRIVEHUB_RELEASE_KEY="$KEY"
+      fi
+      scripts/emit-release-manifest.sh --dir release --version "$VERSION"
+      rm -f /tmp/drivehub-release.key
+    - (cd release && sha256sum * > SHA256SUMS)
+  artifacts: { paths: [release/], expire_in: 90 days }

@@ -34,6 +34,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -59,6 +62,12 @@ fun AppRoot(vm: AppViewModel) {
     val stage by vm.stage.collectAsStateWithLifecycle()
     val msg by vm.message.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, vm) {
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) vm.onForeground() }
+        lifecycle.addObserver(obs)
+        onDispose { lifecycle.removeObserver(obs) }
+    }
     LaunchedEffect(msg) { msg?.let { snack.showSnackbar(it); vm.message.value = null } }
     Scaffold(snackbarHost = { SnackbarHost(snack) }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
@@ -103,10 +112,44 @@ fun BlockedScreen(vm: AppViewModel, c: Compat) {
         }, style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(12.dp))
         Text(VersionNegotiator.message(c))
+        if (c is Compat.ClientTooOld) {
+            Spacer(Modifier.height(16.dp))
+            AppUpdateCard(vm, forced = true)
+        }
         Spacer(Modifier.height(24.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton({ vm.changeServer() }) { Text("更换服务器") }
             Button({ vm.boot() }) { Text("重试") }
+        }
+    }
+}
+
+@Composable
+fun AppUpdateCard(vm: AppViewModel, forced: Boolean = false) {
+    val st by vm.appUpdate.collectAsStateWithLifecycle()
+    val launchSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { vm.onForeground() }
+    if (!forced && st.pkg == null && !st.checking && st.error == null) return
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val ver = st.pkg?.let { it.version ?: it.versionCode?.let { c -> "versionCode $c" } }.orEmpty()
+        if (st.checking) LinearProgressIndicator(Modifier.fillMaxWidth())
+        st.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        when {
+            st.needsPermission -> {
+                Button({ launchSettings.launch(vm.installPermissionIntent()) }, Modifier.fillMaxWidth()) {
+                    Text("前往授予安装权限 / Allow installing apps")
+                }
+            }
+            st.downloading -> {
+                val tot = st.total
+                if (tot > 0) LinearProgressIndicator((st.received.toFloat() / tot).coerceIn(0f, 1f), Modifier.fillMaxWidth())
+                else LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("正在下载 ${fmtSize(st.received)}" + if (tot > 0) " / ${fmtSize(tot)}" else "")
+            }
+            st.installing -> Text("等待系统安装确认… / Waiting for the system install confirmation")
+            st.pkg != null -> {
+                Text(if (st.forced || forced) "请安装新版本 $ver 后继续 / Install $ver to continue" else "发现新版本 $ver / Update $ver is available")
+                Button({ vm.startAppUpdate() }, Modifier.fillMaxWidth(), enabled = !st.checking) { Text("下载并安装 / Download and install") }
+            }
         }
     }
 }
@@ -194,13 +237,16 @@ fun MainScreen(vm: AppViewModel) {
             }
         }
     }) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
-            when (tab) {
-                Tab.Files -> FilesScreen(vm) { preview = it }
-                Tab.Shares -> SharesScreen(vm)
-                Tab.Pickup -> PickupScreen(vm)
-                Tab.Transfers -> TransfersScreen()
-                Tab.Me -> MeScreen(vm)
+        Column(Modifier.padding(pad).fillMaxSize()) {
+            AppUpdateCard(vm)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (tab) {
+                    Tab.Files -> FilesScreen(vm) { preview = it }
+                    Tab.Shares -> SharesScreen(vm)
+                    Tab.Pickup -> PickupScreen(vm)
+                    Tab.Transfers -> TransfersScreen()
+                    Tab.Me -> MeScreen(vm)
+                }
             }
         }
     }
@@ -451,6 +497,8 @@ fun MeScreen(vm: AppViewModel) {
         Text("服务器：${vm.prefs.serverUrl}")
         info?.let { Text("服务器版本 ${it.serverVersion} · API v${it.apiVersion} · 最低 App ${it.minAppVersion}") }
         vm.prefs.username?.let { Text("用户：$it") }
+        AppUpdateCard(vm)
+        TextButton({ vm.refreshAppUpdate() }) { Text("检查更新 / Check for update") }
         Spacer(Modifier.height(8.dp))
         OutlinedButton({ vm.changeServer() }) { Text("更换服务器") }
         Button({ vm.logout() }) { Text("退出登录") }

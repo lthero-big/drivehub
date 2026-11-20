@@ -8,6 +8,18 @@ import kotlinx.serialization.json.JsonElement
 val AppJson = Json { ignoreUnknownKeys = true; coerceInputValues = true; explicitNulls = false; encodeDefaults = true }
 
 @Serializable
+data class ClientPackage(
+    val source: String = "",
+    val version: String? = null,
+    @SerialName("version_code") val versionCode: Long? = null,
+    val url: String,
+    val sha256: String = "",
+    val size: Long = 0,
+    @SerialName("min_client_version") val minClientVersion: String? = null,
+    val notes: String? = null,
+)
+
+@Serializable
 data class VersionInfo(
     @SerialName("server_version") val serverVersion: String,
     @SerialName("api_version") val apiVersion: Int,

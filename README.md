@@ -124,7 +124,7 @@ drivehub release verify dist/v0.2.0/release-manifest.json
 
 **API**：`GET /api/version`（新增 `latest / update_available / min_client_version / web_build`，所有响应带 `x-drivehub-server-version` 头）、
 `GET /api/admin/update/status`、`POST /api/admin/update/check`、`POST /api/admin/update/apply`（`{"download_only": true}` 只下载校验）、`PUT /api/admin/update/settings`、
-`GET /api/client/android/latest`（优先 `<data>/clients/android/*.apk` 本地托管，否则清单里的 APK）、`GET /api/client/android/download`。
+`GET /api/client/android/latest`（优先 `<data>/clients/android/*.apk` 本地托管，按版本而不是修改时间选择；否则清单里的 APK）、`GET /api/client/android/download`。这两条接口匿名可访问，但不受版本门控，以便过旧的 App 仍能下载升级包；错误的 Bearer 仍返回 401。`scripts/make-release.sh --android` / `scripts/emit-release-manifest.sh` 会把 APK 写进清单；没有 `DRIVEHUB_RELEASE_KEY` 时只写出未签名清单，更新器不会接受。
 
 **二进制更新流程**：拉取清单+验签 → 下载（大小上限 = 清单声明）→ SHA-256 校验（不符即删除并失败）→ 运行 `<新程序> version` 预检版本号 →
 `VACUUM INTO` 备份数据库（`<data>/update/backups`，保留 3 份）→ 原子替换（旧程序留 `<exe>.bak`，Web 包旧目录留 `<web>.bak`）→ 写 `<data>/update/pending.json` →

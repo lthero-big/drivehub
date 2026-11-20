@@ -14,6 +14,7 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import com.drivehub.app.core.AppUpdate
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -305,6 +306,35 @@ class ApiClient(
 
     fun shareDownload(code: String, token: String, path: String, dest: File, onProgress: (Long, Long) -> Unit = { _, _ -> }, resume: Boolean = true, cancelled: () -> Boolean = { false }) =
         downloadUrl({ builder(url("api/s/$code/download", "path" to path, "t" to token)) }, dest, resume, onProgress, cancelled)
+
+
+    // ------------------------------------------------------------------ in-app Android update
+    fun androidLatest(): ClientPackage = getJson(url("api/client/android/latest"))
+
+    /** Resolves a package URL that may be absolute or relative to this server. */
+    fun resolvePackageUrl(pkg: ClientPackage): HttpUrl {
+        val u = pkg.url
+        return when {
+            u.startsWith("http://") || u.startsWith("https://") -> u.toHttpUrl()
+            u.startsWith("/") -> base.newBuilder().encodedPath(u).query(null).build()
+            else -> url(u)
+        }
+    }
+
+    /**
+     * Downloads [pkg] to [dest] and verifies SHA-256 (and size when declared).
+     * A digest or size mismatch deletes [dest] and throws.
+     */
+    fun downloadAndroid(pkg: ClientPackage, dest: File, onProgress: (Long, Long) -> Unit = { _, _ -> }, cancelled: () -> Boolean = { false }) {
+        if (dest.exists()) dest.delete()
+        downloadUrl({ builder(resolvePackageUrl(pkg)) }, dest, resume = false, onProgress, cancelled)
+        if (pkg.size > 0 && dest.length() != pkg.size) {
+            val got = dest.length()
+            dest.delete()
+            throw IOException("APK size mismatch (expected ${pkg.size}, got $got)")
+        }
+        if (pkg.sha256.isNotBlank()) AppUpdate.verifySha256(dest, pkg.sha256)
+    }
 
     companion object {
         fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()
