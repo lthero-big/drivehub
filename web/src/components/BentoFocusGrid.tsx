@@ -57,6 +57,7 @@ export function BentoFocusGrid({
     if (!focus) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (document.querySelector('[role="tooltip"], [role="menu"], [role="dialog"], [role="listbox"]')) return;
         e.preventDefault();
         onFocus(null);
         return;

@@ -1,0 +1,224 @@
+/*
+ * DriveHub Optional Interface Skins (RHEA-277).
+ *
+ * The default "paper" (暖纸) palette lives in index.css.
+ * Each optional skin (bento / swiss) re-points the raw Paper 4-tier tokens
+ * (surface-0/1/2/sunken, line-1/2/3, fg/fg-2/fg-3/fg-4, accent, elev-1/2/3,
+ * radius, font) so every existing & new component transforms cohesively in
+ * both light and dark modes.
+ *
+ * Selectors use html[data-skin=...] (+ [data-theme="dark"]) so specificity
+ * beats :root / [data-theme="dark"] in index.css cleanly without !important.
+ */
+
+/* ==========================================================================
+ * Bento · 瓷片 — cool slate canvas, soft generous radii, cobalt accent,
+ * layered tile shadows (aligned with dropit bento + Folio bento-slate).
+ * ========================================================================== */
+html[data-skin="bento"] {
+  --radius: 14px;
+  --radius-shell: 24px;
+
+  --bg: #eceef2;
+  --surface-0: #f5f6fa;
+  --surface-1: #ffffff;
+  --surface-2: #edf0f5;
+  --surface-sunken: #e2e6ee;
+
+  --line-1: #e4e8f0;
+  --line-2: #d6dce6;
+  --line-3: #bcc5d4;
+
+  --fg: #14161c;
+  --fg-2: #383d4a;
+  --fg-3: #575e6e;
+  --fg-4: #7b8294;
+
+  --accent: #3048d8;
+  --accent-fg: #ffffff;
+  --brand: #3048d8;
+  --brand-fg: #ffffff;
+  --ok: #15803d;
+  --warn: #b45309;
+  --danger: #dc2626;
+  --soft-mix: 10%;
+
+  --elev-1: 0 1px 2px rgb(20 22 28 / 0.06), 0 8px 24px -16px rgb(20 22 28 / 0.22);
+  --elev-2: 0 2px 4px rgb(20 22 28 / 0.06), 0 14px 34px -16px rgb(20 22 28 / 0.28);
+  --elev-3: 0 24px 56px -18px rgb(20 22 28 / 0.34), 0 8px 18px -8px rgb(20 22 28 / 0.14);
+}
+
+html[data-skin="bento"][data-theme="dark"] {
+  --bg: #0e1016;
+  --surface-0: #12151d;
+  --surface-1: #171b24;
+  --surface-2: #202533;
+  --surface-sunken: #0a0c11;
+
+  --line-1: #232836;
+  --line-2: #2d3446;
+  --line-3: #404a62;
+
+  --fg: #eef0f6;
+  --fg-2: #c5c9d6;
+  --fg-3: #949caf;
+  --fg-4: #6e768b;
+
+  --accent: #7b8cff;
+  --accent-fg: #0b0e24;
+  --brand: #7b8cff;
+  --brand-fg: #0b0e24;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --soft-mix: 16%;
+
+  --elev-1: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 2px 6px rgb(0 0 0 / 0.38);
+  --elev-2: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 12px 30px -12px rgb(0 0 0 / 0.62);
+  --elev-3: 0 1px 0 rgb(255 255 255 / 0.05) inset, 0 24px 56px -16px rgb(0 0 0 / 0.78);
+}
+
+html[data-skin="bento"] .dh-app-shell {
+  border-color: transparent;
+  box-shadow: var(--elev-2);
+}
+html[data-skin="bento"][data-theme="dark"] .dh-app-shell {
+  border-color: var(--line-1);
+}
+html[data-skin="bento"] .dh-st-panel {
+  border-color: color-mix(in oklab, var(--line-1) 75%, transparent);
+  box-shadow: var(--elev-1);
+}
+html[data-skin="bento"] .dh-bento {
+  border-color: var(--line-1);
+  box-shadow: var(--elev-1);
+}
+
+/* ==========================================================================
+ * Swiss · 瑞士网格 — international typographic grid: zero corner radius,
+ * crisp 1px architectural rules, zero soft shadows, high-contrast ink &
+ * restrained signal-red accent (aligned with dropit swiss + Folio swiss-grid).
+ * ========================================================================== */
+html[data-skin="swiss"] {
+  --radius: 0px;
+  --radius-shell: 0px;
+  --font-body: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Noto Sans SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-display: var(--font-body);
+
+  --bg: #f3f3ef;
+  --surface-0: #f8f8f5;
+  --surface-1: #ffffff;
+  --surface-2: #ecece6;
+  --surface-sunken: #e2e2da;
+
+  --line-1: #cfcfc8;
+  --line-2: #111111;
+  --line-3: #111111;
+
+  --fg: #111111;
+  --fg-2: #2b2b2b;
+  --fg-3: #4d4d4d;
+  --fg-4: #707070;
+
+  --accent: #d0021b;
+  --accent-fg: #ffffff;
+  --brand: #d0021b;
+  --brand-fg: #ffffff;
+  --ok: #0a7a3d;
+  --warn: #a34d00;
+  --danger: #d0021b;
+  --soft-mix: 10%;
+
+  --elev-1: none;
+  --elev-2: none;
+  --elev-3: 0 0 0 1px #111111, 4px 4px 0 rgb(17 17 17 / 0.14);
+}
+
+html[data-skin="swiss"][data-theme="dark"] {
+  --bg: #0a0a0a;
+  --surface-0: #111111;
+  --surface-1: #141414;
+  --surface-2: #1f1f1f;
+  --surface-sunken: #050505;
+
+  --line-1: #343434;
+  --line-2: #e5e5e5;
+  --line-3: #ffffff;
+
+  --fg: #f5f5f5;
+  --fg-2: #d4d4d4;
+  --fg-3: #a3a3a3;
+  --fg-4: #7a7a7a;
+
+  --accent: #ff3b47;
+  --accent-fg: #0a0a0a;
+  --brand: #ff3b47;
+  --brand-fg: #0a0a0a;
+  --ok: #4ade80;
+  --warn: #facc15;
+  --danger: #ff3b47;
+  --soft-mix: 17%;
+
+  --elev-1: none;
+  --elev-2: none;
+  --elev-3: 0 0 0 1px #e5e5e5, 4px 4px 0 rgb(255 255 255 / 0.12);
+}
+
+html[data-skin="swiss"] .dh-app-shell {
+  border: 1px solid var(--line-2);
+  box-shadow: none;
+}
+html[data-skin="swiss"] .dh-topbar {
+  border-bottom: 2px solid var(--line-2);
+  background: var(--surface-1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-skin="swiss"] .dh-st-panel,
+html[data-skin="swiss"] .dh-bento {
+  border-color: var(--line-2);
+  box-shadow: none;
+}
+html[data-skin="swiss"] .card-lift:hover {
+  transform: none;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+html[data-skin="swiss"] .btn-key:hover:not(:disabled) {
+  transform: none;
+}
+html[data-skin="swiss"] .pop-surface {
+  border: 1px solid var(--line-2);
+  box-shadow: var(--elev-3);
+}
+html[data-skin="swiss"] .auth-bg {
+  background:
+    linear-gradient(to right, color-mix(in oklab, var(--line-1) 45%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--line-1) 45%, transparent) 1px, transparent 1px),
+    var(--bg);
+  background-size: 32px 32px;
+}
+html[data-skin="swiss"] .dh-auth-card {
+  background: var(--surface-1);
+  border: 2px solid var(--line-2);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-skin="swiss"] h1 {
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+html[data-skin="swiss"] .seg,
+html[data-skin="swiss"] .seg-pill,
+html[data-skin="swiss"] .seg-opt,
+html[data-skin="swiss"] .cp-panel,
+html[data-skin="swiss"] .cp-hl,
+html[data-skin="swiss"] .cp-row,
+html[data-skin="swiss"] .otp-cell,
+html[data-skin="swiss"] .atags-sel,
+html[data-skin="swiss"] .atag,
+html[data-skin="swiss"] .hrv,
+html[data-skin="swiss"] .dh-set-ico,
+html[data-skin="swiss"] .dh-hero-mosaic {
+  border-radius: 0px;
+}

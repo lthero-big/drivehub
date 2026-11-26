@@ -23,7 +23,7 @@ function Shell({ title, sub, children }: { title: string; sub?: string; children
           </span>
           <span className="text-lg font-semibold">DriveHub</span>
         </div>
-        <div className="glass rounded-3xl border border-line p-7 shadow-pop">
+        <div className="dh-auth-card glass rounded-3xl border border-line-2 p-7 shadow-pop">
           <h1 className="text-lg font-semibold">{title}</h1>
           {sub && <p className="mt-1 text-[13px] text-muted">{sub}</p>}
           <div className="mt-5">{children}</div>

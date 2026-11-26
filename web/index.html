@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="DriveHub：多网盘统一管理、搜索、分享与 WebDAV" />
-    <meta name="theme-color" content="#f6f5f3" />
+    <meta name="theme-color" content="#f4f2ee" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>DriveHub</title>
     <script>
@@ -12,7 +12,18 @@
         try {
           var p = localStorage.getItem("dh_theme") || "system";
           var d = p === "dark" || (p === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-          document.documentElement.dataset.theme = d ? "dark" : "light";
+          var s = localStorage.getItem("dh_skin") || "paper";
+          if (s !== "paper" && s !== "bento" && s !== "swiss") s = "paper";
+          var root = document.documentElement;
+          root.dataset.theme = d ? "dark" : "light";
+          root.dataset.skin = s;
+          var bg = {
+            paper: d ? "#121110" : "#f4f2ee",
+            bento: d ? "#0e1016" : "#eceef2",
+            swiss: d ? "#0a0a0a" : "#f3f3ef",
+          }[s];
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta && bg) meta.setAttribute("content", bg);
         } catch (e) {}
       })();
     </script>

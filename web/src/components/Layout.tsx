@@ -14,6 +14,7 @@ import { cx } from "../lib/util";
 import { updateStore } from "../lib/update";
 import { IconButton, Menu, MenuItem } from "../ui/ui";
 import { FileIcon } from "./FileIcon";
+import { SkinMenu } from "./SkinSwitcher";
 import { UpdatePopover } from "./UpdatePopover";
 
 function NavLink({ href, icon, children, active, mini, onClick }: { href: string; icon: ReactNode; children: ReactNode; active: boolean; mini?: boolean; onClick?: () => void }) {
@@ -34,10 +35,10 @@ function ThemeSwitch({ theme, setTheme }: { theme: ThemePref; setTheme: (t: Them
   ] as const;
   const i = opts.findIndex((o) => o[0] === theme);
   return (
-    <div role="radiogroup" aria-label="主题" className="relative flex h-9 shrink-0 items-center rounded-xl border border-line bg-panel-2 p-0.5">
-      <span aria-hidden className="theme-seg-ind absolute top-0.5 left-0.5 size-[30px] rounded-[9px] border border-line bg-panel shadow-card" style={{ transform: `translateX(${i * 30}px)` }} />
+    <div role="radiogroup" aria-label="主题" className="relative flex h-9 shrink-0 items-center rounded-xl border border-line-2 bg-surface-0 p-0.5">
+      <span aria-hidden className="theme-seg-ind absolute top-0.5 left-0.5 size-[30px] rounded-lg border border-line-1 bg-surface-1 shadow-elev-1" style={{ transform: `translateX(${i * 30}px)` }} />
       {opts.map(([v, I, l]) => (
-        <button key={v} role="radio" aria-checked={theme === v} aria-label={l} title={l} onClick={() => setTheme(v)} className={cx("relative z-[1] flex size-[30px] items-center justify-center rounded-[9px] transition-colors", theme === v ? "text-fg" : "text-faint hover:text-fg")}>
+        <button key={v} role="radio" aria-checked={theme === v} aria-label={l} title={l} onClick={() => setTheme(v)} className={cx("relative z-[1] flex size-[30px] items-center justify-center rounded-lg transition-colors", theme === v ? "text-fg" : "text-fg-4 hover:text-fg")}>
           <I className="size-4" />
         </button>
       ))}
@@ -252,17 +253,18 @@ export function Layout({ route, theme, setTheme, children, serverVersion, update
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col p-2 sm:p-2.5 sm:pl-1">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] bg-panel shadow-card ring-1 ring-line/80">
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line/80 bg-panel/80 px-3 backdrop-blur-xl lg:px-5">
+        <div className="dh-app-shell flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="dh-topbar sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 px-3 backdrop-blur-xl lg:px-5">
           <IconButton label="打开菜单" className="lg:hidden" onClick={() => setDrawer(true)}><MenuIcon className="size-5" /></IconButton>
           <IconButton label={collapsed ? "展开侧栏（Ctrl/⌘ B）" : "收起侧栏（Ctrl/⌘ B）"} aria-expanded={!collapsed} className="max-lg:hidden" onClick={() => setCollapsed(!collapsed)}>
             {collapsed ? <PanelLeftOpen className="size-[18px]" /> : <PanelLeftClose className="size-[18px]" />}
           </IconButton>
           <h2 className="min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight">{crumb}</h2>
           <IconButton label="搜索（⌘K）" onClick={openPalette}><Search className="size-[18px]" /></IconButton>
+          <SkinMenu />
           <ThemeSwitch theme={theme} setTheme={setTheme} />
         </header>
-        <main id="main" className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-panel px-4 pt-5 pb-8 sm:px-8">{children}</main>
+        <main id="main" className="scroll-thin min-h-0 flex-1 overflow-y-auto bg-surface-1 px-4 pt-5 pb-8 sm:px-8">{children}</main>
         </div>
       </div>
     </div>

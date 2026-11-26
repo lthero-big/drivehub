@@ -7,7 +7,10 @@ import { useApp } from "../lib/app";
 import { go } from "../lib/router";
 import { errMsg, fmtSize, fmtTime } from "../lib/util";
 import { BentoFocusGrid, type BentoFocusTile } from "../components/BentoFocusGrid";
-import { ConfirmButton, Badge, Button, Card, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, Switch, toast, usePaged } from "../ui/ui";
+import { AppearancePanel } from "../components/SkinSwitcher";
+import { SKINS, useSkin } from "../lib/theme";
+import { DisclosureRow, SectionPanel, SettingRow, SettingSwitch } from "../ui/settings-ui";
+import { ConfirmButton, Badge, Button, Card, Field, IconButton, Input, PageHeader, Pager, Progress, Select, StatCard, toast, usePaged } from "../ui/ui";
 
 type Tok = { id: number; name: string; prefix: string; created_at: number; last_used: number | null; expires_at: number | null };
 type App = { id: number; name: string; created_at: number; last_used: number | null };
@@ -40,6 +43,8 @@ export function AccountPage({ tab }: { tab: string }) {
   const [code, setCode] = useState("");
   const [otp, setOtp] = useState<OtpStatus>("idle");
   const pf = usePrefs();
+  const [skin] = useSkin();
+  const skinLabel = SKINS.find((s) => s.id === skin)?.shortLabel ?? "暖纸";
   const totpAct = async (url: string, msg: string, after?: () => void) => {
     setOtp("checking");
     try {
@@ -149,24 +154,48 @@ export function AccountPage({ tab }: { tab: string }) {
     },
     {
       id: "prefs",
-      label: "偏好",
+      label: "外观与偏好",
       icon: <SlidersHorizontal className="size-4" />,
-      hint: [pf.openInPlace && "原地打开", pf.hoverPreview && "悬停预览"].filter(Boolean).join(" · ") || "界面偏好",
+      hint: [skinLabel, pf.openInPlace && "原地打开", pf.hoverPreview && "悬停预览"].filter(Boolean).join(" · "),
       home: (
         <>
-          <p className="dh-set-stat">界面</p>
-          <p className="dh-set-hint">{[pf.openInPlace && "原地打开文件", pf.hoverPreview && "图片悬停预览", pf.favsCollapsed && "收藏已收起"].filter(Boolean).join(" · ") || "使用默认偏好"}</p>
+          <p className="dh-set-stat">{skinLabel}</p>
+          <p className="dh-set-hint">{[pf.openInPlace && "原地打开文件", pf.hoverPreview && "图片悬停预览", pf.favsCollapsed && "收藏已收起"].filter(Boolean).join(" · ") || "皮肤与交互偏好"}</p>
         </>
       ),
       full: (
-<Card title="界面偏好">
-          <div className="divide-y divide-line text-[13px]" data-prefs>
-            <PrefRow title="原地打开文件" desc="打开文件时替换当前标签页，而不是新开一个标签（保存在本浏览器）" checked={pf.openInPlace} onChange={(v) => prefs.set({ openInPlace: v })} />
-            <PrefRow title="图片悬停预览" desc="在列表视图中鼠标停在图片上时，预览跟随光标浮现" checked={pf.hoverPreview} onChange={(v) => prefs.set({ hoverPreview: v })} />
-            <PrefRow title="收起侧栏「收藏」分组" desc="也可直接点击侧栏中的分组标题切换" checked={pf.favsCollapsed} onChange={(v) => prefs.set({ favsCollapsed: v })} />
-            <PrefRow title="收起侧栏「管理后台」分组" desc="仅管理员 / 有管理权限的用户可见" checked={pf.adminCollapsed} onChange={(v) => prefs.set({ adminCollapsed: v })} />
-          </div>
-        </Card>
+        <div className="space-y-4">
+          <AppearancePanel />
+          <SectionPanel data-prefs="" title="浏览与交互" description="本地浏览器偏好设置" flush>
+            <SettingRow
+              title="原地打开文件"
+              description="打开文件时替换当前标签页，而不是新开标签"
+              hint="开启后点击文件会复用当前阅读标签，减少标签堆积。"
+            >
+              <SettingSwitch label="原地打开文件" checked={pf.openInPlace} onChange={(v) => prefs.set({ openInPlace: v })} />
+            </SettingRow>
+            <SettingRow
+              title="图片悬停预览"
+              description="在列表视图中鼠标停留在图片项上时浮现预览"
+            >
+              <SettingSwitch label="图片悬停预览" checked={pf.hoverPreview} onChange={(v) => prefs.set({ hoverPreview: v })} />
+            </SettingRow>
+            <DisclosureRow
+              title="侧栏分组默认折叠状态"
+              summary={[pf.favsCollapsed && "收藏已收起", pf.adminCollapsed && "管理后台已收起"].filter(Boolean).join(" · ") || "全部展开"}
+              flushBody
+            >
+              <div className="dh-st-rows">
+                <SettingRow title="收起侧栏「收藏」分组" description="也可直接点击侧栏分组标题切换" indent="sub">
+                  <SettingSwitch label="收起侧栏「收藏」分组" checked={pf.favsCollapsed} onChange={(v) => prefs.set({ favsCollapsed: v })} />
+                </SettingRow>
+                <SettingRow title="收起侧栏「管理后台」分组" description="仅管理员 / 有管理权限的用户可见" indent="sub">
+                  <SettingSwitch label="收起侧栏「管理后台」分组" checked={pf.adminCollapsed} onChange={(v) => prefs.set({ adminCollapsed: v })} />
+                </SettingRow>
+              </div>
+            </DisclosureRow>
+          </SectionPanel>
+        </div>
       ),
     },
     {
@@ -354,15 +383,6 @@ export function AccountPage({ tab }: { tab: string }) {
         cols={3}
         label="账户设置"
       />
-    </div>
-  );
-}
-
-function PrefRow({ title, desc, checked, onChange }: { title: string; desc: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="flex items-center gap-3 py-2.5">
-      <div className="min-w-0 flex-1"><p className="font-medium">{title}</p><p className="text-faint">{desc}</p></div>
-      <Switch checked={checked} onChange={onChange} label={title} />
     </div>
   );
 }
