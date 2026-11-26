@@ -31,6 +31,19 @@ class Prefs(ctx: Context) : TokenStore {
         get() = sp.getBoolean("thumbs", true)
         set(v) { sp.edit().putBoolean("thumbs", v).apply() }
 
+    /** Mount opened most recently; a cold start lands there when it still exists (RHEA-280). */
+    var lastMount: String?
+        get() = sp.getString("last_mount", null)
+        set(v) { sp.edit().putString("last_mount", v).apply() }
+    /** Recently opened folders inside mounts, most recent first. */
+    var recentDirs: List<String>
+        get() = sp.getString("recent_dirs", null)?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
+        set(v) { sp.edit().putString("recent_dirs", v.joinToString("\n")).apply() }
+    /** Folder view mode: true = 3-column gallery, false = list. */
+    var gridView: Boolean
+        get() = sp.getBoolean("grid_view", false)
+        set(v) { sp.edit().putBoolean("grid_view", v).apply() }
+
     fun uploadSession(key: String): String? = sp.getString("up:$key", null)
     fun setUploadSession(key: String, id: String?) { sp.edit().apply { if (id == null) remove("up:$key") else putString("up:$key", id) }.apply() }
 

@@ -4,52 +4,53 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-/** User-selectable atmosphere. Persisted by [key] in Prefs; unknown keys fall back to [System]. */
+/**
+ * Appearance (RHEA-280, 方案 C): Dropit "Paper" family only — warm paper (light) and warm
+ * charcoal (dark), or follow the system. Persisted by [key] in Prefs.
+ */
 enum class ThemeMode(val key: String, val label: String, val caption: String) {
-    System("system", "跟随系统", "浅色用暖纸，深色用暗夜"),
-    Midnight("midnight", "暗夜流光", "霓虹绿 · 深墨"),
-    Paper("paper", "暖纸档案", "米白纸感 · 陶土橙"),
-    Aurora("aurora", "深海极光", "深海蓝 · 极光青");
+    System("system", "跟随系统", "随系统切换浅色暖纸 / 深色暖炭"),
+    Light("paper", "浅色暖纸", "暖白纸面 · 品牌红点缀"),
+    Dark("charcoal", "深色暖炭", "低饱和暖炭 · 品牌红点缀");
 
     /** The concrete palette this mode renders with, given the current system dark setting. */
     fun resolve(systemDark: Boolean): ThemeMode = when (this) {
-        System -> if (systemDark) Midnight else Paper
+        System -> if (systemDark) Dark else Light
         else -> this
     }
 
     companion object {
+        /** Unknown or retired keys (RHEA-279 "midnight" / "aurora") fall back to [System]. */
         fun fromKey(key: String?): ThemeMode = entries.firstOrNull { it.key == key } ?: System
     }
 }
 
 /**
- * Semantic design tokens. Screens read colours only from here (via [LocalDh]) so every
- * atmosphere re-skins the whole app; Material's colorScheme is derived from it.
+ * Semantic design tokens (1:1 with Dropit Paper). Screens read colours only from here via [Dh].
+ * One brand colour ([accent]) carries every active state and primary action; kind tints are
+ * low-saturation and only used for small file / storage glyphs.
  */
 @Immutable
 data class DhColors(
     val isDark: Boolean,
+    /** Canvas. */
     val bg: Color,
-    /** Two soft ambient glows painted behind content (folia-style atmosphere). */
-    val glowA: Color,
-    val glowB: Color,
+    /** Cards and grouped lists. */
     val surface: Color,
-    val surfaceHigh: Color,
-    val surfaceSunken: Color,
+    /** Secondary fill: search field, icon slots, segmented controls. */
+    val surface2: Color,
+    /** 0.5 dp hairline. */
     val line: Color,
-    val lineStrong: Color,
     val fg: Color,
     val fg2: Color,
     val fg3: Color,
+    /** The only brand colour. */
     val accent: Color,
-    val onAccent: Color,
     val accentSoft: Color,
+    val onAccent: Color,
     val danger: Color,
-    val warning: Color,
     val success: Color,
-    /** Floating dock: translucent fill + top highlight. */
-    val dock: Color,
-    val dockHighlight: Color,
+    val warning: Color,
     val scrim: Color,
     val folder: Color,
     val image: Color,
@@ -60,106 +61,63 @@ data class DhColors(
     val other: Color,
 )
 
-val MidnightColors = DhColors(
-    isDark = true,
-    bg = Color(0xFF0B0C0F),
-    glowA = Color(0xFF2EEA8C).copy(alpha = 0.10f),
-    glowB = Color(0xFF7C5CFF).copy(alpha = 0.12f),
-    surface = Color(0xFF15171C),
-    surfaceHigh = Color(0xFF1E2128),
-    surfaceSunken = Color(0xFF101216),
-    line = Color(0xFF23272E),
-    lineStrong = Color(0xFF353A43),
-    fg = Color(0xFFF4F5F7),
-    fg2 = Color(0xFF9AA0A8),
-    fg3 = Color(0xFF656B74),
-    accent = Color(0xFF2EEA8C),
-    onAccent = Color(0xFF052315),
-    accentSoft = Color(0xFF2EEA8C).copy(alpha = 0.16f),
-    danger = Color(0xFFFF6B6B),
-    warning = Color(0xFFFFC14D),
-    success = Color(0xFF2EEA8C),
-    dock = Color(0xFF1A1D23).copy(alpha = 0.86f),
-    dockHighlight = Color.White.copy(alpha = 0.10f),
-    scrim = Color(0x99000000),
-    folder = Color(0xFFFFC14D),
-    image = Color(0xFF5B9DFF),
-    video = Color(0xFFB388FF),
-    audio = Color(0xFFFF7AB6),
-    pdf = Color(0xFFFF6B6B),
-    doc = Color(0xFF5AD0E8),
-    other = Color(0xFF8A9099),
-)
-
-val PaperColors = DhColors(
+val PaperLight = DhColors(
     isDark = false,
-    bg = Color(0xFFF4EFE6),
-    glowA = Color(0xFFF0C987).copy(alpha = 0.30f),
-    glowB = Color(0xFFE8A598).copy(alpha = 0.22f),
-    surface = Color(0xFFFBF8F2),
-    surfaceHigh = Color(0xFFFFFFFF),
-    surfaceSunken = Color(0xFFEBE4D6),
-    line = Color(0xFFE3DACA),
-    lineStrong = Color(0xFFCFC3AE),
-    fg = Color(0xFF2A2520),
-    fg2 = Color(0xFF6E6457),
-    fg3 = Color(0xFF9C9080),
-    accent = Color(0xFFC2552D),
-    onAccent = Color(0xFFFFFFFF),
-    accentSoft = Color(0xFFC2552D).copy(alpha = 0.12f),
-    danger = Color(0xFFC9473D),
-    warning = Color(0xFFD99A2B),
-    success = Color(0xFF3F8F5A),
-    dock = Color(0xFFFFFCF6).copy(alpha = 0.90f),
-    dockHighlight = Color.White.copy(alpha = 0.85f),
-    scrim = Color(0x662A2520),
-    folder = Color(0xFFD99A2B),
-    image = Color(0xFF3F7FD9),
-    video = Color(0xFF8A5CD6),
-    audio = Color(0xFFD6517F),
-    pdf = Color(0xFFC9473D),
-    doc = Color(0xFF2F9BB3),
-    other = Color(0xFF8C8273),
+    bg = Color(0xFFF5F3EF),
+    surface = Color(0xFFFFFFFF),
+    surface2 = Color(0xFFECE8E0),
+    line = Color(0xFF1D1B18).copy(alpha = 0.09f),
+    fg = Color(0xFF1D1B18),
+    fg2 = Color(0xFF6F6A61),
+    fg3 = Color(0xFF9C958A),
+    accent = Color(0xFFD0021B),
+    accentSoft = Color(0xFFD0021B).copy(alpha = 0.09f),
+    onAccent = Color.White,
+    danger = Color(0xFFD0021B),
+    success = Color(0xFF4E7D5B),
+    warning = Color(0xFFA0742A),
+    scrim = Color(0x661D1B18),
+    folder = Color(0xFFB08A4F),
+    image = Color(0xFF6A8BA8),
+    video = Color(0xFF8C7BA6),
+    audio = Color(0xFFA8747E),
+    pdf = Color(0xFFB25A50),
+    doc = Color(0xFF5E8A80),
+    other = Color(0xFF8E887E),
 )
 
-val AuroraColors = DhColors(
+val CharcoalDark = DhColors(
     isDark = true,
-    bg = Color(0xFF06121B),
-    glowA = Color(0xFF22D3EE).copy(alpha = 0.14f),
-    glowB = Color(0xFFA78BFA).copy(alpha = 0.16f),
-    surface = Color(0xFF0D1E2A),
-    surfaceHigh = Color(0xFF142A38),
-    surfaceSunken = Color(0xFF091822),
-    line = Color(0xFF173041),
-    lineStrong = Color(0xFF244459),
-    fg = Color(0xFFE8F4F8),
-    fg2 = Color(0xFF8FB0BF),
-    fg3 = Color(0xFF5A7C8C),
-    accent = Color(0xFF5EEAD4),
-    onAccent = Color(0xFF032421),
-    accentSoft = Color(0xFF5EEAD4).copy(alpha = 0.15f),
-    danger = Color(0xFFFB7185),
-    warning = Color(0xFFFCD34D),
-    success = Color(0xFF5EEAD4),
-    dock = Color(0xFF0F2331).copy(alpha = 0.86f),
-    dockHighlight = Color(0xFF8BE9FF).copy(alpha = 0.14f),
-    scrim = Color(0x99010A10),
-    folder = Color(0xFFFCD34D),
-    image = Color(0xFF60A5FA),
-    video = Color(0xFFC4B5FD),
-    audio = Color(0xFFF9A8D4),
-    pdf = Color(0xFFFB7185),
-    doc = Color(0xFF67E8F9),
-    other = Color(0xFF8BA3B0),
+    bg = Color(0xFF141413),
+    surface = Color(0xFF1D1C1A),
+    surface2 = Color(0xFF282623),
+    line = Color(0xFFFFF8EB).copy(alpha = 0.09f),
+    fg = Color(0xFFF2EFE9),
+    fg2 = Color(0xFF9B958B),
+    fg3 = Color(0xFF6C665D),
+    accent = Color(0xFFE5484D),
+    accentSoft = Color(0xFFE5484D).copy(alpha = 0.16f),
+    onAccent = Color.White,
+    danger = Color(0xFFE5484D),
+    success = Color(0xFF7FAE8A),
+    warning = Color(0xFFCFA65E),
+    scrim = Color(0x99000000),
+    folder = Color(0xFFC9A66B),
+    image = Color(0xFF8AA6BF),
+    video = Color(0xFFA797BF),
+    audio = Color(0xFFC2939C),
+    pdf = Color(0xFFCF7E73),
+    doc = Color(0xFF82AAA0),
+    other = Color(0xFF8F897F),
 )
 
-fun colorsFor(mode: ThemeMode, systemDark: Boolean): DhColors = when (mode.resolve(systemDark)) {
-    ThemeMode.Paper -> PaperColors
-    ThemeMode.Aurora -> AuroraColors
-    else -> MidnightColors
-}
+/** Immersive media preview: warm-charcoal ink on pure black. */
+val MediaStage = CharcoalDark.copy(bg = Color.Black, surface = Color(0xFF111110))
 
-val LocalDh = staticCompositionLocalOf { MidnightColors }
+fun colorsFor(mode: ThemeMode, systemDark: Boolean): DhColors =
+    if (mode.resolve(systemDark) == ThemeMode.Dark) CharcoalDark else PaperLight
+
+val LocalDh = staticCompositionLocalOf { PaperLight }
 
 /** Tint for a file kind (see [com.drivehub.app.ui.kindOf]). */
 fun DhColors.kindTint(kind: String, isDir: Boolean): Color = when {

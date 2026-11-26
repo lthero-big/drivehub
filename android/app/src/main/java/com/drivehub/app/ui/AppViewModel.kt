@@ -68,8 +68,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val appUpdate = MutableStateFlow(AppUpdateState())
     val themeMode = MutableStateFlow(ThemeMode.fromKey(prefs.theme))
     val thumbnails = MutableStateFlow(prefs.thumbnails)
-    /** Mount points seen at "/" (name -> kind), used for brand chips inside a mount. */
+    /** Mount points seen at "/" (name -> kind), used for brand labels inside a mount. */
     val mounts = MutableStateFlow<Map<String, String>>(emptyMap())
+    /** Names of read-only mounts (no "+" entry inside them). */
+    val readOnlyMounts = MutableStateFlow<Set<String>>(emptySet())
+    /** Folder view mode, remembered across launches. */
+    val gridView = MutableStateFlow(prefs.gridView)
+    /** Recently opened folders (「浏览」 → 「最近」). */
+    val recent = MutableStateFlow(prefs.recentDirs)
     private var api: ApiClient? = null
     private var cache: OfflineCache? = null
 
@@ -83,11 +89,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTheme(m: ThemeMode) { prefs.theme = m.key; themeMode.value = m }
     fun setThumbnails(on: Boolean) { prefs.thumbnails = on; thumbnails.value = on }
+    fun setGridView(on: Boolean) { prefs.gridView = on; gridView.value = on }
+    fun isReadOnly(path: String): Boolean = NavMemory.mountOf(path)?.let { it in readOnlyMounts.value } == true
     /** Kind of the mount that contains [path] (first path segment), if known. */
     fun mountKindOf(path: String): String? = mounts.value[path.trim('/').substringBefore('/')]
     private fun rememberMounts(items: List<FsItem>) {
         val m = items.mapNotNull { i -> i.mountKind?.let { i.name to it } }.toMap()
         if (m.isNotEmpty()) mounts.value = m
+        readOnlyMounts.value = items.filter { it.isDir && it.readOnly == true }.map { it.name }.toSet()
+    }
+
+    /** Remember the drive / folder just opened (cold-start target and 「最近」). */
+    private fun rememberVisit(path: String) {
+        NavMemory.mountOf(path)?.let { prefs.lastMount = it }
+        val r = NavMemory.pushRecent(recent.value, path)
+        if (r != recent.value) { recent.value = r; prefs.recentDirs = r }
     }
 
     companion object {
@@ -133,7 +149,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     if (prefs.accessToken != null || prefs.refreshToken != null) {
                         val ok = withContext(Dispatchers.IO) { runCatching { c.me() } }
                         when {
-                            ok.isSuccess -> { stage.value = Stage.Main; loadFiles("/") }
+                            ok.isSuccess -> enterMain()
                             ok.exceptionOrNull() is ApiException && (ok.exceptionOrNull() as ApiException).status == 401 -> goLogin(c)
                             ok.exceptionOrNull() is UpgradeRequiredException -> {
                                 val compat = (ok.exceptionOrNull() as UpgradeRequiredException).compat
@@ -141,13 +157,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                 blocked = true
                                 if (compat is Compat.ClientTooOld) refreshAppUpdate(forced = true)
                             }
-                            else -> { stage.value = Stage.Main; loadFiles("/") } // offline: cached listings
+                            else -> enterMain() // offline: cached listings
                         }
                     } else goLogin(c)
                     if (!blocked) refreshAppUpdate(forced = false)
                 }
                 is Compat.Unreachable ->
-                    if (silent && prefs.accessToken != null) { stage.value = Stage.Main; loadFiles("/") }
+                    if (silent && prefs.accessToken != null) enterMain()
                     else stage.value = Stage.Setup(VersionNegotiator.message(r))
                 else -> {
                     stage.value = Stage.Blocked(r)
@@ -263,7 +279,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val r = withContext(Dispatchers.IO) { runCatching { c.login(user, pw, totp) } }
             r.onSuccess {
                 when (it) {
-                    is LoginResult.Success -> { prefs.username = user; stage.value = Stage.Main; loadFiles("/") }
+                    is LoginResult.Success -> { prefs.username = user; enterMain() }
                     LoginResult.TotpRequired -> stage.value = cur.copy(totpPending = true, busy = false, error = null)
                 }
             }.onFailure { stage.value = cur.copy(busy = false, error = errText(it)) }
@@ -277,7 +293,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         stage.value = cur.copy(busy = true)
         viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { c.loginTotp(t, code) } }
-                .onSuccess { stage.value = Stage.Main; loadFiles("/") }
+                .onSuccess { enterMain() }
                 .onFailure { stage.value = cur.copy(busy = false, error = errText(it)) }
         }
     }
@@ -289,7 +305,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         when {
             params["access_token"] != null -> {
                 c.tokens.accessToken = params["access_token"]; c.tokens.refreshToken = params["refresh_token"]
-                stage.value = Stage.Main; loadFiles("/")
+                enterMain()
             }
             params["totp_ticket"] != null -> stage.value = cur.copy(totpPending = true, ticket = params["totp_ticket"], error = null)
             else -> stage.value = cur.copy(error = params["error"] ?: "OAuth failed")
@@ -301,24 +317,57 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { c?.logout() }
             prefs.accessToken = null; prefs.refreshToken = null
+            prefs.lastMount = null; prefs.recentDirs = emptyList(); recent.value = emptyList()
             files.value = FilesState(); shares.value = emptyList()
             if (c != null) goLogin(c) else stage.value = Stage.Setup()
         }
     }
 
+    /**
+     * Enter the main UI. PikPak-style: when the last opened mount still exists, land directly in
+     * it; otherwise (or when unknown) show the 「浏览」 root. The root listing is fetched alongside
+     * so mount labels / read-only flags are known even when starting inside a drive.
+     */
+    private fun enterMain() {
+        stage.value = Stage.Main
+        val last = prefs.lastMount
+        val start = NavMemory.startPath(last, null)
+        if (start == "/") { loadFiles("/"); return }
+        loadFiles(start, fallbackToRoot = true)
+        val c = api ?: return
+        viewModelScope.launch {
+            val root = withContext(Dispatchers.IO) { runCatching { c.list("/") }.getOrNull() } ?: cache?.loadList("/")
+            if (root != null) {
+                rememberMounts(root.items)
+                if (NavMemory.startPath(last, root.items.filter { it.isDir }.map { it.name }) == "/") {
+                    prefs.lastMount = null
+                    if (NavMemory.mountOf(files.value.path) == last) loadFiles("/")
+                }
+            }
+        }
+    }
+
+    /** Back to the 「浏览」 root (re-tapping the 文件 tab). */
+    fun browseHome() {
+        if (files.value.path != "/" || files.value.hits != null) loadFiles("/")
+    }
+
     // ------------------------------------------------------------------ files
-    fun loadFiles(path: String) {
+    fun loadFiles(path: String, fallbackToRoot: Boolean = false) {
         val c = api ?: return
         files.value = files.value.copy(path = path, loading = true, error = null, hits = null, query = "")
         viewModelScope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { c.list(path) } }
+            // Ignore late results for a folder the user already left.
+            if (files.value.path != path) return@launch
             r.onSuccess {
                 cache?.saveList(path, it)
-                if (path == "/") rememberMounts(it.items)
+                if (path == "/") rememberMounts(it.items) else rememberVisit(path)
                 files.value = files.value.copy(items = it.items.sortedWith(compareByDescending<FsItem> { i -> i.isDir }.thenBy { i -> i.name.lowercase() }), loading = false, offline = false)
             }.onFailure { e ->
                 if (e is ApiException && e.status == 401) { goLogin(c); return@onFailure }
                 if (e is UpgradeRequiredException) { stage.value = Stage.Blocked(e.compat); return@onFailure }
+                if (fallbackToRoot && e is ApiException) { prefs.lastMount = null; loadFiles("/"); return@onFailure }
                 val cached = cache?.loadList(path)
                 if (path == "/" && cached != null) rememberMounts(cached.items)
                 files.value = if (cached != null && e !is ApiException)

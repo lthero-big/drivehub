@@ -7,6 +7,7 @@ import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -27,6 +28,7 @@ import com.drivehub.app.ui.AppViewModel
 import com.drivehub.app.ui.Stage
 import com.drivehub.app.ui.components.*
 import com.drivehub.app.ui.theme.Dh
+import com.drivehub.app.ui.theme.Hair
 import com.drivehub.app.ui.theme.Radius
 
 @Composable
@@ -45,15 +47,13 @@ fun LoginScreen(vm: AppViewModel, s: Stage.Login) {
         }
     }
     AuthColumn {
-        BrandMark(size = 64.dp)
+        BrandMark(size = 56.dp)
         Spacer(Modifier.height(18.dp))
         Text(if (s.totpPending) "两步验证" else "欢迎回来", style = MaterialTheme.typography.headlineMedium, color = c.fg)
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-            StatusPill(vm.prefs.serverUrl?.removePrefix("https://")?.removePrefix("http://") ?: "", c.success)
-        }
-        Spacer(Modifier.height(28.dp))
+        Text(vm.prefs.serverUrl?.removePrefix("https://")?.removePrefix("http://") ?: "", color = c.fg3, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+        Spacer(Modifier.height(24.dp))
         DhCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 if (!s.totpPending) {
                     DhTextField(user, { user = it }, "用户名或邮箱", Modifier.fillMaxWidth(), leading = Icons.Default.Person)
                     DhTextField(
@@ -82,7 +82,7 @@ fun LoginScreen(vm: AppViewModel, s: Stage.Login) {
                 }
                 s.providers.forEach { p ->
                     Row(
-                        Modifier.fillMaxWidth().padding(bottom = 10.dp).height(50.dp).clip(Radius.pill).border(1.dp, c.lineStrong, Radius.pill).clickable { oauth = p },
+                        Modifier.fillMaxWidth().padding(bottom = 10.dp).height(48.dp).clip(Radius.lg).background(c.surface).border(Hair, c.line, Radius.lg).clickable { oauth = p },
                         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(Icons.Default.Key, null, Modifier.size(18.dp), c.fg2)

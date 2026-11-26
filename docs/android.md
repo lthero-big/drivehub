@@ -50,13 +50,17 @@ App 启动协商版本后会请求 `GET /api/client/android/latest`：
 
 ## 界面
 
-- 主题：`ui/theme/Palette.kt`（`DhColors` 语义色，`ThemeMode`：跟随系统 / 暗夜流光 / 暖纸档案 / 深海极光）、`Tokens.kt`（圆角、间距、动效曲线）。页面只从 `Dh.c` 取颜色。
-- 组件放在 `ui/components/`（悬浮底栏、搜索胶囊、挂载卡片、缩略图、抽屉、空态、状态形变按钮），页面放在 `ui/screens/`。
+- 视觉方案（RHEA-280 方案 C）：与 Web 默认 Paper 皮肤同源的 Dropit 暖纸家族，结构参考 Apple Files（Large Title + Grouped Inset 分组卡片 + 0.5dp 左缩进发丝线），体验参考 PikPak（打开即进入上次的网盘）。
+- 主题：`ui/theme/Palette.kt`（`DhColors` 语义色，`ThemeMode`：跟随系统 / 浅色暖纸 `paper` / 深色暖炭 `charcoal`；旧版保存的 `midnight` / `aurora` 自动回退为跟随系统）、`Tokens.kt`（圆角 12dp 卡片、`Hair` 0.5dp 发丝线、动效）。页面只从 `Dh.c` 取颜色；品牌红 `accent` 是唯一强调色，文件类型 / 存储类型小图标使用低饱和单色。
+- 不使用：径向光斑或彩色氛围背景、渐变卡片与装饰角标、半透明悬浮底栏和大圆 FAB、彩色光点空态、渐变头像。图片 / 视频预览为纯黑背景。
+- 导航：实底 4 Tab 底栏（文件 / 传输 / 分享 / 我的，顶部 0.5dp 细线，内容在底栏上方不会穿透）；再次点「文件」回到「浏览」。上传 / 新建文件夹入口在目录页右上角的 `+`。
+- 「浏览」页：「位置」列出全部挂载网盘，「最近」列出最近打开的子文件夹（`Prefs.recentDirs`，退出登录时清空）。冷启动时若上次打开的网盘（`Prefs.lastMount`）仍存在，直接进入该网盘，左上角 `‹ 浏览` 返回；规则在 `ui/NavMemory.kt`。目录页的列表 / 画廊（3 列）选择会被记住。
+- 组件放在 `ui/components/`（底栏 `TabBar`、搜索框与筛选胶囊、分组行 `groupItem` / `GroupRow`、缩略图、抽屉、空态、主按钮），页面放在 `ui/screens/`。
 - 缩略图：服务端没有缩略图接口，App 用 Coil 拉取 `/api/fs/download?preview=true`，并带上鉴权头。只加载 15 MB 以内的图片和视频，内存与 256 MB 磁盘 LRU 缓存，按 320px 采样解码。每次拉取会被审计记为 `preview`，可在「我的 → 外观」关闭。
 
 ## 测试
-- `UiModelTest`：主题键与跟随系统规则、文件类型筛选、缩略图策略与缓存键、挂载品牌映射。
-- 界面截图（可选）：`./gradlew testDebugUnitTest -Pscreenshots` 用 Robolectric + Roborazzi 在 JVM 上渲染主要页面，输出到 `app/build/screenshots/`（缩略图为合成渐变）。不加 `-Pscreenshots` 时会跳过。
+- `UiModelTest`：三档主题与旧主题键回退、Dropit Paper 色值、上次网盘 / 最近文件夹规则、文件类型筛选、缩略图策略与缓存键、挂载品牌映射。
+- 界面截图（可选）：`./gradlew testDebugUnitTest -Pscreenshots` 用 Robolectric + Roborazzi 在 JVM 上渲染浅色暖纸与深色暖炭下的主要页面，输出到 `app/build/screenshots/`（缩略图为代替照片的合成色块）。不加 `-Pscreenshots` 时会跳过。
 - `ApiClientTest`（MockWebServer：版本协商、426 映射、登录 / 2FA、refresh、Range 续传、续传上传、取件码 PIN、Android 更新发现 / SHA-256 与大小校验失败会删文件）与 `VersionTest` / `AppUpdateTest`（semver、协商规则、是否有新版本）。
 - `LiveServerTest`：设置 `DRIVEHUB_TEST_BASE / _USER / _PW`（挂载 `/phone`）后对真实服务端跑核心流程与「不兼容版本」；未设置时自动跳过。
 - `scripts/smoke-android-api.sh`：对任意服务端实例用 App 的请求头跑 API 冒烟（版本协商含 426、旧客户端仍能访问 `/api/client/android/latest|download`、登录 + 2FA、列目录、搜索、分块上传与续传、下载 Range、分享、取件码）。

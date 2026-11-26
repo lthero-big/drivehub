@@ -1,5 +1,6 @@
 package com.drivehub.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Snackbar
@@ -14,7 +15,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.drivehub.app.ui.components.AmbientBackground
 import com.drivehub.app.ui.screens.BlockedScreen
 import com.drivehub.app.ui.screens.LoginScreen
 import com.drivehub.app.ui.screens.MainScreen
@@ -35,7 +35,7 @@ fun AppRoot(vm: AppViewModel) {
     }
     LaunchedEffect(msg) { msg?.let { snack.showSnackbar(it); vm.message.value = null } }
     val c = Dh.c
-    AmbientBackground(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().background(c.bg)) {
         when (val s = stage) {
             Stage.Boot -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = c.accent) }
             is Stage.Setup -> SetupScreen(vm, s)
@@ -45,9 +45,9 @@ fun AppRoot(vm: AppViewModel) {
         }
         SnackbarHost(
             snack,
-            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = if (stage == Stage.Main) 84.dp else 12.dp),
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = if (stage == Stage.Main) 68.dp else 12.dp),
         ) { d ->
-            Snackbar(shape = Radius.md, containerColor = c.fg, contentColor = c.bg, modifier = Modifier.padding(horizontal = 16.dp)) { Text(d.visuals.message) }
+            Snackbar(shape = Radius.lg, containerColor = c.fg, contentColor = c.bg, modifier = Modifier.padding(horizontal = 16.dp)) { Text(d.visuals.message) }
         }
     }
 }

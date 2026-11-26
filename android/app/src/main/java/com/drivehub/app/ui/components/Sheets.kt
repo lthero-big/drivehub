@@ -1,13 +1,9 @@
 package com.drivehub.app.ui.components
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -17,33 +13,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathOperation
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drivehub.app.data.FsItem
 import com.drivehub.app.data.Share
 import com.drivehub.app.ui.theme.Dh
-import com.drivehub.app.ui.theme.Motion
 import com.drivehub.app.ui.theme.Radius
 
-/** Theme-styled modal sheet with a slim handle. */
+/** Modal sheet on the paper canvas: grouped cards sit on it, slim neutral handle. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DhSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
@@ -52,11 +34,11 @@ fun DhSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) 
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = Radius.sheet,
-        containerColor = c.surface,
+        containerColor = c.bg,
         scrimColor = c.scrim,
-        dragHandle = { Box(Modifier.padding(top = 10.dp, bottom = 6.dp).size(40.dp, 4.dp).clip(Radius.pill).background(c.lineStrong)) },
+        dragHandle = { Box(Modifier.padding(top = 8.dp, bottom = 8.dp).size(36.dp, 5.dp).clip(Radius.pill).background(c.fg3.copy(alpha = 0.35f))) },
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp), content = content)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), content = content)
     }
 }
 
@@ -64,30 +46,17 @@ fun DhSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) 
 @Composable
 fun SheetFileHeader(item: FsItem) {
     val c = Dh.c
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        FileThumb(item, Modifier.size(56.dp), Radius.md, glyph = 28.dp, badges = false)
-        Spacer(Modifier.width(14.dp))
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        FileThumb(item, Modifier.size(44.dp), Radius.sm, glyph = 24.dp)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(item.name, style = MaterialTheme.typography.titleMedium, color = c.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(fileSubtitle(item), color = c.fg2, style = MaterialTheme.typography.bodySmall)
+            Text(fileSubtitle(item), color = c.fg3, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
-@Composable
-private fun QuickAction(icon: ImageVector, label: String, tint: Color, modifier: Modifier, onClick: () -> Unit) {
-    val c = Dh.c
-    Column(
-        modifier.clip(Radius.md).background(c.surfaceHigh).border(1.dp, c.line, Radius.md).clickable(onClick = onClick).padding(vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(icon, null, Modifier.size(24.dp), tint)
-        Spacer(Modifier.height(6.dp))
-        Text(label, color = c.fg, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-/** "More" sheet for a file: quick-action tiles on top, destructive action set apart below. */
+/** File action sheet: one grouped card of actions, the destructive action in its own card. */
 @Composable
 fun FileActionSheet(
     item: FsItem,
@@ -102,82 +71,58 @@ fun FileActionSheet(
     DhSheet(onDismiss) {
         SheetFileHeader(item)
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (!item.isDir) QuickAction(Icons.Default.Visibility, "预览", c.accent, Modifier.weight(1f), onPreview)
-            if (!item.isDir) QuickAction(Icons.Default.Download, "下载", c.image, Modifier.weight(1f), onDownload)
-            QuickAction(Icons.Default.Share, "分享", c.video, Modifier.weight(1f), onShare)
-            QuickAction(Icons.Default.Edit, "重命名", c.folder, Modifier.weight(1f), onRename)
+        GroupCard {
+            if (!item.isDir) {
+                GroupRow(Icons.Default.Visibility, "预览", first = true, trailing = null, onClick = onPreview)
+                GroupRow(Icons.Default.Download, "下载", trailing = null, onClick = onDownload)
+            }
+            GroupRow(Icons.Default.IosShare, "分享", first = item.isDir, trailing = null, onClick = onShare)
+            GroupRow(Icons.Default.Edit, "重命名", trailing = null, onClick = onRename)
         }
         Spacer(Modifier.height(12.dp))
         GroupCard {
-            GroupRow(Icons.Default.DeleteOutline, "删除", "移除后无法恢复", tint = c.danger, iconTint = c.danger, first = true, onClick = onDelete)
+            GroupRow(Icons.Default.DeleteOutline, "删除", tint = c.danger, iconTint = c.danger, first = true, trailing = null, onClick = onDelete)
         }
     }
 }
 
-/** "+" sheet: two large tiles. */
+/** "+" sheet: upload / new folder as two plain rows. */
 @Composable
 fun AddSheet(onDismiss: () -> Unit, onUpload: () -> Unit, onMkdir: () -> Unit) {
     val c = Dh.c
     DhSheet(onDismiss) {
-        Text("添加到当前文件夹", style = MaterialTheme.typography.titleMedium, color = c.fg, modifier = Modifier.padding(vertical = 8.dp))
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            BigTile(Icons.Default.CloudUpload, "上传文件", "支持多选 · 断点续传", c.accent, Modifier.weight(1f), onUpload)
-            BigTile(Icons.Default.CreateNewFolder, "新建文件夹", "整理你的文件", c.folder, Modifier.weight(1f), onMkdir)
+        Text("添加到此文件夹", style = MaterialTheme.typography.titleMedium, color = c.fg, modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 12.dp))
+        GroupCard {
+            GroupRow(Icons.Default.CloudUpload, "上传文件", "支持多选 · 断点续传", first = true, trailing = null, onClick = onUpload)
+            GroupRow(Icons.Default.CreateNewFolder, "新建文件夹", trailing = null, onClick = onMkdir)
         }
     }
 }
 
 @Composable
-private fun BigTile(icon: ImageVector, title: String, sub: String, tint: Color, modifier: Modifier, onClick: () -> Unit) {
+private fun GroupScope.RadioRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, desc: String, selected: Boolean, first: Boolean = false, onClick: () -> Unit) {
     val c = Dh.c
-    Column(modifier.clip(Radius.lg).background(tint.copy(alpha = 0.10f)).border(1.dp, tint.copy(alpha = 0.25f), Radius.lg).clickable(onClick = onClick).padding(16.dp)) {
-        IconTile(icon, tint, 46.dp, filled = true)
-        Spacer(Modifier.height(18.dp))
-        Text(title, color = c.fg, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        Text(sub, color = c.fg2, style = MaterialTheme.typography.bodySmall)
-    }
+    GroupRow(icon, title, desc, first = first, trailing = { if (selected) Icon(Icons.Default.Check, "已选", Modifier.size(20.dp), c.accent) }, onClick = onClick)
 }
 
-/** Ticket outline: rounded rectangle with semicircle notches on both sides (Luma ticket select). */
-class TicketShape(private val corner: Float, private val notch: Float) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val r = with(density) { corner.dp.toPx() }; val n = with(density) { notch.dp.toPx() }
-        val base = Path().apply { addRoundRect(RoundRect(Rect(Offset.Zero, size), CornerRadius(r))) }
-        val holes = Path().apply {
-            addOval(Rect(Offset(-n, size.height / 2 - n), Size(n * 2, n * 2)))
-            addOval(Rect(Offset(size.width - n, size.height / 2 - n), Size(n * 2, n * 2)))
-        }
-        return Outline.Generic(Path().apply { op(base, holes, PathOperation.Difference) })
-    }
-}
-
+/** Apple-style segmented control on the secondary fill. */
 @Composable
-private fun TicketOption(icon: ImageVector, title: String, desc: String, selected: Boolean, onClick: () -> Unit) {
+fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onPick: (T) -> Unit, modifier: Modifier = Modifier) {
     val c = Dh.c
-    val shape = remember { TicketShape(18f, 9f) }
-    val border by animateColorAsState(if (selected) c.accent else c.line, Motion.short(), label = "ticketBorder")
-    val bg by animateColorAsState(if (selected) c.accentSoft else c.surfaceHigh, Motion.short(), label = "ticketBg")
-    Row(
-        Modifier.fillMaxWidth().clip(shape).background(bg).border(if (selected) 1.5.dp else 1.dp, border, shape)
-            .clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconTile(icon, if (selected) c.accent else c.fg2, 40.dp, shape = Radius.sm)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, color = c.fg, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(desc, color = c.fg2, style = MaterialTheme.typography.bodySmall)
+    Row(modifier.fillMaxWidth().clip(Radius.md).background(c.surface2).padding(3.dp)) {
+        options.forEach { (v, l) ->
+            val on = v == selected
+            Text(
+                l, color = if (on) c.fg else c.fg2, style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f).clip(Radius.sm).background(if (on) c.surface else c.surface2)
+                    .clickable { onPick(v) }.padding(vertical = 7.dp),
+            )
         }
-        Box(
-            Modifier.size(22.dp).clip(CircleShape).background(if (selected) c.accent else Color.Transparent)
-                .border(1.5.dp, if (selected) c.accent else c.lineStrong, CircleShape),
-            Alignment.Center,
-        ) { if (selected) Icon(Icons.Default.Check, null, Modifier.size(14.dp), c.onAccent) }
     }
 }
 
-/** Create-share sheet: permission tickets, validity chips, PIN switch. */
+/** Create-share sheet: permission rows, validity segments, PIN switch. */
 @Composable
 fun ShareSheet(item: FsItem, onDismiss: () -> Unit, onOk: (String, Long?, Boolean) -> Unit) {
     val c = Dh.c
@@ -186,55 +131,44 @@ fun ShareSheet(item: FsItem, onDismiss: () -> Unit, onOk: (String, Long?, Boolea
     var pin by remember { mutableStateOf(true) }
     DhSheet(onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            Text("创建分享", style = MaterialTheme.typography.titleLarge, color = c.fg, modifier = Modifier.padding(top = 4.dp))
-            Text(item.name, color = c.fg2, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            SectionLabel("访问权限", Modifier.padding(top = 10.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                TicketOption(Icons.Default.Visibility, "仅预览", "对方只能在线查看", perm == "preview") { perm = "preview" }
-                TicketOption(Icons.Default.Download, "可下载", "允许保存到本地", perm == "download") { perm = "download" }
-                if (item.isDir) TicketOption(Icons.Default.Upload, "收集上传", "对方可向此文件夹上传", perm == "upload") { perm = "upload" }
+            Text("创建分享", style = MaterialTheme.typography.titleLarge, color = c.fg, modifier = Modifier.padding(start = 4.dp, top = 4.dp))
+            Text(item.name, color = c.fg3, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 4.dp))
+            SectionLabel("访问权限")
+            GroupCard {
+                RadioRow(Icons.Default.Visibility, "仅预览", "对方只能在线查看", perm == "preview", first = true) { perm = "preview" }
+                RadioRow(Icons.Default.Download, "可下载", "允许保存到本地", perm == "download") { perm = "download" }
+                if (item.isDir) RadioRow(Icons.Default.Upload, "收集上传", "对方可向此文件夹上传", perm == "upload") { perm = "upload" }
             }
-            SectionLabel("有效期", Modifier.padding(top = 10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf<Pair<Long?, String>>(1L to "1 天", 7L to "7 天", 30L to "30 天", null to "永久").forEach { (d, l) ->
-                    val on = days == d
-                    Text(
-                        l, color = if (on) c.bg else c.fg2, style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.clip(Radius.pill).background(if (on) c.fg else c.surfaceHigh)
-                            .border(1.dp, if (on) Color.Transparent else c.line, Radius.pill)
-                            .clickable { days = d }.padding(horizontal = 16.dp, vertical = 9.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.height(14.dp))
+            SectionLabel("有效期")
+            Segmented(listOf<Pair<Long?, String>>(1L to "1 天", 7L to "7 天", 30L to "30 天", null to "永久"), days, { days = it })
+            Spacer(Modifier.height(16.dp))
             GroupCard {
                 GroupRow(Icons.Default.Password, "随机提取码 PIN", "对方领取时需要输入提取码", first = true,
-                    trailing = { Switch(pin, { pin = it }, colors = SwitchDefaults.colors(checkedThumbColor = c.onAccent, checkedTrackColor = c.accent)) },
-                    onClick = { pin = !pin })
+                    trailing = { DhSwitch(pin) { pin = it } }, onClick = { pin = !pin })
             }
-            Spacer(Modifier.height(18.dp))
-            MorphStatusButton(MorphState.Idle("创建分享", Icons.Default.Link), Modifier.fillMaxWidth()) { onOk(perm, days, pin) }
+            Spacer(Modifier.height(20.dp))
+            MorphStatusButton(MorphState.Idle("创建分享"), Modifier.fillMaxWidth()) { onOk(perm, days, pin) }
         }
     }
 }
 
-/** Result dialog: the pickup code rendered large and monospaced, with copy actions. */
+/** Result dialog: the pickup code large and monospaced on the secondary fill, with copy actions. */
 @Composable
 fun ShareCreatedDialog(s: Share, onDismiss: () -> Unit) {
     val c = Dh.c
     val ctx = LocalContext.current
     AlertDialog(
         onDismiss,
-        icon = { IconTile(Icons.Default.CheckCircle, c.success, 48.dp) },
+        icon = { Icon(Icons.Default.CheckCircle, null, Modifier.size(32.dp), c.success) },
         title = { Text("分享已创建", color = c.fg) },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text("取件码", color = c.fg2, style = MaterialTheme.typography.labelMedium)
+                Text("取件码", color = c.fg3, style = MaterialTheme.typography.labelMedium)
                 Text(
-                    s.pickupCode, color = c.accent, fontFamily = FontFamily.Monospace, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp,
-                    modifier = Modifier.padding(vertical = 8.dp).clip(Radius.md).background(c.accentSoft).padding(horizontal = 18.dp, vertical = 8.dp),
+                    s.pickupCode, color = c.fg, fontFamily = FontFamily.Monospace, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 4.sp,
+                    modifier = Modifier.padding(vertical = 8.dp).clip(Radius.md).background(c.surface2).padding(horizontal = 18.dp, vertical = 8.dp),
                 )
-                Text(s.urlWithPin ?: s.url, color = c.fg2, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(s.urlWithPin ?: s.url, color = c.fg3, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
         },
         confirmButton = { TextButton({ copyText(ctx, s.pickupCode); onDismiss() }) { Text("复制取件码", color = c.accent) } },
@@ -251,7 +185,7 @@ fun TextDialog(title: String, initial: String, onDismiss: () -> Unit, onOk: (Str
     AlertDialog(
         onDismiss,
         title = { Text(title, color = c.fg) },
-        text = { DhTextField(v, { v = it }, "名称", Modifier.fillMaxWidth(), leading = Icons.Default.Edit) },
+        text = { DhTextField(v, { v = it }, "名称", Modifier.fillMaxWidth()) },
         confirmButton = { TextButton({ if (v.isNotBlank()) onOk(v.trim()) }) { Text("确定", color = c.accent) } },
         dismissButton = { TextButton(onDismiss) { Text("取消", color = c.fg2) } },
         containerColor = c.surface,
@@ -264,8 +198,7 @@ fun ConfirmDeleteDialog(name: String, onDismiss: () -> Unit, onConfirm: () -> Un
     val c = Dh.c
     AlertDialog(
         onDismiss,
-        icon = { IconTile(Icons.Default.DeleteOutline, c.danger, 48.dp) },
-        title = { Text("删除 $name？", color = c.fg) },
+        title = { Text("删除“$name”？", color = c.fg) },
         text = { Text("此操作无法撤销。", color = c.fg2) },
         confirmButton = { TextButton(onConfirm) { Text("删除", color = c.danger) } },
         dismissButton = { TextButton(onDismiss) { Text("取消", color = c.fg2) } },
@@ -274,7 +207,7 @@ fun ConfirmDeleteDialog(name: String, onDismiss: () -> Unit, onConfirm: () -> Un
     )
 }
 
-/** Avatar sheet: account summary plus the in-app update card (opened from the search bar badge). */
+/** Avatar sheet: account summary plus the in-app update card (opened from the 「浏览」 avatar). */
 @Composable
 fun AccountSheet(
     user: String,
@@ -286,9 +219,9 @@ fun AccountSheet(
 ) {
     val c = Dh.c
     DhSheet(onDismiss) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-            Avatar(user.firstOrNull()?.uppercaseChar()?.toString() ?: "D", 52, false)
-            Spacer(Modifier.width(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)) {
+            Avatar(user.firstOrNull()?.uppercaseChar()?.toString() ?: "D", 48.dp, false)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(user.ifBlank { "已登录" }, style = MaterialTheme.typography.titleMedium, color = c.fg)
                 Text(server, color = c.fg2, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -298,6 +231,6 @@ fun AccountSheet(
         Spacer(Modifier.height(12.dp))
         update()
         Spacer(Modifier.height(12.dp))
-        GroupCard { GroupRow(Icons.AutoMirrored.Filled.Logout, "退出登录", null, tint = c.danger, iconTint = c.danger, first = true, onClick = onLogout) }
+        GroupCard { GroupRow(Icons.AutoMirrored.Filled.Logout, "退出登录", null, tint = c.danger, iconTint = c.danger, first = true, trailing = null, onClick = onLogout) }
     }
 }
