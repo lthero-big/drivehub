@@ -4,6 +4,7 @@ import { BentoFocusGrid, type BentoFocusTile } from "../../components/BentoFocus
 import { call } from "../../lib/api";
 import { useApp } from "../../lib/app";
 import { go } from "../../lib/router";
+import { useAdminUpdate } from "../../lib/update";
 import { errMsg } from "../../lib/util";
 import { Badge, Card, PageHeader, Switch, toast } from "../../ui/ui";
 import { Sk } from "../../ui/r6";
@@ -13,18 +14,16 @@ type S = { open_registration: boolean; require_email_verification: boolean };
 type Tab = "access" | "service" | "update";
 
 function UpdateHint() {
-  const [t, setT] = useState("正在读取版本…");
-  useEffect(() => {
-    call<{ current_version: string; last_check: { latest?: { version: string } | null; update_available?: boolean } | null }>("GET", "/api/admin/update/status")
-      .then((v) => {
-        const ver = v && v.current_version;
-        if (!ver) { setT("暂时无法获取版本信息"); return; }
-        const latest = v.last_check?.latest?.version;
-        if (v.last_check?.update_available && latest) setT(`当前 ${ver} · 可更新到 ${latest}`);
-        else setT(`当前 ${ver}${latest ? " · 已是最新" : ""}`);
-      })
-      .catch(() => setT("暂时无法获取更新状态"));
-  }, []);
+  const { overview, loading, loadError } = useAdminUpdate(true);
+  let t = "正在读取版本…";
+  if (overview) {
+    const ver = overview.current_version;
+    const latest = overview.last_check?.latest?.version;
+    if (overview.last_check?.update_available && latest) t = `当前 ${ver} · 可更新到 ${latest}`;
+    else t = `当前 ${ver}${latest ? " · 已是最新" : ""}`;
+  } else if (!loading && loadError) {
+    t = "暂时无法获取更新状态";
+  }
   return <p className="dh-set-hint">{t}</p>;
 }
 
