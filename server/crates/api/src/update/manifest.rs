@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use utoipa::ToSchema;
 
 /// Built-in DriveHub release signing key (public half; the secret never enters the repo).
-pub const RELEASE_PUBKEY: &str = "0nzoK5DKnhwumseb1AyF3pPFDUgt43vcC0gaZvjLTsM=";
+pub const RELEASE_PUBKEY: &str = "iVsFpoaHBgcA3DQyABoTt2FK3x/D/01M4rX1mTEI6vs=";
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 pub struct Manifest {

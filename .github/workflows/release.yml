@@ -160,6 +160,8 @@ jobs:
   checksums:
     needs: [version, server, docker, android]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -168,6 +170,7 @@ jobs:
         run: |
           mkdir release
           find artifacts -type f ! -name SHA256SUMS ! -path '*/web-dist/*' -exec cp {} release/ \;
+          chmod +x release/drivehub-linux-*
           (cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS)
       - name: release manifest (includes Android APK; signed only when the key secret is set)
         env:
@@ -182,6 +185,7 @@ jobs:
             export DRIVEHUB_RELEASE_KEY="$KEY"
           fi
           scripts/emit-release-manifest.sh --dir release --version "$VERSION" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/v${VERSION}/" \
             --docker "ghcr.io/lthero-big/drivehub:$VERSION"
           rm -f "$RUNNER_TEMP/drivehub-release.key"
           (cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS)
@@ -190,6 +194,17 @@ jobs:
           name: drivehub-${{ needs.version.outputs.version }}-release
           path: release/*
           retention-days: 90
-      # Optional: attach to a GitHub Release (disabled; needs `permissions: contents: write`).
-      # - uses: softprops/action-gh-release@v2
-      #   with: { files: release/*, generate_release_notes: true }
+      - name: publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* \
+              --title "DriveHub $VERSION" \
+              --generate-notes
+          fi
