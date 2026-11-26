@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSpring } from "../ui/r5";
-import { Command, FolderOpen, Moon, Search, Settings, Sun, Users, HardDrive, ListChecks, Shield, ScrollText, User, LayoutDashboard, Monitor, Share2, BarChart3, BadgeCheck, SlidersHorizontal } from "lucide-react";
+import { Command, FolderOpen, Moon, Palette, Search, Settings, Sun, Users, HardDrive, ListChecks, Shield, ScrollText, User, LayoutDashboard, Monitor, Share2, BarChart3, BadgeCheck, SlidersHorizontal } from "lucide-react";
 import { client, ok, type FsItem, type SearchHit } from "../lib/api";
 import { useApp } from "../lib/app";
 import { filesHref, go } from "../lib/router";
 import { tabs } from "../lib/tabs";
-import type { ThemePref } from "../lib/theme";
+import { SKINS, setSkinPref, type ThemePref } from "../lib/theme";
 import { cx, fmtSize } from "../lib/util";
 import { FileIcon } from "./FileIcon";
 
@@ -82,6 +82,15 @@ export function CommandPalette({ open, onClose, setTheme }: { open: boolean; onC
       { id: "t-light", group: "外观", label: "浅色模式", kw: "light theme qsms", icon: <Sun />, run: () => setTheme("light") },
       { id: "t-dark", group: "外观", label: "深色模式", kw: "dark theme ssms", icon: <Moon />, run: () => setTheme("dark") },
       { id: "t-sys", group: "外观", label: "跟随系统", kw: "system theme gsxt", icon: <Monitor />, run: () => setTheme("system") },
+      ...SKINS.map((s) => ({
+        id: `skin-${s.id}`,
+        group: "外观",
+        label: `皮肤：${s.label}`,
+        hint: s.description,
+        kw: `skin theme pf ${s.id} ${s.shortLabel}`,
+        icon: <Palette />,
+        run: () => setSkinPref(s.id),
+      })),
     ];
     const s = q.trim();
     // empty query → original order; otherwise rank by fuzzy score (label, then hint)

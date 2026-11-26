@@ -8,7 +8,7 @@
   display: grid;
   gap: 0;
   overflow: hidden;
-  border-radius: 20px;
+  border-radius: var(--radius-2xl, 16px);
   border: 1px solid var(--line);
   background: var(--panel-2, var(--panel));
   transition:
@@ -287,11 +287,11 @@
 }
 .dh-set-x {
   position: static;
-  background: color-mix(in srgb, var(--ink, #1d1b16) 8%, var(--panel));
+  background: color-mix(in srgb, var(--fg) 8%, var(--panel));
   color: inherit;
 }
 .dh-set-x:hover {
-  background: color-mix(in srgb, var(--ink, #1d1b16) 14%, var(--panel));
+  background: color-mix(in srgb, var(--fg) 14%, var(--panel));
   color: inherit;
 }
 .dh-set-full-body {

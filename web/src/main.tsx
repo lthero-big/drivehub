@@ -6,6 +6,7 @@ import "./ui/r5.css";
 import "./ui/r6.css";
 import "./ui/r7.css";
 import "./ui/bento.css";
+import "./skins.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { call, client, CLIENT_HEADERS, ok, tokens, type AuthStatus, type VersionInfo } from "./lib/api";
 import { Ctx } from "./lib/app";
 import { useRoute } from "./lib/router";
-import { useTheme } from "./lib/theme";
+import { useSkin, useTheme } from "./lib/theme";
 import { Button, Overlays } from "./ui/ui";
 import { AppSkeleton, PageSkeleton, routeSkeleton, SkFileRows } from "./ui/r6";
 import { AuthPage, TokenPage } from "./pages/Auth";
@@ -34,6 +34,7 @@ type Compat = { status: string; min_version?: string; reason?: string };
 export default function App() {
   const route = useRoute();
   const [theme, setTheme] = useTheme();
+  useSkin();
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [failed, setFailed] = useState(false);
   const [ver, setVer] = useState<VersionInfo | null>(null);
