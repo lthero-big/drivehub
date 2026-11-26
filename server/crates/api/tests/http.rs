@@ -83,7 +83,10 @@ async fn version_and_health_advertise_server_version_header() {
     let (s, h, v) = call_full(Request::get("/api/version").body(Body::empty()).unwrap()).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(
-        h.get("x-drivehub-server-version").unwrap().to_str().unwrap(),
+        h.get("x-drivehub-server-version")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         env!("CARGO_PKG_VERSION")
     );
     assert!(v["web_build"].is_null(), "no web_dir -> no web_build: {v}");
@@ -91,7 +94,10 @@ async fn version_and_health_advertise_server_version_header() {
     let (s, h, _) = call_full(Request::get("/api/v1/health").body(Body::empty()).unwrap()).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(
-        h.get("x-drivehub-server-version").unwrap().to_str().unwrap(),
+        h.get("x-drivehub-server-version")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         env!("CARGO_PKG_VERSION")
     );
 }

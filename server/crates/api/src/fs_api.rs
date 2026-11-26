@@ -1,16 +1,16 @@
 //! Core file API (DEPTAI-469): mounts, unified tree, list/stat/download(Range)/upload/
 //! mkdir/rename/move/copy/delete, tasks.
-use crate::AppState;
-use crate::auth::{CH_API, Principal};
+use crate::auth::{Principal, CH_API};
 use crate::error::{ApiError, ApiResult, ErrorBody};
 use crate::tasks::TaskInfo;
 use crate::vfs::{MountConfig, Resolved};
+use crate::AppState;
 use axum::{
-    Extension, Json,
     body::Body,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+    Extension, Json,
 };
 use drivehub_core::acl::{COPY, CREATE, DELETE, DOWNLOAD, EDIT, MOVE, READ, RENAME, UPLOAD};
 use drivehub_storage::{ByteRange, Entry, TransferMode};
@@ -660,8 +660,6 @@ pub async fn delete(
         task_id: None,
     }))
 }
-
-/// All mount points (including hidden and disabled ones).
 
 fn secret_opt_key(k: &str) -> bool {
     let l = k.to_ascii_lowercase();

@@ -3,7 +3,7 @@
 # override with DRIVEHUB_TAG=latest (or another release) in .env.
 services:
   drivehub:
-    image: ${DRIVEHUB_IMAGE:-drivehub}:${DRIVEHUB_TAG:-0.1.1}
+    image: ${DRIVEHUB_IMAGE:-drivehub}:${DRIVEHUB_TAG:-0.1.2}
     ports: ["${DRIVEHUB_PORT:-8470}:8470"]
     volumes:
       - ./data:/data

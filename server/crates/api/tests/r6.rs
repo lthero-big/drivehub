@@ -189,32 +189,73 @@ fn uid_of(v: &Value) -> i64 {
 
 async fn role_id(t: &T, name: &str) -> i64 {
     let rs = t.adm("GET", "/api/admin/roles", None).await.json();
-    rs.as_array().unwrap().iter().find(|r| r["name"] == name).unwrap()["id"].as_i64().unwrap()
+    rs.as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == name)
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap()
 }
-
 
 async fn level_of(t: &T, id: i64) -> String {
     let us = t.adm("GET", "/api/admin/users", None).await.json();
-    us.as_array().unwrap().iter().find(|u| u["id"] == id).unwrap()["level"].as_str().unwrap().to_string()
+    us.as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["id"] == id)
+        .unwrap()["level"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 async fn blocked(t: &T, method: &str, uri: &str, body: Option<Value>) {
     let r = t.call(method, uri, Some(&t.admin), body.clone()).await;
-    assert_eq!(r.status, StatusCode::BAD_REQUEST, "{method} {uri} {body:?}: {}", r.text());
-    assert!(r.text().contains("至少需要保留一个启用的管理员"), "{}", r.text());
+    assert_eq!(
+        r.status,
+        StatusCode::BAD_REQUEST,
+        "{method} {uri} {body:?}: {}",
+        r.text()
+    );
+    assert!(
+        r.text().contains("至少需要保留一个启用的管理员"),
+        "{}",
+        r.text()
+    );
 }
 
 async fn new_user(t: &T, name: &str) -> i64 {
-    uid_of(&t.adm("POST", "/api/admin/users", Some(json!({"username": name, "password": "user-pass-12"}))).await.json())
+    uid_of(
+        &t.adm(
+            "POST",
+            "/api/admin/users",
+            Some(json!({"username": name, "password": "user-pass-12"})),
+        )
+        .await
+        .json(),
+    )
 }
 
 /// Every path that could drop the last enabled admin is rejected and leaves state unchanged.
 fn install_geo() {
     use drivehub_api::geoip;
     let db = geoip::build_xdb(&[
-        ("1.0.1.0".parse().unwrap(), "1.0.3.255".parse().unwrap(), "中国|福建省|福州市|中国电信|CN"),
-        ("1.0.8.0".parse().unwrap(), "1.0.15.255".parse().unwrap(), "中国|广东省|广州市|中国电信|CN"),
-        ("8.8.8.0".parse().unwrap(), "8.8.8.255".parse().unwrap(), "United States|California|0|Google LLC|US"),
+        (
+            "1.0.1.0".parse().unwrap(),
+            "1.0.3.255".parse().unwrap(),
+            "中国|福建省|福州市|中国电信|CN",
+        ),
+        (
+            "1.0.8.0".parse().unwrap(),
+            "1.0.15.255".parse().unwrap(),
+            "中国|广东省|广州市|中国电信|CN",
+        ),
+        (
+            "8.8.8.0".parse().unwrap(),
+            "8.8.8.255".parse().unwrap(),
+            "United States|California|0|Google LLC|US",
+        ),
     ]);
     geoip::set(Some(geoip::GeoDb::from_bytes(db).unwrap()));
 }
@@ -225,39 +266,85 @@ async fn ip_stats_with_regions_and_lan() {
     let t = T::new().await;
     let s = t.share(json!({"paths": ["/local/pub/a.txt"]})).await;
     let c = code(&s);
-    for ip in ["1.0.1.7", "1.0.1.7", "1.0.9.1", "8.8.8.8", "192.168.1.20", "10.1.2.3", "127.0.0.1"] {
+    for ip in [
+        "1.0.1.7",
+        "1.0.1.7",
+        "1.0.9.1",
+        "8.8.8.8",
+        "192.168.1.20",
+        "10.1.2.3",
+        "127.0.0.1",
+    ] {
         let r = t.anon(&format!("/api/s/{c}"), ip, &[]).await;
         assert_eq!(r.status, StatusCode::OK, "{}", r.text());
     }
-    let st = t.adm("GET", "/api/stats/access?scope=shares", None).await.json();
+    let st = t
+        .adm("GET", "/api/stats/access?scope=shares", None)
+        .await
+        .json();
     let geo = &st["summary"]["geo"];
     assert_eq!(geo["db"], true);
     let by = geo["by_country"].as_array().unwrap();
-    let find = |k: &str| by.iter().find(|x| x["code"] == k).cloned().unwrap_or(Value::Null);
+    let find = |k: &str| {
+        by.iter()
+            .find(|x| x["code"] == k)
+            .cloned()
+            .unwrap_or(Value::Null)
+    };
     assert_eq!(find("CN")["count"], 3, "{geo}");
     assert_eq!(find("CN")["ips"], 2);
     assert_eq!(find("US")["count"], 1);
     assert_eq!(find("LAN")["count"], 3);
     assert_eq!(find("LAN")["name"], "局域网");
     let regions = geo["by_region"].as_array().unwrap();
-    assert!(regions.iter().any(|r| r["region"] == "福建省" && r["count"] == 2), "{regions:?}");
-    assert!(regions.iter().any(|r| r["region"] == "广东省" && r["count"] == 1));
+    assert!(
+        regions
+            .iter()
+            .any(|r| r["region"] == "福建省" && r["count"] == 2),
+        "{regions:?}"
+    );
+    assert!(regions
+        .iter()
+        .any(|r| r["region"] == "广东省" && r["count"] == 1));
     // rows carry a region label; top ips carry the full lookup
     let rows = st["rows"].as_array().unwrap();
-    assert!(rows.iter().any(|r| r["ip"] == "192.168.1.20" && r["geo"] == "局域网"));
-    assert!(rows.iter().any(|r| r["ip"] == "1.0.1.7" && r["geo"] == "中国 · 福建省 · 福州市"));
+    assert!(rows
+        .iter()
+        .any(|r| r["ip"] == "192.168.1.20" && r["geo"] == "局域网"));
+    assert!(rows
+        .iter()
+        .any(|r| r["ip"] == "1.0.1.7" && r["geo"] == "中国 · 福建省 · 福州市"));
     let top = st["summary"]["top_ips"].as_array().unwrap();
     assert_eq!(top[0]["ip"], "1.0.1.7");
     assert_eq!(top[0]["geo"]["isp"], "中国电信");
 
     // region filters
-    let cn = t.adm("GET", "/api/stats/access?country=CN", None).await.json();
+    let cn = t
+        .adm("GET", "/api/stats/access?country=CN", None)
+        .await
+        .json();
     assert_eq!(cn["total"], 3);
-    let fj = t.adm("GET", &format!("/api/stats/access?country=CN&region={}", "%E7%A6%8F%E5%BB%BA%E7%9C%81"), None).await.json();
+    let fj = t
+        .adm(
+            "GET",
+            &format!(
+                "/api/stats/access?country=CN&region={}",
+                "%E7%A6%8F%E5%BB%BA%E7%9C%81"
+            ),
+            None,
+        )
+        .await
+        .json();
     assert_eq!(fj["total"], 2);
-    let lan = t.adm("GET", "/api/stats/access?country=LAN", None).await.json();
+    let lan = t
+        .adm("GET", "/api/stats/access?country=LAN", None)
+        .await
+        .json();
     assert_eq!(lan["total"], 3);
-    let none = t.adm("GET", "/api/stats/access?country=JP", None).await.json();
+    let none = t
+        .adm("GET", "/api/stats/access?country=JP", None)
+        .await
+        .json();
     assert_eq!(none["total"], 0);
 
     // per-IP table
@@ -271,17 +358,39 @@ async fn ip_stats_with_regions_and_lan() {
     assert_eq!(first["shares"], 1);
     assert_eq!(first["geo"]["region"], "福建省");
     assert!(first["last_ts"].as_i64().unwrap() >= first["first_ts"].as_i64().unwrap());
-    let p2 = t.adm("GET", "/api/stats/ips?per_page=2&page=3", None).await.json();
+    let p2 = t
+        .adm("GET", "/api/stats/ips?per_page=2&page=3", None)
+        .await
+        .json();
     assert_eq!(p2["rows"].as_array().unwrap().len(), 2);
-    let lan_ips = t.adm("GET", "/api/stats/ips?country=LAN", None).await.json();
+    let lan_ips = t
+        .adm("GET", "/api/stats/ips?country=LAN", None)
+        .await
+        .json();
     assert_eq!(lan_ips["total"], 3);
-    assert!(lan_ips["rows"].as_array().unwrap().iter().all(|r| r["geo"]["code"] == "LAN"));
+    assert!(lan_ips["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["geo"]["code"] == "LAN"));
     let by_last = t.adm("GET", "/api/stats/ips?sort=last", None).await.json();
     assert_eq!(by_last["rows"].as_array().unwrap().len(), 6);
 
     // a plain user only sees IPs of their own shares
-    t.adm("POST", "/api/admin/users", Some(json!({"username": "bob", "password": "bob-pass-12", "role": "user"}))).await;
-    let r = t.call("POST", "/api/auth/login", None, Some(json!({"login": "bob", "password": "bob-pass-12"}))).await;
+    t.adm(
+        "POST",
+        "/api/admin/users",
+        Some(json!({"username": "bob", "password": "bob-pass-12", "role": "user"})),
+    )
+    .await;
+    let r = t
+        .call(
+            "POST",
+            "/api/auth/login",
+            None,
+            Some(json!({"login": "bob", "password": "bob-pass-12"})),
+        )
+        .await;
     let bob = r.json()["access_token"].as_str().unwrap().to_string();
     let r = t.call("GET", "/api/stats/ips", Some(&bob), None).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());

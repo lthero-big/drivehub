@@ -152,7 +152,8 @@ async fn user_exists(st: &AppState, id: i64) -> ApiResult<()> {
         .bind(id)
         .fetch_optional(&st.db)
         .await?;
-    r.map(|_| ()).ok_or_else(|| ApiError::not_found("no such user"))
+    r.map(|_| ())
+        .ok_or_else(|| ApiError::not_found("no such user"))
 }
 
 /// Updates role / status / groups / root / visible mounts / quota (admin).
@@ -169,8 +170,14 @@ pub async fn patch_user(
         // Delegated user managers (admin_users cap) cannot touch admin accounts nor grant the
         // admin level (directly, via a role or via a group holding an admin-level role).
         let grants_admin = b.role.as_deref() == Some("admin")
-            || match &b.roles { Some(rs) => grants_admin_level(&st, "roles", rs).await?, None => false }
-            || match &b.groups { Some(gs) => grants_admin_level(&st, "groups", gs).await?, None => false };
+            || match &b.roles {
+                Some(rs) => grants_admin_level(&st, "roles", rs).await?,
+                None => false,
+            }
+            || match &b.groups {
+                Some(gs) => grants_admin_level(&st, "groups", gs).await?,
+                None => false,
+            };
         if is_admin_user(&st, id).await? || grants_admin {
             return Err(ApiError::forbidden("only admins can manage admin accounts"));
         }
@@ -402,7 +409,9 @@ pub async fn delete_group(
 ) -> ApiResult<Json<Value>> {
     st.require_cap(&p, acl::ADMIN_GROUPS)?;
     if !p.is_admin() && grants_admin_level(&st, "groups", &[id]).await? {
-        return Err(ApiError::forbidden("only admins can manage groups holding the admin role"));
+        return Err(ApiError::forbidden(
+            "only admins can manage groups holding the admin role",
+        ));
     }
     let mut tx = st.db.begin().await?;
     let before = effective_admin_count(&mut *tx).await?;

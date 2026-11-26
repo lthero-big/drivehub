@@ -30,9 +30,12 @@ use axum::{
 use drivehub_core::version::{negotiate, ClientKind, Compat, VersionInfo};
 use drivehub_search::{Embedder, NoopEmbedder, SearchIndex};
 use serde::Serialize;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::services::{ServeDir, ServeFile};
 use utoipa::{OpenApi, ToSchema};
 
@@ -718,7 +721,88 @@ async fn static_headers(req: Request, next: Next) -> Response {
 }
 
 pub async fn connect(url: &str) -> anyhow::Result<SqlitePool> {
-    let pool = SqlitePool::connect(url).await?;
+    let mut opts = SqliteConnectOptions::from_str(url)?.busy_timeout(Duration::from_secs(10));
+    if update::install::sqlite_file(url).is_some() {
+        opts = opts
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal);
+    }
+    let pool = SqlitePool::connect_with(opts).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn connect_file_db_enables_wal_and_supports_vacuum_into() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("drivehub.db");
+        let url = format!("sqlite://{}?mode=rwc", db_path.display());
+
+        let pool = connect(&url).await.unwrap();
+
+        let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
+
+        let busy_timeout: i64 = sqlx::query_scalar("PRAGMA busy_timeout")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(busy_timeout, 10_000);
+
+        let synchronous: i64 = sqlx::query_scalar("PRAGMA synchronous")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(synchronous, 1, "expected NORMAL (1) synchronous mode");
+
+        // Write a row so the WAL file has live state, then verify VACUUM INTO snapshot compatibility.
+        settings::set_meta(&pool, "wal_probe", "ok").await.unwrap();
+
+        let backup_path = dir.path().join("backup.db");
+        sqlx::query("VACUUM INTO ?")
+            .bind(backup_path.display().to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(backup_path.exists());
+
+        let backup_url = format!("sqlite://{}?mode=ro", backup_path.display());
+        let backup_pool = SqlitePool::connect(&backup_url).await.unwrap();
+        assert_eq!(
+            settings::get_meta(&backup_pool, "wal_probe")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("ok")
+        );
+
+        backup_pool.close().await;
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn connect_memory_db_keeps_memory_journal_and_busy_timeout() {
+        let pool = connect("sqlite::memory:").await.unwrap();
+
+        let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(journal_mode.to_ascii_lowercase(), "memory");
+
+        let busy_timeout: i64 = sqlx::query_scalar("PRAGMA busy_timeout")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(busy_timeout, 10_000);
+
+        pool.close().await;
+    }
 }

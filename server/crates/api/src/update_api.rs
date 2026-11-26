@@ -253,7 +253,6 @@ pub async fn android_latest(State(st): State<AppState>) -> ApiResult<Json<Client
         })
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let name = apk.path.file_name().unwrap().to_string_lossy().to_string();
         return Ok(Json(ClientPackage {
             source: "local".into(),
             version: apk.version,
@@ -355,7 +354,7 @@ mod apk_name_tests {
         let early = SystemTime::now() - Duration::from_secs(3600);
         filetime(&old, later);
         filetime(&newp, early);
-        let mut apks = vec![inspect_apk(old), inspect_apk(newp)];
+        let mut apks = [inspect_apk(old), inspect_apk(newp)];
         apks.sort_by(|a, b| {
             if better_apk(a, b) {
                 std::cmp::Ordering::Greater

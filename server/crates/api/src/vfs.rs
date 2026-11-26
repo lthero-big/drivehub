@@ -1,6 +1,6 @@
 //! Mount registry + unified virtual tree (`/<mount>/<path>`) + TTL directory cache.
 use crate::error::{ApiError, ApiResult};
-use drivehub_storage::{Entry, StorageDriver, TransferMode, build_driver, norm};
+use drivehub_storage::{build_driver, norm, Entry, StorageDriver, TransferMode};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -113,7 +113,8 @@ impl Vfs {
             cache: Mutex::new(HashMap::new()),
             ttl,
         };
-        let rows: Vec<(String, String, String, i64, i64, i64, String, i64)> = sqlx::query_as(
+        type MountRow = (String, String, String, i64, i64, i64, String, i64);
+        let rows: Vec<MountRow> = sqlx::query_as(
             "SELECT name, kind, options, read_only, hidden, sort_order, transfer_mode, enabled FROM mounts",
         )
         .fetch_all(&vfs.db)

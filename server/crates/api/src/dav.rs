@@ -2,10 +2,10 @@
 //! Credentials: Basic with account password (not when TOTP is on), app password or API
 //! token as password; Bearer also works. Every operation goes through
 //! [`AppState::authorize`] (same ACL as the HTTP API) and is audited on channel `webdav`.
-use crate::AppState;
-use crate::auth::{CH_DAV, Principal, dav_challenge};
+use crate::auth::{dav_challenge, Principal, CH_DAV};
 use crate::error::ApiError;
 use crate::vfs::Resolved;
+use crate::AppState;
 use axum::{
     body::Body,
     extract::{Request, State},
