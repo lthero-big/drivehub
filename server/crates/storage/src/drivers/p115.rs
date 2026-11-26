@@ -431,7 +431,6 @@ pub fn upload_token(
     )
 }
 
-
 /// Build the 115 Cookie header from a full `cookie` option, or from split
 /// `uid` / `cid` / `seid` / `kid` fields (any case). A non-empty `cookie`
 /// wins if both are present.
@@ -1301,7 +1300,10 @@ mod cookie_from_options_tests {
     #[test]
     fn passthrough_cookie() {
         let m = HashMap::from([("cookie".into(), "UID=u; CID=c; SEID=s; KID=k".into())]);
-        assert_eq!(cookie_from_options(&m).unwrap(), "UID=u; CID=c; SEID=s; KID=k");
+        assert_eq!(
+            cookie_from_options(&m).unwrap(),
+            "UID=u; CID=c; SEID=s; KID=k"
+        );
     }
 
     #[test]
@@ -1337,4 +1339,3 @@ mod cookie_from_options_tests {
         assert!(cookie_from_options(&partial).is_err());
     }
 }
-

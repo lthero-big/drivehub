@@ -1,10 +1,10 @@
 //! Search API + mount indexer (DEPTAI-470).
-use crate::AppState;
 use crate::auth::Principal;
 use crate::error::{ApiError, ApiResult, ErrorBody};
+use crate::AppState;
 use axum::{
-    Extension, Json,
     extract::{Query, State},
+    Extension, Json,
 };
 use drivehub_search::{AclFilter, FileDoc, SearchMode};
 use serde::{Deserialize, Serialize};

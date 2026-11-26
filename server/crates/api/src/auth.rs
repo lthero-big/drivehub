@@ -1116,6 +1116,87 @@ pub fn dav_challenge() -> Response {
         .into_response()
 }
 
+/// Effective account level ("admin" | "user" | "guest") derived from the builtin level roles
+/// assigned to the user directly or through any of their groups (admin > user > guest).
+/// `None` when the user holds no level role at all.
+pub async fn derive_level(db: &sqlx::SqlitePool, uid: i64) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT r.level FROM roles r WHERE r.level IS NOT NULL AND r.id IN ( \
+           SELECT role_id FROM user_roles WHERE user_id = ?1 \
+           UNION SELECT gr.role_id FROM group_roles gr JOIN user_groups ug ON ug.group_id = gr.group_id WHERE ug.user_id = ?1) \
+         ORDER BY CASE r.level WHEN 'admin' THEN 0 WHEN 'user' THEN 1 ELSE 2 END LIMIT 1",
+    )
+    .bind(uid)
+    .fetch_optional(db)
+    .await
+}
+
+/// Re-derives the cached `users.role` column for every user from their roles.
+pub async fn sync_levels<'e, E: sqlx::SqliteExecutor<'e>>(db: E) -> Result<(), sqlx::Error> {
+    // A user with no level role keeps their cached level, except that the admin level is
+    // never kept without an actual admin role (direct or via a group) — falls back to user.
+    sqlx::query(
+        "UPDATE users SET role = COALESCE((SELECT r.level FROM roles r WHERE r.level IS NOT NULL AND r.id IN ( \
+           SELECT role_id FROM user_roles WHERE user_id = users.id \
+           UNION SELECT gr.role_id FROM group_roles gr JOIN user_groups ug ON ug.group_id = gr.group_id WHERE ug.user_id = users.id) \
+         ORDER BY CASE r.level WHEN 'admin' THEN 0 WHEN 'user' THEN 1 ELSE 2 END LIMIT 1), \
+         CASE WHEN role = 'admin' THEN 'user' ELSE role END)",
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Number of enabled users holding the builtin admin level role, directly or via a group
+/// (computed from the role tables, not the cached `users.role`).
+pub async fn effective_admin_count<'e, E: sqlx::SqliteExecutor<'e>>(
+    db: E,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM users u WHERE u.disabled = 0 AND ( \
+           EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id \
+                   WHERE ur.user_id = u.id AND r.level = 'admin') \
+           OR EXISTS (SELECT 1 FROM user_groups ug JOIN group_roles gr ON gr.group_id = ug.group_id \
+                   JOIN roles r ON r.id = gr.role_id WHERE ug.user_id = u.id AND r.level = 'admin'))",
+    )
+    .fetch_one(db)
+    .await
+}
+
+/// Error returned when a change would leave no enabled admin.
+pub const LAST_ADMIN_MSG: &str =
+    "至少需要保留一个启用的管理员：此操作会移除最后一个管理员 (at least one enabled admin must remain)";
+
+/// Fails (caller drops / rolls back the transaction) when admins existed before a change
+/// (`before`) but none remain inside `conn` after it.
+pub async fn ensure_admin_remains(
+    conn: &mut sqlx::SqliteConnection,
+    before: i64,
+) -> Result<(), crate::error::ApiError> {
+    if before > 0 && effective_admin_count(&mut *conn).await? == 0 {
+        return Err(crate::error::ApiError::bad(LAST_ADMIN_MSG));
+    }
+    Ok(())
+}
+
+/// Replaces the user's builtin level role (admin/user/guest) keeping custom roles.
+pub async fn set_level_role(
+    db: &mut sqlx::SqliteConnection,
+    uid: i64,
+    level: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM user_roles WHERE user_id = ? AND role_id IN (SELECT id FROM roles WHERE level IS NOT NULL)")
+        .bind(uid)
+        .execute(&mut *db)
+        .await?;
+    sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE level = ?")
+        .bind(uid)
+        .bind(level)
+        .execute(&mut *db)
+        .await?;
+    sync_levels(&mut *db).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1180,76 +1261,4 @@ mod tests {
         assert!(p.map_out("local/other").is_none());
         assert!(p.map_in("/../x").is_err());
     }
-}
-
-/// Effective account level ("admin" | "user" | "guest") derived from the builtin level roles
-/// assigned to the user directly or through any of their groups (admin > user > guest).
-/// `None` when the user holds no level role at all.
-pub async fn derive_level(db: &sqlx::SqlitePool, uid: i64) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "SELECT r.level FROM roles r WHERE r.level IS NOT NULL AND r.id IN ( \
-           SELECT role_id FROM user_roles WHERE user_id = ?1 \
-           UNION SELECT gr.role_id FROM group_roles gr JOIN user_groups ug ON ug.group_id = gr.group_id WHERE ug.user_id = ?1) \
-         ORDER BY CASE r.level WHEN 'admin' THEN 0 WHEN 'user' THEN 1 ELSE 2 END LIMIT 1",
-    )
-    .bind(uid)
-    .fetch_optional(db)
-    .await
-}
-
-/// Re-derives the cached `users.role` column for every user from their roles.
-pub async fn sync_levels<'e, E: sqlx::SqliteExecutor<'e>>(db: E) -> Result<(), sqlx::Error> {
-    // A user with no level role keeps their cached level, except that the admin level is
-    // never kept without an actual admin role (direct or via a group) — falls back to user.
-    sqlx::query(
-        "UPDATE users SET role = COALESCE((SELECT r.level FROM roles r WHERE r.level IS NOT NULL AND r.id IN ( \
-           SELECT role_id FROM user_roles WHERE user_id = users.id \
-           UNION SELECT gr.role_id FROM group_roles gr JOIN user_groups ug ON ug.group_id = gr.group_id WHERE ug.user_id = users.id) \
-         ORDER BY CASE r.level WHEN 'admin' THEN 0 WHEN 'user' THEN 1 ELSE 2 END LIMIT 1), \
-         CASE WHEN role = 'admin' THEN 'user' ELSE role END)",
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Number of enabled users holding the builtin admin level role, directly or via a group
-/// (computed from the role tables, not the cached `users.role`).
-pub async fn effective_admin_count<'e, E: sqlx::SqliteExecutor<'e>>(db: E) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "SELECT COUNT(*) FROM users u WHERE u.disabled = 0 AND ( \
-           EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id \
-                   WHERE ur.user_id = u.id AND r.level = 'admin') \
-           OR EXISTS (SELECT 1 FROM user_groups ug JOIN group_roles gr ON gr.group_id = ug.group_id \
-                   JOIN roles r ON r.id = gr.role_id WHERE ug.user_id = u.id AND r.level = 'admin'))",
-    )
-    .fetch_one(db)
-    .await
-}
-
-/// Error returned when a change would leave no enabled admin.
-pub const LAST_ADMIN_MSG: &str =
-    "至少需要保留一个启用的管理员：此操作会移除最后一个管理员 (at least one enabled admin must remain)";
-
-/// Fails (caller drops / rolls back the transaction) when admins existed before a change
-/// (`before`) but none remain inside `conn` after it.
-pub async fn ensure_admin_remains(conn: &mut sqlx::SqliteConnection, before: i64) -> Result<(), crate::error::ApiError> {
-    if before > 0 && effective_admin_count(&mut *conn).await? == 0 {
-        return Err(crate::error::ApiError::bad(LAST_ADMIN_MSG));
-    }
-    Ok(())
-}
-
-/// Replaces the user's builtin level role (admin/user/guest) keeping custom roles.
-pub async fn set_level_role(db: &mut sqlx::SqliteConnection, uid: i64, level: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM user_roles WHERE user_id = ? AND role_id IN (SELECT id FROM roles WHERE level IS NOT NULL)")
-        .bind(uid)
-        .execute(&mut *db)
-        .await?;
-    sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE level = ?")
-        .bind(uid)
-        .bind(level)
-        .execute(&mut *db)
-        .await?;
-    sync_levels(&mut *db).await
 }

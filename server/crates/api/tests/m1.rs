@@ -1,9 +1,9 @@
 //! M1 API integration tests: mounts, unified tree, file ops, Range, tasks, search.
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use drivehub_api::{AppState, connect, router};
+use drivehub_api::{connect, router, AppState};
 use http_body_util::BodyExt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 
 struct Ctx {

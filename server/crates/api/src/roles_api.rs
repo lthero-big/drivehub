@@ -206,9 +206,14 @@ pub async fn patch_group(
     ex.ok_or_else(|| ApiError::not_found("no such group"))?;
     if !p.is_admin()
         && (crate::admin_api::grants_admin_level(&st, "groups", &[id]).await?
-            || match &b.roles { Some(rs) => crate::admin_api::grants_admin_level(&st, "roles", rs).await?, None => false })
+            || match &b.roles {
+                Some(rs) => crate::admin_api::grants_admin_level(&st, "roles", rs).await?,
+                None => false,
+            })
     {
-        return Err(ApiError::forbidden("only admins can manage the admin role / groups holding it"));
+        return Err(ApiError::forbidden(
+            "only admins can manage the admin role / groups holding it",
+        ));
     }
     let mut tx = st.db.begin().await?;
     let before = effective_admin_count(&mut *tx).await?;

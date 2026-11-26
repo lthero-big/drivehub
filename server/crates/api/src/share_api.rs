@@ -418,7 +418,13 @@ pub async fn create(
         let parent = b.paths.first().cloned().unwrap_or_else(|| "/".into());
         let up = b.allow_upload.unwrap_or(true);
         let preal = p.map_in(&parent)?;
-        st.authorize(&p, &preal, SHARE | READ | UPLOAD | CREATE | SHARE_UPLOAD, CH_SHARE, "room_create")?;
+        st.authorize(
+            &p,
+            &preal,
+            SHARE | READ | UPLOAD | CREATE | SHARE_UPLOAD,
+            CH_SHARE,
+            "room_create",
+        )?;
         let base_real = format!("{}/.droprooms", preal.trim_end_matches('/'));
         let (mount, base) = st.vfs.resolve_in(&base_real, true)?;
         if mount.driver.stat(&base).await.is_err() {
@@ -1300,7 +1306,10 @@ pub async fn visit_upload(
     if !ok {
         let _ = mount.driver.delete(&mrel).await;
         st.vfs.invalidate(&mount.cfg.name);
-        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "room upload limit reached".into()));
+        return Err(ApiError(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "room upload limit reached".into(),
+        ));
     }
     st.vfs.invalidate(&mount.cfg.name);
     if let Ok(e) = mount.driver.stat(&mrel).await {
@@ -1374,10 +1383,16 @@ pub fn is_room_path(path: &str) -> bool {
 /// Rejects an upload of `add` bytes that would exceed the room's file-count / size caps.
 pub fn check_room_caps(s: &Share, add: i64) -> ApiResult<()> {
     if s.max_uploads.is_some_and(|m| s.uploads >= m) {
-        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "room file limit reached".into()));
+        return Err(ApiError(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "room file limit reached".into(),
+        ));
     }
     if s.max_bytes.is_some_and(|m| s.up_bytes + add > m) {
-        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "room size limit reached".into()));
+        return Err(ApiError(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "room size limit reached".into(),
+        ));
     }
     Ok(())
 }
@@ -1405,7 +1420,10 @@ pub async fn sweep_rooms(st: &AppState) -> usize {
     .unwrap_or_default();
     for s in &rows {
         remove_room_folder(st, s).await;
-        let _ = sqlx::query("DELETE FROM shares WHERE id = ?").bind(s.id).execute(&st.db).await;
+        let _ = sqlx::query("DELETE FROM shares WHERE id = ?")
+            .bind(s.id)
+            .execute(&st.db)
+            .await;
         tracing::info!(code = %s.code, "expired drop room removed");
     }
     rows.len()

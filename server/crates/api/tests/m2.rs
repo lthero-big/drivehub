@@ -1458,17 +1458,43 @@ async fn roles_crud_and_assignment_grant_permissions() {
     let t = T::new().await;
     // builtin roles are seeded
     let roles = t.adm("GET", "/api/admin/roles", None).await.json();
-    let names: Vec<_> = roles.as_array().unwrap().iter().map(|r| r["name"].as_str().unwrap().to_string()).collect();
+    let names: Vec<_> = roles
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap().to_string())
+        .collect();
     assert!(names.contains(&"viewer".into()) && names.contains(&"manager".into()));
     // create / update / conflict
-    let r = t.adm("POST", "/api/admin/roles", Some(json!({"name": "uploader", "permissions": ["read", "upload"]}))).await.json();
+    let r = t
+        .adm(
+            "POST",
+            "/api/admin/roles",
+            Some(json!({"name": "uploader", "permissions": ["read", "upload"]})),
+        )
+        .await
+        .json();
     let rid = r["id"].as_i64().unwrap();
     assert_eq!(
-        t.call("POST", "/api/admin/roles", Some(&t.admin.clone()), Some(json!({"name": "uploader"}))).await.status,
+        t.call(
+            "POST",
+            "/api/admin/roles",
+            Some(&t.admin.clone()),
+            Some(json!({"name": "uploader"}))
+        )
+        .await
+        .status,
         StatusCode::CONFLICT
     );
     assert_eq!(
-        t.call("POST", "/api/admin/roles", Some(&t.admin.clone()), Some(json!({"name": "x", "permissions": ["fly"]}))).await.status,
+        t.call(
+            "POST",
+            "/api/admin/roles",
+            Some(&t.admin.clone()),
+            Some(json!({"name": "x", "permissions": ["fly"]}))
+        )
+        .await
+        .status,
         StatusCode::BAD_REQUEST
     );
     // bob has no access to /local/team beyond the default logged_in read; deny upload by default
@@ -1476,42 +1502,99 @@ async fn roles_crud_and_assignment_grant_permissions() {
     let up = |tok: String, p: &'static str| {
         let t = &t;
         async move {
-            t.raw(Request::put(format!("/api/fs/upload?path=/local/team/{p}")).header(header::AUTHORIZATION, format!("Bearer {tok}")).body(Body::from("x")).unwrap()).await.status
+            t.raw(
+                Request::put(format!("/api/fs/upload?path=/local/team/{p}"))
+                    .header(header::AUTHORIZATION, format!("Bearer {tok}"))
+                    .body(Body::from("x"))
+                    .unwrap(),
+            )
+            .await
+            .status
         }
     };
     assert_eq!(up(btok.clone(), "u1.txt").await, StatusCode::FORBIDDEN);
     // assign role directly to the user
-    t.adm("PATCH", &format!("/api/admin/users/{bid}"), Some(json!({"roles": [rid]}))).await;
+    t.adm(
+        "PATCH",
+        &format!("/api/admin/users/{bid}"),
+        Some(json!({"roles": [rid]})),
+    )
+    .await;
     assert_eq!(up(btok.clone(), "u1.txt").await, StatusCode::OK);
     let u = t.adm("GET", "/api/admin/users", None).await.json();
-    let bob = u.as_array().unwrap().iter().find(|x| x["id"] == bid).unwrap().clone();
+    let bob = u
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["id"] == bid)
+        .unwrap()
+        .clone();
     assert_eq!(bob["roles"][0]["name"], "uploader");
     // an explicit deny rule deeper still wins over the role
     t.adm("POST", "/api/acl/rules", Some(json!({"path": "/local/team", "subject": "user", "subject_id": bid, "deny": ["upload"]}))).await;
     assert_eq!(up(btok.clone(), "u2.txt").await, StatusCode::FORBIDDEN);
     // synthetic role rules are not listed as ACL rules
     let rules = t.adm("GET", "/api/acl/rules", None).await.json();
-    assert!(rules.as_array().unwrap().iter().all(|r| r["id"].as_i64().unwrap() > 0));
+    assert!(rules
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["id"].as_i64().unwrap() > 0));
     // group role: carol via group
-    let g = t.adm("POST", "/api/admin/groups", Some(json!({"name": "ops"}))).await.json();
+    let g = t
+        .adm("POST", "/api/admin/groups", Some(json!({"name": "ops"})))
+        .await
+        .json();
     let gid = g["id"].as_i64().unwrap();
     let (cid, ctok) = t.user("carol", "user").await;
     assert_eq!(up(ctok.clone(), "c1.txt").await, StatusCode::FORBIDDEN);
-    let g = t.adm("PATCH", &format!("/api/admin/groups/{gid}"), Some(json!({"name": "ops2", "members": [cid], "roles": [rid]}))).await.json();
+    let g = t
+        .adm(
+            "PATCH",
+            &format!("/api/admin/groups/{gid}"),
+            Some(json!({"name": "ops2", "members": [cid], "roles": [rid]})),
+        )
+        .await
+        .json();
     assert_eq!(g["name"], "ops2");
     assert_eq!(g["members"], 1);
     assert_eq!(g["roles"][0]["id"], rid);
     assert_eq!(up(ctok.clone(), "c1.txt").await, StatusCode::OK);
     // update role permissions removes the grant
-    t.adm("PATCH", &format!("/api/admin/roles/{rid}"), Some(json!({"name": "uploader", "permissions": ["read"]}))).await;
+    t.adm(
+        "PATCH",
+        &format!("/api/admin/roles/{rid}"),
+        Some(json!({"name": "uploader", "permissions": ["read"]})),
+    )
+    .await;
     assert_eq!(up(ctok.clone(), "c2.txt").await, StatusCode::FORBIDDEN);
     // builtin role keeps its name
-    let vid = roles.as_array().unwrap().iter().find(|r| r["name"] == "viewer").unwrap()["id"].as_i64().unwrap();
-    let v = t.adm("PATCH", &format!("/api/admin/roles/{vid}"), Some(json!({"name": "renamed", "permissions": ["read"]}))).await.json();
+    let vid = roles
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "viewer")
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    let v = t
+        .adm(
+            "PATCH",
+            &format!("/api/admin/roles/{vid}"),
+            Some(json!({"name": "renamed", "permissions": ["read"]})),
+        )
+        .await
+        .json();
     assert_eq!(v["name"], "viewer");
     // delete role clears assignments; non-admin is refused
-    assert_eq!(t.call("GET", "/api/admin/roles", Some(&btok), None).await.status, StatusCode::FORBIDDEN);
-    t.adm("DELETE", &format!("/api/admin/roles/{rid}"), None).await;
+    assert_eq!(
+        t.call("GET", "/api/admin/roles", Some(&btok), None)
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    t.adm("DELETE", &format!("/api/admin/roles/{rid}"), None)
+        .await;
     let g = t.adm("GET", "/api/admin/groups", None).await.json();
     assert_eq!(g[0]["roles"].as_array().unwrap().len(), 0);
 }

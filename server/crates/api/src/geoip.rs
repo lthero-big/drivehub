@@ -71,7 +71,10 @@ impl GeoDb {
             } else {
                 let len = u16::from_le_bytes([self.buf[p + 8], self.buf[p + 9]]) as usize;
                 let dp = self.u32_at(p + 10) as usize;
-                return self.buf.get(dp..dp + len).and_then(|b| std::str::from_utf8(b).ok());
+                return self
+                    .buf
+                    .get(dp..dp + len)
+                    .and_then(|b| std::str::from_utf8(b).ok());
             }
         }
         None
@@ -110,7 +113,12 @@ pub fn build_xdb(segs: &[(Ipv4Addr, Ipv4Addr, &str)]) -> Vec<u8> {
         buf.extend_from_slice(&data_ptr[*i].to_le_bytes());
     }
     for cell in 0..65536usize {
-        let idx: Vec<usize> = parts.iter().enumerate().filter(|(_, p)| (p.0 >> 16) as usize == cell).map(|(k, _)| k).collect();
+        let idx: Vec<usize> = parts
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| (p.0 >> 16) as usize == cell)
+            .map(|(k, _)| k)
+            .collect();
         if let (Some(f), Some(l)) = (idx.first(), idx.last()) {
             let o = HEADER + cell * 8;
             buf[o..o + 4].copy_from_slice(&((seg_start + f * SEG) as u32).to_le_bytes());
@@ -153,14 +161,24 @@ pub fn loaded() -> bool {
 }
 
 fn lan(label: &str) -> Geo {
-    Geo { kind: "lan", code: "LAN".into(), country: "局域网".into(), label: label.into(), ..Default::default() }
+    Geo {
+        kind: "lan",
+        code: "LAN".into(),
+        country: "局域网".into(),
+        label: label.into(),
+        ..Default::default()
+    }
 }
 
 /// Resolves an address string (as stored in audit_log.ip).
 pub fn lookup(ip: &str) -> Geo {
     let ip = ip.trim();
     let Ok(addr) = ip.parse::<IpAddr>() else {
-        return Geo { kind: "unknown", label: "未知".into(), ..Default::default() };
+        return Geo {
+            kind: "unknown",
+            label: "未知".into(),
+            ..Default::default()
+        };
     };
     let v4 = match addr {
         IpAddr::V4(a) => a,
@@ -170,18 +188,34 @@ pub fn lookup(ip: &str) -> Geo {
             } else {
                 let s = a.segments();
                 if a.is_loopback() {
-                    return Geo { kind: "loopback", code: "LAN".into(), country: "局域网".into(), label: "本机".into(), ..Default::default() };
+                    return Geo {
+                        kind: "loopback",
+                        code: "LAN".into(),
+                        country: "局域网".into(),
+                        label: "本机".into(),
+                        ..Default::default()
+                    };
                 }
                 if (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 {
                     return lan("局域网 (IPv6)");
                 }
-                return Geo { kind: "public", label: "公网 IPv6".into(), ..Default::default() };
+                return Geo {
+                    kind: "public",
+                    label: "公网 IPv6".into(),
+                    ..Default::default()
+                };
             }
         }
     };
     let o = v4.octets();
     if v4.is_loopback() {
-        return Geo { kind: "loopback", code: "LAN".into(), country: "局域网".into(), label: "本机".into(), ..Default::default() };
+        return Geo {
+            kind: "loopback",
+            code: "LAN".into(),
+            country: "局域网".into(),
+            label: "本机".into(),
+            ..Default::default()
+        };
     }
     if v4.is_private() || v4.is_link_local() {
         return lan("局域网");
@@ -190,31 +224,51 @@ pub fn lookup(ip: &str) -> Geo {
         return lan("运营商内网 (CGNAT)");
     }
     if v4.is_unspecified() || v4.is_broadcast() || o[0] == 0 {
-        return Geo { kind: "unknown", label: "未知".into(), ..Default::default() };
+        return Geo {
+            kind: "unknown",
+            label: "未知".into(),
+            ..Default::default()
+        };
     }
     let db = slot().read().unwrap().clone();
     let Some(db) = db else {
-        return Geo { kind: "public", label: "公网".into(), ..Default::default() };
+        return Geo {
+            kind: "public",
+            label: "公网".into(),
+            ..Default::default()
+        };
     };
     let Some(raw) = db.lookup_v4(v4) else {
-        return Geo { kind: "public", label: "公网".into(), ..Default::default() };
+        return Geo {
+            kind: "public",
+            label: "公网".into(),
+            ..Default::default()
+        };
     };
     parse_region(raw)
 }
 
 fn parse_region(raw: &str) -> Geo {
-    let f: Vec<&str> = raw.split('|').map(|x| if x == "0" { "" } else { x.trim() }).collect();
+    let f: Vec<&str> = raw
+        .split('|')
+        .map(|x| if x == "0" { "" } else { x.trim() })
+        .collect();
     let get = |i: usize| f.get(i).copied().unwrap_or("").to_string();
     if get(0) == "Reserved" {
         // private ranges never reach here (classified above); this is e.g. TEST-NET / benchmark space
-        return Geo { kind: "reserved", label: "保留地址".into(), ..Default::default() };
+        return Geo {
+            kind: "reserved",
+            label: "保留地址".into(),
+            ..Default::default()
+        };
     }
     // current format: country|province|city|isp|iso ; legacy: country|area|province|city|isp
-    let (country, region, city, isp, mut code) = if f.len() >= 5 && f[4].len() == 2 && f[4].chars().all(|c| c.is_ascii_uppercase()) {
-        (get(0), get(1), get(2), get(3), get(4))
-    } else {
-        (get(0), get(2), get(3), get(4), String::new())
-    };
+    let (country, region, city, isp, mut code) =
+        if f.len() >= 5 && f[4].len() == 2 && f[4].chars().all(|c| c.is_ascii_uppercase()) {
+            (get(0), get(1), get(2), get(3), get(4))
+        } else {
+            (get(0), get(2), get(3), get(4), String::new())
+        };
     if code.is_empty() && country == "中国" {
         code = "CN".into();
     }
@@ -225,8 +279,20 @@ fn parse_region(raw: &str) -> Geo {
             parts.push(p);
         }
     }
-    let label = if parts.is_empty() { "公网".to_string() } else { parts.join(" · ") };
-    Geo { kind: "public", code, country, region, city, isp, label }
+    let label = if parts.is_empty() {
+        "公网".to_string()
+    } else {
+        parts.join(" · ")
+    };
+    Geo {
+        kind: "public",
+        code,
+        country,
+        region,
+        city,
+        isp,
+        label,
+    }
 }
 
 #[cfg(test)]
@@ -242,17 +308,41 @@ mod tests {
         assert_eq!(lookup("100.70.1.1").label, "运营商内网 (CGNAT)");
         assert_eq!(lookup("nonsense").kind, "unknown");
         let db = GeoDb::from_bytes(build_xdb(&[
-            ("1.0.1.0".parse().unwrap(), "1.0.3.255".parse().unwrap(), "中国|福建省|福州市|中国电信|CN"),
-            ("8.8.8.0".parse().unwrap(), "8.8.8.255".parse().unwrap(), "United States|California|0|Google LLC|US"),
-            ("1.2.0.0".parse().unwrap(), "1.5.255.255".parse().unwrap(), "Japan|Tokyo|Tokyo|0|JP"),
+            (
+                "1.0.1.0".parse().unwrap(),
+                "1.0.3.255".parse().unwrap(),
+                "中国|福建省|福州市|中国电信|CN",
+            ),
+            (
+                "8.8.8.0".parse().unwrap(),
+                "8.8.8.255".parse().unwrap(),
+                "United States|California|0|Google LLC|US",
+            ),
+            (
+                "1.2.0.0".parse().unwrap(),
+                "1.5.255.255".parse().unwrap(),
+                "Japan|Tokyo|Tokyo|0|JP",
+            ),
         ]))
         .unwrap();
-        assert_eq!(db.lookup_v4("1.0.2.9".parse().unwrap()), Some("中国|福建省|福州市|中国电信|CN"));
-        assert_eq!(db.lookup_v4("1.4.200.1".parse().unwrap()), Some("Japan|Tokyo|Tokyo|0|JP"));
+        assert_eq!(
+            db.lookup_v4("1.0.2.9".parse().unwrap()),
+            Some("中国|福建省|福州市|中国电信|CN")
+        );
+        assert_eq!(
+            db.lookup_v4("1.4.200.1".parse().unwrap()),
+            Some("Japan|Tokyo|Tokyo|0|JP")
+        );
         assert_eq!(db.lookup_v4("9.9.9.9".parse().unwrap()), None);
         let g = parse_region("中国|福建省|福州市|中国电信|CN");
-        assert_eq!((g.code.as_str(), g.region.as_str(), g.label.as_str()), ("CN", "福建省", "中国 · 福建省 · 福州市"));
+        assert_eq!(
+            (g.code.as_str(), g.region.as_str(), g.label.as_str()),
+            ("CN", "福建省", "中国 · 福建省 · 福州市")
+        );
         let g = parse_region("United States|California|0|Google LLC|US");
-        assert_eq!((g.code.as_str(), g.city.as_str(), g.isp.as_str()), ("US", "", "Google LLC"));
+        assert_eq!(
+            (g.code.as_str(), g.city.as_str(), g.isp.as_str()),
+            ("US", "", "Google LLC")
+        );
     }
 }

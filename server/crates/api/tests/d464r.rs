@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
 use drivehub_api::auth::LogMailer;
@@ -187,7 +188,13 @@ fn uid_of(v: &Value) -> i64 {
 
 async fn role_id(t: &T, name: &str) -> i64 {
     let rs = t.adm("GET", "/api/admin/roles", None).await.json();
-    rs.as_array().unwrap().iter().find(|r| r["name"] == name).unwrap()["id"].as_i64().unwrap()
+    rs.as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == name)
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap()
 }
 
 /// DEPTAI-464r: account type is derived from builtin level roles (direct or via groups).
@@ -197,40 +204,129 @@ async fn account_level_comes_from_roles() {
     // the bootstrap admin got the builtin admin role
     let me = t.adm("GET", "/api/admin/users", None).await.json();
     let admin = &me.as_array().unwrap()[0];
-    assert!(admin["roles"].as_array().unwrap().iter().any(|r| r["name"] == "admin"), "{admin}");
-    let (admin_r, user_r, guest_r) = (role_id(&t, "admin").await, role_id(&t, "user").await, role_id(&t, "guest").await);
+    assert!(
+        admin["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["name"] == "admin"),
+        "{admin}"
+    );
+    let (admin_r, user_r, guest_r) = (
+        role_id(&t, "admin").await,
+        role_id(&t, "user").await,
+        role_id(&t, "guest").await,
+    );
     let roles = t.adm("GET", "/api/admin/roles", None).await.json();
-    assert!(roles.as_array().unwrap().iter().any(|r| r["name"] == "guest" && r["level"] == "guest" && r["builtin"] == true));
+    assert!(roles
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["name"] == "guest" && r["level"] == "guest" && r["builtin"] == true));
     // new user: legacy `role` field still accepted and mapped to the level role
-    let bob = t.adm("POST", "/api/admin/users", Some(json!({"username": "bob", "password": "bob-pass-12", "role": "guest"}))).await.json();
+    let bob = t
+        .adm(
+            "POST",
+            "/api/admin/users",
+            Some(json!({"username": "bob", "password": "bob-pass-12", "role": "guest"})),
+        )
+        .await
+        .json();
     assert_eq!(bob["level"], "guest");
     assert_eq!(bob["roles"].as_array().unwrap().len(), 1);
     let bid = uid_of(&bob);
     // admin via group role
-    let g = t.adm("POST", "/api/admin/groups", Some(json!({"name": "ops"}))).await.json();
+    let g = t
+        .adm("POST", "/api/admin/groups", Some(json!({"name": "ops"})))
+        .await
+        .json();
     let gid = uid_of(&g);
-    t.adm("PATCH", &format!("/api/admin/groups/{gid}"), Some(json!({"members": [bid], "roles": [admin_r]}))).await;
-    let bob = t.adm("GET", "/api/admin/users", None).await.json().as_array().unwrap().iter().find(|u| u["id"] == bid).unwrap().clone();
+    t.adm(
+        "PATCH",
+        &format!("/api/admin/groups/{gid}"),
+        Some(json!({"members": [bid], "roles": [admin_r]})),
+    )
+    .await;
+    let bob = t
+        .adm("GET", "/api/admin/users", None)
+        .await
+        .json()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["id"] == bid)
+        .unwrap()
+        .clone();
     assert_eq!(bob["level"], "admin");
-    let tok = t.call("POST", "/api/auth/login", None, Some(json!({"login": "bob", "password": "bob-pass-12"}))).await.json()["access_token"].as_str().unwrap().to_string();
-    assert_eq!(t.call("GET", "/api/admin/users", Some(&tok), None).await.status, StatusCode::OK);
+    let tok = t
+        .call(
+            "POST",
+            "/api/auth/login",
+            None,
+            Some(json!({"login": "bob", "password": "bob-pass-12"})),
+        )
+        .await
+        .json()["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        t.call("GET", "/api/admin/users", Some(&tok), None)
+            .await
+            .status,
+        StatusCode::OK
+    );
     // removing the group's role demotes him again
-    t.adm("PATCH", &format!("/api/admin/groups/{gid}"), Some(json!({"roles": []}))).await;
-    assert_eq!(t.call("GET", "/api/admin/users", Some(&tok), None).await.status, StatusCode::FORBIDDEN);
+    t.adm(
+        "PATCH",
+        &format!("/api/admin/groups/{gid}"),
+        Some(json!({"roles": []})),
+    )
+    .await;
+    assert_eq!(
+        t.call("GET", "/api/admin/users", Some(&tok), None)
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
     // multi roles on the user: user + custom viewer
     let viewer = role_id(&t, "viewer").await;
-    let r = t.adm("PATCH", &format!("/api/admin/users/{bid}"), Some(json!({"roles": [user_r, viewer]}))).await.json();
+    let r = t
+        .adm(
+            "PATCH",
+            &format!("/api/admin/users/{bid}"),
+            Some(json!({"roles": [user_r, viewer]})),
+        )
+        .await
+        .json();
     assert_eq!(r["level"], "user");
     assert_eq!(r["roles"].as_array().unwrap().len(), 2);
     let _ = guest_r;
     // last admin can't lose the admin role
     let aid = uid_of(admin);
-    let r = t.call("PATCH", &format!("/api/admin/users/{aid}"), Some(&t.admin), Some(json!({"roles": [user_r]}))).await;
+    let r = t
+        .call(
+            "PATCH",
+            &format!("/api/admin/users/{aid}"),
+            Some(&t.admin),
+            Some(json!({"roles": [user_r]})),
+        )
+        .await;
     assert_eq!(r.status, StatusCode::BAD_REQUEST, "{}", r.text());
     let me = t.adm("GET", "/api/admin/users", None).await.json();
     assert_eq!(me.as_array().unwrap()[0]["level"], "admin");
     // builtin roles cannot be deleted
-    assert_eq!(t.call("DELETE", &format!("/api/admin/roles/{admin_r}"), Some(&t.admin), None).await.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        t.call(
+            "DELETE",
+            &format!("/api/admin/roles/{admin_r}"),
+            Some(&t.admin),
+            None
+        )
+        .await
+        .status,
+        StatusCode::BAD_REQUEST
+    );
 }
 
 async fn room_tok(t: &T, c: &str) -> String {
@@ -243,7 +339,9 @@ async fn room_tok(t: &T, c: &str) -> String {
 #[tokio::test]
 async fn drop_room_caps_and_expiry() {
     let t = T::new().await;
-    let s = t.share(json!({"room": true, "paths": ["/local"], "max_uploads": 2, "max_bytes": 10})).await;
+    let s = t
+        .share(json!({"room": true, "paths": ["/local"], "max_uploads": 2, "max_bytes": 10}))
+        .await;
     assert_eq!(s["kind"], "room");
     assert!(s["room_url"].as_str().unwrap().contains("/r/"));
     let folder = s["items"][0].as_str().unwrap().to_string();
@@ -251,7 +349,9 @@ async fn drop_room_caps_and_expiry() {
     let fname = folder.rsplit('/').next().unwrap().to_string();
     let c = code(&s);
     // /r/<code> redirects to the share entry
-    let r = t.raw(Request::get(format!("/r/{c}")).body(Body::empty()).unwrap()).await;
+    let r = t
+        .raw(Request::get(format!("/r/{c}")).body(Body::empty()).unwrap())
+        .await;
     assert!(r.status.is_redirection(), "{}", r.status);
     let tok = room_tok(&t, &c).await;
     let up = |p: &str, body: &'static str| {
@@ -262,44 +362,132 @@ async fn drop_room_caps_and_expiry() {
     };
     assert_eq!(t.raw(up("a.txt", "hello")).await.status, StatusCode::OK);
     // size cap: 5 + 6 > 10
-    assert_eq!(t.raw(up("b.txt", "world!")).await.status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(
+        t.raw(up("b.txt", "world!")).await.status,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
     assert_eq!(t.raw(up("b.txt", "abc")).await.status, StatusCode::OK);
     // count cap
-    assert_eq!(t.raw(up("c.txt", "x")).await.status, StatusCode::PAYLOAD_TOO_LARGE);
-    assert!(!t._dir.path().join(format!(".droprooms/{fname}/c.txt")).exists());
-    let l = t.anon(&format!("/api/s/{c}/list?t={tok}&path={fname}"), "7.0.0.1", &[]).await;
+    assert_eq!(
+        t.raw(up("c.txt", "x")).await.status,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    assert!(!t
+        ._dir
+        .path()
+        .join(format!(".droprooms/{fname}/c.txt"))
+        .exists());
+    let l = t
+        .anon(
+            &format!("/api/s/{c}/list?t={tok}&path={fname}"),
+            "7.0.0.1",
+            &[],
+        )
+        .await;
     assert_eq!(l.status, StatusCode::OK, "{}", l.text());
-    assert!(l.text().contains("a.txt") && l.text().contains("b.txt"), "{}", l.text());
-    let d = t.anon(&format!("/api/s/{c}/download?t={tok}&path={fname}/a.txt"), "7.0.0.1", &[]).await;
+    assert!(
+        l.text().contains("a.txt") && l.text().contains("b.txt"),
+        "{}",
+        l.text()
+    );
+    let d = t
+        .anon(
+            &format!("/api/s/{c}/download?t={tok}&path={fname}/a.txt"),
+            "7.0.0.1",
+            &[],
+        )
+        .await;
     assert_eq!(d.status, StatusCode::OK);
     assert_eq!(d.text(), "hello");
     // listed in my shares with stats
     let mine = t.adm("GET", "/api/shares", None).await.json();
-    let row = mine.as_array().unwrap().iter().find(|x| x["code"] == c.as_str()).unwrap().clone();
+    let row = mine
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["code"] == c.as_str())
+        .unwrap()
+        .clone();
     assert_eq!(row["uploads"], 2);
     assert_eq!(row["up_bytes"], 8);
 
     // PIN room, download disabled
-    let s2 = t.share(json!({"room": true, "paths": ["/local/docs"], "pin": "4242", "allow_download": false})).await;
+    let s2 = t
+        .share(
+            json!({"room": true, "paths": ["/local/docs"], "pin": "4242", "allow_download": false}),
+        )
+        .await;
     let c2 = code(&s2);
-    assert_eq!(t.anon(&format!("/api/s/{c2}"), "7.0.0.2", &[]).await.status, StatusCode::UNAUTHORIZED);
-    let tok2 = t.anon(&format!("/api/s/{c2}-4242"), "7.0.0.2", &[]).await.json()["token"].as_str().unwrap().to_string();
-    let f2 = s2["items"][0].as_str().unwrap().rsplit('/').next().unwrap().to_string();
-    let r = t.raw(Request::put(format!("/api/s/{c2}/upload?path=z.txt&t={tok2}")).body(Body::from("z")).unwrap()).await;
+    assert_eq!(
+        t.anon(&format!("/api/s/{c2}"), "7.0.0.2", &[]).await.status,
+        StatusCode::UNAUTHORIZED
+    );
+    let tok2 = t
+        .anon(&format!("/api/s/{c2}-4242"), "7.0.0.2", &[])
+        .await
+        .json()["token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let f2 = s2["items"][0]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+    let r = t
+        .raw(
+            Request::put(format!("/api/s/{c2}/upload?path=z.txt&t={tok2}"))
+                .body(Body::from("z"))
+                .unwrap(),
+        )
+        .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());
-    let d = t.anon(&format!("/api/s/{c2}/download?t={tok2}&path={f2}/z.txt"), "7.0.0.2", &[]).await;
+    let d = t
+        .anon(
+            &format!("/api/s/{c2}/download?t={tok2}&path={f2}/z.txt"),
+            "7.0.0.2",
+            &[],
+        )
+        .await;
     assert_eq!(d.status, StatusCode::FORBIDDEN);
 
     // expiry: room is rejected and its folder cleaned up
-    let s3 = t.share(json!({"room": true, "paths": ["/local"], "expires_in_secs": -1})).await;
-    let f3 = s3["items"][0].as_str().unwrap().rsplit('/').next().unwrap().to_string();
+    let s3 = t
+        .share(json!({"room": true, "paths": ["/local"], "expires_in_secs": -1}))
+        .await;
+    let f3 = s3["items"][0]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
     assert!(t._dir.path().join(format!(".droprooms/{f3}")).exists());
-    let r = t.anon(&format!("/api/s/{}", code(&s3)), "7.0.0.3", &[]).await;
-    assert!(r.status == StatusCode::GONE || r.status == StatusCode::NOT_FOUND, "{}", r.status);
+    let r = t
+        .anon(&format!("/api/s/{}", code(&s3)), "7.0.0.3", &[])
+        .await;
+    assert!(
+        r.status == StatusCode::GONE || r.status == StatusCode::NOT_FOUND,
+        "{}",
+        r.status
+    );
     assert_eq!(drivehub_api::share_api::sweep_rooms(&t.st).await, 1);
     assert!(!t._dir.path().join(format!(".droprooms/{f3}")).exists());
-    assert_eq!(t.call("GET", &format!("/api/shares/{}", s3["id"]), Some(&t.admin), None).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        t.call(
+            "GET",
+            &format!("/api/shares/{}", s3["id"]),
+            Some(&t.admin),
+            None
+        )
+        .await
+        .status,
+        StatusCode::NOT_FOUND
+    );
     // deleting a room removes its folder
-    t.adm("DELETE", &format!("/api/shares/{}", s["id"]), None).await;
+    t.adm("DELETE", &format!("/api/shares/{}", s["id"]), None)
+        .await;
     assert!(!t._dir.path().join(format!(".droprooms/{fname}")).exists());
 }

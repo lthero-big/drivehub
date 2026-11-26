@@ -189,23 +189,52 @@ fn uid_of(v: &Value) -> i64 {
 
 async fn role_id(t: &T, name: &str) -> i64 {
     let rs = t.adm("GET", "/api/admin/roles", None).await.json();
-    rs.as_array().unwrap().iter().find(|r| r["name"] == name).unwrap()["id"].as_i64().unwrap()
+    rs.as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == name)
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap()
 }
-
 
 async fn level_of(t: &T, id: i64) -> String {
     let us = t.adm("GET", "/api/admin/users", None).await.json();
-    us.as_array().unwrap().iter().find(|u| u["id"] == id).unwrap()["level"].as_str().unwrap().to_string()
+    us.as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["id"] == id)
+        .unwrap()["level"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 async fn blocked(t: &T, method: &str, uri: &str, body: Option<Value>) {
     let r = t.call(method, uri, Some(&t.admin), body.clone()).await;
-    assert_eq!(r.status, StatusCode::BAD_REQUEST, "{method} {uri} {body:?}: {}", r.text());
-    assert!(r.text().contains("至少需要保留一个启用的管理员"), "{}", r.text());
+    assert_eq!(
+        r.status,
+        StatusCode::BAD_REQUEST,
+        "{method} {uri} {body:?}: {}",
+        r.text()
+    );
+    assert!(
+        r.text().contains("至少需要保留一个启用的管理员"),
+        "{}",
+        r.text()
+    );
 }
 
 async fn new_user(t: &T, name: &str) -> i64 {
-    uid_of(&t.adm("POST", "/api/admin/users", Some(json!({"username": name, "password": "user-pass-12"}))).await.json())
+    uid_of(
+        &t.adm(
+            "POST",
+            "/api/admin/users",
+            Some(json!({"username": name, "password": "user-pass-12"})),
+        )
+        .await
+        .json(),
+    )
 }
 
 /// Every path that could drop the last enabled admin is rejected and leaves state unchanged.
@@ -215,9 +244,23 @@ async fn last_admin_guard_blocks_every_path() {
     let aid = uid_of(&t.adm("GET", "/api/admin/users", None).await.json()[0]);
     let (admin_r, user_r) = (role_id(&t, "admin").await, role_id(&t, "user").await);
     // the only admin gets admin-ness only via group "ops"
-    let gid = uid_of(&t.adm("POST", "/api/admin/groups", Some(json!({"name": "ops"}))).await.json());
-    t.adm("PATCH", &format!("/api/admin/groups/{gid}"), Some(json!({"members": [aid], "roles": [admin_r]}))).await;
-    t.adm("PATCH", &format!("/api/admin/users/{aid}"), Some(json!({"roles": [user_r]}))).await;
+    let gid = uid_of(
+        &t.adm("POST", "/api/admin/groups", Some(json!({"name": "ops"})))
+            .await
+            .json(),
+    );
+    t.adm(
+        "PATCH",
+        &format!("/api/admin/groups/{gid}"),
+        Some(json!({"members": [aid], "roles": [admin_r]})),
+    )
+    .await;
+    t.adm(
+        "PATCH",
+        &format!("/api/admin/users/{aid}"),
+        Some(json!({"roles": [user_r]})),
+    )
+    .await;
     assert_eq!(level_of(&t, aid).await, "admin");
     let g = format!("/api/admin/groups/{gid}");
     let u = format!("/api/admin/users/{aid}");
@@ -232,7 +275,13 @@ async fn last_admin_guard_blocks_every_path() {
     blocked(&t, "DELETE", &u, None).await;
     // nothing changed (rolled back)
     let gj = t.adm("GET", "/api/admin/groups", None).await.json();
-    let gj = gj.as_array().unwrap().iter().find(|x| x["id"] == gid).unwrap().clone();
+    let gj = gj
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["id"] == gid)
+        .unwrap()
+        .clone();
     assert_eq!(gj["members"], 1, "{gj}");
     assert_eq!(gj["roles"][0]["name"], "admin", "{gj}");
     assert_eq!(level_of(&t, aid).await, "admin");
@@ -247,11 +296,21 @@ async fn last_admin_guard_blocks_every_path() {
     blocked(&t, "DELETE", &u, None).await;
     // a disabled admin does not count
     let bob = new_user(&t, "bob").await;
-    t.adm("PATCH", &format!("/api/admin/users/{bob}"), Some(json!({"roles": [admin_r], "disabled": true}))).await;
+    t.adm(
+        "PATCH",
+        &format!("/api/admin/users/{bob}"),
+        Some(json!({"roles": [admin_r], "disabled": true})),
+    )
+    .await;
     blocked(&t, "PATCH", &u, Some(json!({"disabled": true}))).await;
     blocked(&t, "PATCH", &u, Some(json!({"role": "guest"}))).await;
     // still an admin
-    assert_eq!(t.call("GET", "/api/admin/users", Some(&t.admin), None).await.status, StatusCode::OK);
+    assert_eq!(
+        t.call("GET", "/api/admin/users", Some(&t.admin), None)
+            .await
+            .status,
+        StatusCode::OK
+    );
     assert_eq!(level_of(&t, aid).await, "admin");
 }
 
@@ -275,9 +334,18 @@ async fn non_last_admin_changes_still_work() {
     let carol = new_user(&t, "carol").await;
     let c = format!("/api/admin/users/{carol}");
     t.adm("PATCH", &c, Some(json!({"roles": []}))).await;
-    let gid = uid_of(&t.adm("POST", "/api/admin/groups", Some(json!({"name": "ops"}))).await.json());
+    let gid = uid_of(
+        &t.adm("POST", "/api/admin/groups", Some(json!({"name": "ops"})))
+            .await
+            .json(),
+    );
     let g = format!("/api/admin/groups/{gid}");
-    t.adm("PATCH", &g, Some(json!({"members": [carol], "roles": [admin_r]}))).await;
+    t.adm(
+        "PATCH",
+        &g,
+        Some(json!({"members": [carol], "roles": [admin_r]})),
+    )
+    .await;
     assert_eq!(level_of(&t, carol).await, "admin");
     // removing the group's admin role demotes her (no stale cached admin level)
     t.adm("PATCH", &g, Some(json!({"roles": [user_r]}))).await;
@@ -305,30 +373,62 @@ async fn room_tok(t: &T, c: &str) -> String {
 #[tokio::test]
 async fn drop_room_folder_hidden_from_listing_and_search() {
     let t = T::new().await;
-    let s = t.share(json!({"room": true, "paths": ["/local/docs"]})).await;
+    let s = t
+        .share(json!({"room": true, "paths": ["/local/docs"]}))
+        .await;
     let folder = s["items"][0].as_str().unwrap().to_string();
     assert!(folder.starts_with("/local/docs/.droprooms/"), "{folder}");
     let fname = folder.rsplit('/').next().unwrap().to_string();
     // a guest uploads into the room
     let c = code(&s);
     let tok = room_tok(&t, &c).await;
-    let r = t.raw(Request::put(format!("/api/s/{c}/upload?path=roomfile-zz.txt&t={tok}")).body(Body::from("zz")).unwrap()).await;
+    let r = t
+        .raw(
+            Request::put(format!("/api/s/{c}/upload?path=roomfile-zz.txt&t={tok}"))
+                .body(Body::from("zz"))
+                .unwrap(),
+        )
+        .await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.text());
-    assert!(t._dir.path().join(format!("docs/.droprooms/{fname}/roomfile-zz.txt")).exists());
+    assert!(t
+        ._dir
+        .path()
+        .join(format!("docs/.droprooms/{fname}/roomfile-zz.txt"))
+        .exists());
     // owner's regular listing of the parent hides the container
-    let l = t.adm("GET", "/api/fs/list?path=/local/docs&refresh=true", None).await;
+    let l = t
+        .adm("GET", "/api/fs/list?path=/local/docs&refresh=true", None)
+        .await;
     assert!(!l.text().contains(".droprooms"), "{}", l.text());
     assert!(l.text().contains("x.md"), "{}", l.text());
     // search does not surface room folders / files
     t.adm("POST", "/api/search/reindex", None).await;
     let q = t.adm("GET", "/api/search?q=roomfile", None).await;
-    assert_eq!(q.json()["hits"].as_array().unwrap().len(), 0, "{}", q.text());
+    assert_eq!(
+        q.json()["hits"].as_array().unwrap().len(),
+        0,
+        "{}",
+        q.text()
+    );
     let q = t.adm("GET", "/api/search?q=droprooms", None).await;
-    assert_eq!(q.json()["hits"].as_array().unwrap().len(), 0, "{}", q.text());
+    assert_eq!(
+        q.json()["hits"].as_array().unwrap().len(),
+        0,
+        "{}",
+        q.text()
+    );
     // sanity: normal files are still searchable
     let q = t.adm("GET", "/api/search?q=y.txt", None).await;
-    assert!(!q.json()["hits"].as_array().unwrap().is_empty(), "{}", q.text());
+    assert!(
+        !q.json()["hits"].as_array().unwrap().is_empty(),
+        "{}",
+        q.text()
+    );
     // the room itself is still managed via my shares
     let mine = t.adm("GET", "/api/shares", None).await.json();
-    assert!(mine.as_array().unwrap().iter().any(|x| x["code"] == c.as_str() && x["kind"] == "room"));
+    assert!(mine
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|x| x["code"] == c.as_str() && x["kind"] == "room"));
 }

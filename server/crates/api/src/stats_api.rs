@@ -287,7 +287,11 @@ pub async fn access(
 
 /// Scope / ownership resolution shared by every stats endpoint; also resolves the region filter
 /// (`country` / `region`) into an IP allow-list, since regions are not stored in the log.
-async fn prelude(st: &AppState, p: &Principal, f: &mut StatsQuery) -> ApiResult<(&'static str, Option<i64>)> {
+async fn prelude(
+    st: &AppState,
+    p: &Principal,
+    f: &mut StatsQuery,
+) -> ApiResult<(&'static str, Option<i64>)> {
     let u = p.require_user()?;
     let admin = st.has_cap(p, drivehub_core::acl::ADMIN_AUDIT);
     let manage = admin || st.has_cap(p, drivehub_core::acl::SHARE_MANAGE);
@@ -297,7 +301,11 @@ async fn prelude(st: &AppState, p: &Principal, f: &mut StatsQuery) -> ApiResult<
         _ => "shares",
     };
     // admins see everyone's shares unless all=false; users only their own
-    let owner = if manage && f.all.unwrap_or(true) { None } else { Some(u.id) };
+    let owner = if manage && f.all.unwrap_or(true) {
+        None
+    } else {
+        Some(u.id)
+    };
     st.audit_log.flush().await;
     let country = f.country.clone().filter(|c| !c.trim().is_empty());
     let region = f.region.clone().filter(|c| !c.trim().is_empty());
@@ -310,7 +318,9 @@ async fn prelude(st: &AppState, p: &Principal, f: &mut StatsQuery) -> ApiResult<
             .into_iter()
             .filter(|ip| {
                 let g = geoip::lookup(ip);
-                country.as_deref().is_none_or(|c| geo_key(&g).eq_ignore_ascii_case(c.trim()))
+                country
+                    .as_deref()
+                    .is_none_or(|c| geo_key(&g).eq_ignore_ascii_case(c.trim()))
                     && region.as_deref().is_none_or(|r| g.region == r.trim())
             })
             .collect();
@@ -344,8 +354,20 @@ fn geo_summary(per_ip: &[(String, i64)]) -> Value {
         let k = geo_key(&g);
         let name = match k.as_str() {
             "LAN" => "局域网".to_string(),
-            "??" => if g.kind == "public" { "公网（未识别）".into() } else { "未知".into() },
-            _ => if g.country.is_empty() { k.clone() } else { g.country.clone() },
+            "??" => {
+                if g.kind == "public" {
+                    "公网（未识别）".into()
+                } else {
+                    "未知".into()
+                }
+            }
+            _ => {
+                if g.country.is_empty() {
+                    k.clone()
+                } else {
+                    g.country.clone()
+                }
+            }
         };
         let c = countries.entry(k.clone()).or_default();
         c.name = name.clone();
@@ -380,7 +402,12 @@ pub async fn ips(
     let (scope, owner) = prelude(&st, &p, &mut f).await?;
     let per = f.per_page.unwrap_or(20).clamp(1, 200);
     let page = f.page.unwrap_or(1).max(1);
-    let list = |v: &[&str]| v.iter().map(|a| format!("'{a}'")).collect::<Vec<_>>().join(",");
+    let list = |v: &[&str]| {
+        v.iter()
+            .map(|a| format!("'{a}'"))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
     let order = match f.sort.as_deref() {
         Some("last") => "last_ts DESC",
         Some("bytes") => "bytes DESC",
@@ -404,8 +431,21 @@ pub async fn ips(
         .push_bind(per)
         .push(" OFFSET ")
         .push_bind((page - 1) * per);
-    let rows: Vec<(String, i64, i64, i64, String, i64, i64, i64, i64, i64, i64, String, String)> =
-        b.build_query_as().fetch_all(&st.db).await?;
+    let rows: Vec<(
+        String,
+        i64,
+        i64,
+        i64,
+        String,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        String,
+        String,
+    )> = b.build_query_as().fetch_all(&st.db).await?;
     Ok(Json(json!({
         "total": total,
         "page": page,
