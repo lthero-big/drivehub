@@ -38,17 +38,39 @@ export function noteResponse(r: Response) {
   noteServerVersion(r.headers.get("x-drivehub-server-version"));
 }
 
-export async function pollVersion() {
+export type VersionPollPayload = {
+  server_version?: string;
+  latest?: string | null;
+  update_available?: boolean;
+  web_build?: string | null;
+};
+
+export function getVersionState(): VersionState {
+  return state;
+}
+
+/** Syncs latest/updateAvailable hints from admin update endpoints without waiting for the 5-min poll. */
+export function syncVersionHint(hint: { current?: string | null; latest?: string | null; updateAvailable?: boolean }) {
+  if (hint.current) noteServerVersion(hint.current);
+  const patch: Partial<VersionState> = {};
+  if (hint.latest !== undefined) patch.latest = hint.latest;
+  if (hint.updateAvailable !== undefined) patch.updateAvailable = hint.updateAvailable;
+  if (Object.keys(patch).length > 0) set(patch);
+}
+
+export async function pollVersion(): Promise<VersionPollPayload | null> {
   try {
     const r = await fetch("/api/version", { cache: "no-store" });
-    if (!r.ok) return;
+    if (!r.ok) return null;
     noteResponse(r);
-    const v = await r.json();
-    noteServerVersion(v.server_version);
+    const v = (await r.json()) as VersionPollPayload;
+    noteServerVersion(v.server_version ?? null);
     const bundleChanged = import.meta.env.PROD && !!v.web_build && v.web_build !== WEB_BUILD;
     set({ latest: v.latest ?? null, updateAvailable: !!v.update_available, ...(bundleChanged ? { stale: true } : {}) });
+    return v;
   } catch {
     /* server restarting -- try again later */
+    return null;
   }
 }
 

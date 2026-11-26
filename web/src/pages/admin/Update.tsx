@@ -1,44 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowUpCircle, Copy, Download, RefreshCw, RotateCcw } from "lucide-react";
-import { call, WEB_VERSION } from "../../lib/api";
+import { WEB_VERSION } from "../../lib/api";
+import {
+  isUpdateBusy,
+  UPDATE_BUSY_STATES,
+  UPDATE_STATE_META,
+  updateStore,
+  useAdminUpdate,
+  type UpdateSettings,
+} from "../../lib/update";
 import { errMsg, fmtSize, fmtTime } from "../../lib/util";
-import { WEB_BUILD } from "../../lib/version";
+import { useVersion, WEB_BUILD } from "../../lib/version";
 import { Badge, Button, Card, confirmDlg, Field, Input, Progress, Select, Spinner, Switch, toast } from "../../ui/ui";
 
-type Artifact = { kind: string; platform: string; url: string; sha256: string; size: number; image?: string; version_code?: number };
-type Manifest = { version: string; channel: string; api_version: number; min_client_version: string; released_at: string; notes: string; artifacts: Artifact[] };
-type LastCheck = { checked_at: number; source_url: string; channel: string; latest: Manifest | null; update_available: boolean; key_id: string | null; error: string | null };
-type Status = {
-  state: string; from_version: string | null; target_version: string | null; progress_bytes: number; total_bytes: number;
-  message: string; error: string | null; actor: string; started_at: number; updated_at: number; commands: string[]; log: string[];
-};
-type Settings = {
-  auto_check: boolean; mode: "notify" | "download" | "install"; source_url: string; channel: string; interval_secs: number;
-  window_start: string; window_end: string; notify_webhook: string; notify_email: string;
-};
-type Effective = {
-  check_enabled: boolean; source_url: string; channel: string; interval_secs: number; deployment: string; platform: string;
-  exe_path: string | null; restart: string; docker_socket: string | null; can_auto_install: boolean; trusted_key_ids: string[]; db_backups: string[];
-};
-type Overview = { current_version: string; status: Status; last_check: LastCheck | null; settings: Settings; effective: Effective };
-
-const STATE: Record<string, [string, "neutral" | "accent" | "ok" | "danger" | "warn"]> = {
-  idle: ["空闲", "neutral"],
-  checking: ["检查中", "accent"],
-  downloading: ["下载中", "accent"],
-  verifying: ["校验中", "accent"],
-  ready: ["已下载，待安装", "ok"],
-  backing_up: ["备份数据库", "accent"],
-  installing: ["安装中", "accent"],
-  restarting: ["重启中", "accent"],
-  health_check: ["健康检查", "accent"],
-  rolling_back: ["回滚中", "warn"],
-  succeeded: ["更新成功", "ok"],
-  failed: ["失败", "danger"],
-  rolled_back: ["已回滚", "warn"],
-  manual: ["需手动更新", "warn"],
-};
-const BUSY = new Set(["checking", "downloading", "verifying", "backing_up", "installing", "restarting", "health_check", "rolling_back"]);
 const MODES = [
   ["notify", "仅通知", "发现新版本时提示（及 Webhook/邮件通知），由管理员手动更新"],
   ["download", "自动下载", "后台下载并校验，管理员点「立即更新」即可安装"],
@@ -59,60 +33,50 @@ function Notes({ md }: { md: string }) {
 }
 
 export function UpdatePage() {
-  const [o, setO] = useState<Overview | null>(null);
-  const [s, setS] = useState<Settings | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [offline, setOffline] = useState(false);
-  const startVersion = useRef<string | null>(null);
+  const { overview: o, busy, offline, upgraded } = useAdminUpdate(true);
+  const live = useVersion();
+  const [s, setS] = useState<UpdateSettings | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const v = await call<Overview>("GET", "/api/admin/update/status");
-      setO(v);
-      setOffline(false);
-      startVersion.current ??= v.current_version;
-      setS((cur) => cur ?? v.settings);
-      return v;
-    } catch {
-      setOffline(true); // restarting into the new version
-      return null;
-    }
-  }, []);
-  useEffect(() => void load(), [load]);
-  const st = o?.status;
-  const running = !!st && BUSY.has(st.state);
   useEffect(() => {
-    if (!running && !offline) return;
-    const t = setInterval(load, 1000);
-    return () => clearInterval(t);
-  }, [running, offline, load]);
+    if (o && !s) setS(o.settings);
+  }, [o, s]);
 
-  const act = async (what: string, fn: () => Promise<Overview>, okMsg?: string) => {
-    setBusy(what);
+  const st = o?.status;
+  const running = isUpdateBusy(o);
+
+  const check = async () => {
     try {
-      setO(await fn());
-      if (okMsg) toast.ok(okMsg);
+      await updateStore.check();
     } catch (e) {
       toast.err(errMsg(e));
-      load();
-    } finally {
-      setBusy(null);
     }
   };
-  const check = () => act("check", () => call("POST", "/api/admin/update/check"));
   const apply = async (downloadOnly = false) => {
     const m = o?.last_check?.latest;
     if (!downloadOnly && !(await confirmDlg(`更新到 ${m?.version ?? "最新版本"}？`, { label: "将下载并校验签名与 SHA-256、备份数据库、替换程序（保留 .bak）后重启；新版本健康检查失败会自动回滚。重启期间服务会中断几秒。", confirm: "立即更新" }))) return;
-    act(downloadOnly ? "download" : "apply", () => call("POST", "/api/admin/update/apply", { download_only: downloadOnly }));
+    try {
+      await updateStore.apply(downloadOnly);
+    } catch (e) {
+      if (!updateStore.getState().offline) toast.err(errMsg(e));
+    }
   };
-  const save = () => s && act("save", () => call("PUT", "/api/admin/update/settings", { ...s, interval_secs: Number(s.interval_secs) || 0 }), "已保存更新设置");
+  const save = async () => {
+    if (!s) return;
+    try {
+      const next = await updateStore.saveSettings(s);
+      setS(next.settings);
+      toast.ok("已保存更新设置");
+    } catch (e) {
+      toast.err(errMsg(e));
+    }
+  };
 
   if (!o || !s) return <div className="flex justify-center py-20">{offline ? <p className="text-sm text-muted">服务正在重启…</p> : <Spinner />}</div>;
   const lc = o.last_check;
   const m = lc?.latest ?? null;
   const eff = o.effective;
-  const upgraded = startVersion.current && o.current_version !== startVersion.current;
-  const [label, tone] = STATE[st!.state] ?? [st!.state, "neutral"];
+  const showUpgraded = upgraded || live.stale;
+  const [label, tone] = UPDATE_STATE_META[st!.state] ?? [st!.state, "neutral"];
   const pct = st!.total_bytes ? st!.progress_bytes / st!.total_bytes : 0;
   const server = m?.artifacts.find((a) => a.kind === "server" && a.platform === eff.platform);
   const docker = m?.artifacts.find((a) => a.kind === "docker");
@@ -133,7 +97,7 @@ export function UpdatePage() {
       {!eff.check_enabled && (
         <p role="alert" className="rounded-lg bg-warn/15 px-3 py-2 text-[13px] text-warn">此服务器已关闭更新检查（DRIVEHUB_UPDATE_CHECK=false，内网/离线模式）。</p>
       )}
-      {upgraded && (
+      {showUpgraded && (
         <p role="status" className="flex items-center gap-3 rounded-lg bg-ok/12 px-3 py-2 text-[13px] text-ok">
           服务端已更新到 {o.current_version}。<Button size="sm" onClick={() => location.reload()}><RotateCcw className="size-4" />刷新以加载新版本</Button>
         </p>
@@ -173,7 +137,7 @@ export function UpdatePage() {
               <span className="ml-2 text-muted">{st!.message}</span>
               {offline && <span className="ml-2 text-warn">（服务重启中，自动重连…）</span>}
             </p>
-            {(st!.state === "downloading" || st!.total_bytes > 0) && BUSY.has(st!.state) && (
+            {(st!.state === "downloading" || st!.total_bytes > 0) && UPDATE_BUSY_STATES.has(st!.state) && (
               <div className="space-y-1">
                 <Progress value={pct} />
                 <p className="text-xs text-faint">{fmtSize(st!.progress_bytes)} / {fmtSize(st!.total_bytes)}</p>

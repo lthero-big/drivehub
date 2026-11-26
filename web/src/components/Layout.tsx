@@ -11,8 +11,10 @@ import { filesHref, go, type Route } from "../lib/router";
 import { tabs } from "../lib/tabs";
 import type { ThemePref } from "../lib/theme";
 import { cx } from "../lib/util";
+import { updateStore } from "../lib/update";
 import { IconButton, Menu, MenuItem } from "../ui/ui";
 import { FileIcon } from "./FileIcon";
+import { UpdatePopover } from "./UpdatePopover";
 
 function NavLink({ href, icon, children, active, mini, onClick }: { href: string; icon: ReactNode; children: ReactNode; active: boolean; mini?: boolean; onClick?: () => void }) {
   return (
@@ -130,6 +132,7 @@ export function Layout({ route, theme, setTheme, children, serverVersion, update
   const logout = async () => {
     await call("POST", "/api/auth/logout").catch(() => {});
     tokens.set(null);
+    updateStore.reset();
     sessionStorage.removeItem("dh_guest");
     reload();
   };
@@ -137,9 +140,8 @@ export function Layout({ route, theme, setTheme, children, serverVersion, update
 
   const nav = (mini: boolean) => (
     <nav className={cx("flex h-full flex-col gap-4 py-3", mini ? "px-2" : "px-3")} aria-label="主导航">
-      <div className={cx("flex items-center gap-2 pt-1", mini ? "justify-center" : "px-1.5")}>
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-fg shadow-card"><HardDrive className="size-[18px]" /></span>
-        {!mini && <span className="flex-1 text-[17px] font-semibold tracking-tight">DriveHub</span>}
+      <div className={cx("flex items-center gap-1.5 pt-1", mini ? "justify-center" : "px-0.5")}>
+        <UpdatePopover mini={mini} serverVersion={serverVersion} updateAvailable={updateAvailable} onNavigate={() => setDrawer(false)} />
         {!mini && <button className="rounded-md p-1 text-muted hover:bg-hover lg:hidden" aria-label="关闭菜单" onClick={() => setDrawer(false)}><X className="size-4" /></button>}
       </div>
       <div className="space-y-0.5">
