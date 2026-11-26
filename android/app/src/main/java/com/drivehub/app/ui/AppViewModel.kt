@@ -11,6 +11,7 @@ import com.drivehub.app.core.VersionNegotiator
 import com.drivehub.app.core.AppUpdate
 import com.drivehub.app.core.Sha256MismatchException
 import com.drivehub.app.data.*
+import com.drivehub.app.ui.theme.ThemeMode
 import com.drivehub.app.update.ApkInstaller
 import com.drivehub.app.work.Transfers
 import kotlinx.coroutines.Dispatchers
@@ -65,8 +66,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val createdShare = MutableStateFlow<Share?>(null)
     val serverInfo = MutableStateFlow<VersionInfo?>(null)
     val appUpdate = MutableStateFlow(AppUpdateState())
+    val themeMode = MutableStateFlow(ThemeMode.fromKey(prefs.theme))
+    val thumbnails = MutableStateFlow(prefs.thumbnails)
+    /** Mount points seen at "/" (name -> kind), used for brand chips inside a mount. */
+    val mounts = MutableStateFlow<Map<String, String>>(emptyMap())
     private var api: ApiClient? = null
     private var cache: OfflineCache? = null
+
+    /** Coil-backed thumbnail source; reads the current server/token on every request. */
+    val thumbs: com.drivehub.app.ui.components.ThumbSource by lazy {
+        com.drivehub.app.ui.components.thumbSource(
+            getApplication(), enabled = { thumbnails.value }, server = { api?.base?.toString() },
+            url = { p -> api?.fileUrl(p, preview = true) }, headers = { api?.clientHeaders() ?: emptyMap() },
+        )
+    }
+
+    fun setTheme(m: ThemeMode) { prefs.theme = m.key; themeMode.value = m }
+    fun setThumbnails(on: Boolean) { prefs.thumbnails = on; thumbnails.value = on }
+    /** Kind of the mount that contains [path] (first path segment), if known. */
+    fun mountKindOf(path: String): String? = mounts.value[path.trim('/').substringBefore('/')]
+    private fun rememberMounts(items: List<FsItem>) {
+        val m = items.mapNotNull { i -> i.mountKind?.let { i.name to it } }.toMap()
+        if (m.isNotEmpty()) mounts.value = m
+    }
 
     companion object {
         const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
@@ -292,11 +314,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val r = withContext(Dispatchers.IO) { runCatching { c.list(path) } }
             r.onSuccess {
                 cache?.saveList(path, it)
+                if (path == "/") rememberMounts(it.items)
                 files.value = files.value.copy(items = it.items.sortedWith(compareByDescending<FsItem> { i -> i.isDir }.thenBy { i -> i.name.lowercase() }), loading = false, offline = false)
             }.onFailure { e ->
                 if (e is ApiException && e.status == 401) { goLogin(c); return@onFailure }
                 if (e is UpgradeRequiredException) { stage.value = Stage.Blocked(e.compat); return@onFailure }
                 val cached = cache?.loadList(path)
+                if (path == "/" && cached != null) rememberMounts(cached.items)
                 files.value = if (cached != null && e !is ApiException)
                     files.value.copy(items = cached.items, loading = false, offline = true, error = null)
                 else files.value.copy(items = emptyList(), loading = false, error = errText(e))

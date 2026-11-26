@@ -22,6 +22,14 @@ class Prefs(ctx: Context) : TokenStore {
     var username: String?
         get() = sp.getString("user", null)
         set(v) { sp.edit().putString("user", v).apply() }
+    /** Appearance: [com.drivehub.app.ui.theme.ThemeMode.key]; null = follow system. */
+    var theme: String?
+        get() = sp.getString("theme", null)
+        set(v) { sp.edit().putString("theme", v).apply() }
+    /** Load real image/video thumbnails in file lists (fetches the file via /api/fs/download). */
+    var thumbnails: Boolean
+        get() = sp.getBoolean("thumbs", true)
+        set(v) { sp.edit().putBoolean("thumbs", v).apply() }
 
     fun uploadSession(key: String): String? = sp.getString("up:$key", null)
     fun setUploadSession(key: String, id: String?) { sp.edit().apply { if (id == null) remove("up:$key") else putString("up:$key", id) }.apply() }
