@@ -10,6 +10,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Android 界面全面改版（RHEA-279）：三套氛围主题（暗夜流光 / 暖纸档案 / 深海极光）加「跟随系统」，在「我的 → 外观」切换后立即生效并保存；底部改为悬浮胶囊导航，带「+」快捷按钮，列表下滑时收起；根目录改为按存储类型区分图标和颜色的 Bento 挂载卡片，顶部为胶囊搜索栏和头像更新角标；图片/视频显示真实缩略图（Coil，15 MB 以内，可在设置中关闭）；图片预览支持双指缩放；音视频页根据封面取色做背景光晕，控制条也重做；操作抽屉、分享弹窗（票据式选项卡）、空态插画和状态形变按钮均已重做。`Screens.kt` 拆分到 `ui/screens/` 与 `ui/components/`。
+
 ### Added
 - Android 应用内更新（DEPTAI-484）：检查 `GET /api/client/android/latest`、下载 APK、SHA-256 校验后走系统 PackageInstaller；普通新版本提示与 `ClientTooOld` 强制升级页均可安装。安装未知来源权限和系统确认都不会被跳过。覆盖安装必须与已安装应用使用同一签名证书。
 - `scripts/make-release.sh --android` 与 `scripts/emit-release-manifest.sh` 把 APK 纳入发布清单；CI 在提供 `DRIVEHUB_RELEASE_KEY` 时签名，未提供时只写未签名清单。

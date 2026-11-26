@@ -48,7 +48,15 @@ App 启动协商版本后会请求 `GET /api/client/android/latest`：
 
 管理员可以把 APK 放到服务端数据目录 `<data>/clients/android/`（优先于更新清单），或在 `scripts/make-release.sh --android path.apk[=versionCode]` / `scripts/emit-release-manifest.sh` 里把 APK 写进已签名的 `release-manifest.json`。本地托管会从文件名解析版本（含 CI 名 `drivehub-<ver>-android-<signing>.apk`），`versionCode` 按 `X*10000+Y*100+Z` 推导，并按版本而不是修改时间选择最新包。
 
+## 界面
+
+- 主题：`ui/theme/Palette.kt`（`DhColors` 语义色，`ThemeMode`：跟随系统 / 暗夜流光 / 暖纸档案 / 深海极光）、`Tokens.kt`（圆角、间距、动效曲线）。页面只从 `Dh.c` 取颜色。
+- 组件放在 `ui/components/`（悬浮底栏、搜索胶囊、挂载卡片、缩略图、抽屉、空态、状态形变按钮），页面放在 `ui/screens/`。
+- 缩略图：服务端没有缩略图接口，App 用 Coil 拉取 `/api/fs/download?preview=true`，并带上鉴权头。只加载 15 MB 以内的图片和视频，内存与 256 MB 磁盘 LRU 缓存，按 320px 采样解码。每次拉取会被审计记为 `preview`，可在「我的 → 外观」关闭。
+
 ## 测试
+- `UiModelTest`：主题键与跟随系统规则、文件类型筛选、缩略图策略与缓存键、挂载品牌映射。
+- 界面截图（可选）：`./gradlew testDebugUnitTest -Pscreenshots` 用 Robolectric + Roborazzi 在 JVM 上渲染主要页面，输出到 `app/build/screenshots/`（缩略图为合成渐变）。不加 `-Pscreenshots` 时会跳过。
 - `ApiClientTest`（MockWebServer：版本协商、426 映射、登录 / 2FA、refresh、Range 续传、续传上传、取件码 PIN、Android 更新发现 / SHA-256 与大小校验失败会删文件）与 `VersionTest` / `AppUpdateTest`（semver、协商规则、是否有新版本）。
 - `LiveServerTest`：设置 `DRIVEHUB_TEST_BASE / _USER / _PW`（挂载 `/phone`）后对真实服务端跑核心流程与「不兼容版本」；未设置时自动跳过。
 - `scripts/smoke-android-api.sh`：对任意服务端实例用 App 的请求头跑 API 冒烟（版本协商含 426、旧客户端仍能访问 `/api/client/android/latest|download`、登录 + 2FA、列目录、搜索、分块上传与续传、下载 Range、分享、取件码）。
