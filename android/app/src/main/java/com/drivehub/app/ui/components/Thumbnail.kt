@@ -4,18 +4,14 @@ import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
@@ -33,8 +29,6 @@ import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.drivehub.app.data.FsItem
 import com.drivehub.app.ui.ThumbPolicy
-import com.drivehub.app.ui.extBadge
-import com.drivehub.app.ui.fmtSize
 import com.drivehub.app.ui.kindOf
 import com.drivehub.app.ui.theme.Dh
 import com.drivehub.app.ui.theme.Radius
@@ -89,11 +83,11 @@ val LocalThumbs = staticCompositionLocalOf<ThumbSource?> { null }
 val LocalThumbPainter = staticCompositionLocalOf<((FsItem) -> Painter?)?> { null }
 
 /**
- * File visual for grid/list: real thumbnail (skeleton while loading, coloured icon on failure),
- * with extension / size badges and a play mark for videos.
+ * File visual for grid/list: the bare thumbnail (flat secondary fill while loading, kind glyph on
+ * failure). No gradient scrim, no extension / size badges; [videoMark] adds one tiny dark play tag.
  */
 @Composable
-fun FileThumb(item: FsItem, modifier: Modifier = Modifier, shape: Shape = Radius.md, glyph: Dp = 40.dp, badges: Boolean = true) {
+fun FileThumb(item: FsItem, modifier: Modifier = Modifier, shape: Shape = Radius.sm, glyph: Dp = 22.dp, videoMark: Boolean = false) {
     val c = Dh.c
     val kind = kindOf(item.name)
     val tint = c.kindTint(kind, item.isDir)
@@ -102,33 +96,21 @@ fun FileThumb(item: FsItem, modifier: Modifier = Modifier, shape: Shape = Radius
     val ctx = LocalContext.current
     val req = remember(item, src) { if (fake == null) src?.request?.invoke(ctx, item) else null }
     var state by remember(req) { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
-    val hasImage = fake != null || (req != null && state is AsyncImagePainter.State.Success)
-    Box(modifier.clip(shape).background(tint.copy(alpha = if (c.isDark) 0.12f else 0.10f)), Alignment.Center) {
+    val loading = req != null && (state is AsyncImagePainter.State.Loading || state is AsyncImagePainter.State.Empty)
+    Box(modifier.clip(shape).background(if (fake != null || loading) c.surface2 else tint.copy(alpha = 0.13f)), Alignment.Center) {
         when {
             fake != null -> Image(fake, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             req != null && src != null -> {
-                if (state is AsyncImagePainter.State.Loading || state is AsyncImagePainter.State.Empty)
-                    Box(Modifier.fillMaxSize().shimmer(c.surfaceHigh, c.fg.copy(alpha = 0.06f)))
                 if (state is AsyncImagePainter.State.Error) Glyph(item, tint, glyph)
                 AsyncImage(req, item.name, src.loader, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, onState = { state = it })
             }
             else -> Glyph(item, tint, glyph)
         }
-        if (hasImage) {
-            Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.45f)))))
-            if (kind == "video") {
-                Box(Modifier.size(glyph * 0.85f).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)), Alignment.Center) {
-                    Icon(Icons.Default.PlayArrow, null, Modifier.size(glyph * 0.55f), Color.White)
-                }
-            }
-        }
-        if (badges && !item.isDir) {
-            val ext = extBadge(item.name)
-            Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (ext.isNotEmpty()) Badge(ext, if (hasImage) Color.Black.copy(alpha = 0.5f) else tint.copy(alpha = 0.2f), if (hasImage) Color.White else tint)
-                Spacer(Modifier.weight(1f))
-                if (hasImage) Badge(fmtSize(item.size), Color.Black.copy(alpha = 0.5f), Color.White)
-            }
+        if (videoMark && kind == "video") {
+            Box(
+                Modifier.align(Alignment.BottomEnd).padding(4.dp).clip(Radius.xs).background(Color.Black.copy(alpha = 0.5f))
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+            ) { Icon(Icons.Default.PlayArrow, "视频", Modifier.size(12.dp), Color.White) }
         }
     }
 }
@@ -136,14 +118,6 @@ fun FileThumb(item: FsItem, modifier: Modifier = Modifier, shape: Shape = Radius
 @Composable
 private fun Glyph(item: FsItem, tint: Color, size: Dp) {
     Icon(if (item.isDir) Icons.Default.Folder else iconFor(item.name), null, Modifier.size(size), tint)
-}
-
-@Composable
-private fun Badge(text: String, bg: Color, fg: Color) {
-    Text(
-        text, color = fg, style = MaterialTheme.typography.labelSmall, maxLines = 1,
-        modifier = Modifier.clip(Radius.xs).background(bg).padding(horizontal = 5.dp, vertical = 1.dp),
-    )
 }
 
 /** Convenience used by the ViewModel to build the [ThumbSource]. */

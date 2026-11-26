@@ -25,7 +25,6 @@ import com.drivehub.app.ui.AppViewModel
 import com.drivehub.app.ui.components.*
 import com.drivehub.app.ui.theme.Dh
 import com.drivehub.app.ui.theme.Radius
-import com.drivehub.app.ui.theme.Space
 
 @Composable
 fun SharesScreen(vm: AppViewModel, onPickup: () -> Unit) {
@@ -38,13 +37,13 @@ fun SharesScreen(vm: AppViewModel, onPickup: () -> Unit) {
             TextButton(onPickup) { Text("取件", color = c.accent) }
             HeaderAction(Icons.Default.Refresh, "刷新") { vm.loadShares() }
         }
-        err?.let { StatusPill(it, c.danger, Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) }
+        err?.let { StatusPill(it, c.danger, Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
         if (list.isEmpty() && err == null) {
-            EmptyState(EmptyKind.Shares, "还没有分享", "在文件上点「更多 → 分享」即可生成取件码", Modifier.padding(bottom = dockInset())) {
-                MorphStatusButton(MorphState.Idle("用取件码领取", Icons.Default.Key), height = 44.dp, onClick = onPickup)
+            EmptyState(EmptyKind.Shares, "还没有分享", "在文件上点「··· → 分享」即可生成取件码") {
+                MorphStatusButton(MorphState.Idle("用取件码领取"), height = 40.dp, onClick = onPickup)
             }
         } else {
-            LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = dockInset()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(list, key = { it.id }) { s -> ShareCard(s, vm) }
             }
         }
@@ -56,41 +55,37 @@ private fun ShareCard(s: Share, vm: AppViewModel) {
     val c = Dh.c
     val ctx = LocalContext.current
     val active = s.status == "active" && !s.revoked
-    val (permIcon, permLabel, permTint) = when (s.perm) {
-        "preview" -> Triple(Icons.Default.Visibility, "仅预览", c.image)
-        "upload" -> Triple(Icons.Default.Upload, "收集上传", c.video)
-        else -> Triple(Icons.Default.Download, "可下载", c.accent)
+    val (permIcon, permLabel) = when (s.perm) {
+        "preview" -> Icons.Default.Visibility to "仅预览"
+        "upload" -> Icons.Default.Upload to "收集上传"
+        else -> Icons.Default.Download to "可下载"
     }
+    val state = if (active) "生效中" else if (s.revoked) "已撤销" else s.status
     DhCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconTile(permIcon, permTint, 44.dp)
+                IconTile(permIcon, c.fg2, 30.dp, wash = c.surface2)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(s.name?.ifBlank { null } ?: s.items.firstOrNull()?.substringAfterLast('/') ?: s.code, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                        StatusPill(if (active) "生效中" else if (s.revoked) "已撤销" else s.status, if (active) c.success else c.fg3)
-                        Spacer(Modifier.width(6.dp))
-                        StatusPill(permLabel, permTint, dot = false)
-                        if (s.hasPin) { Spacer(Modifier.width(6.dp)); StatusPill("PIN", c.warning, dot = false) }
-                    }
+                    Text(s.name?.ifBlank { null } ?: s.items.firstOrNull()?.substringAfterLast('/') ?: s.code, style = MaterialTheme.typography.bodyLarge, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(listOfNotNull(state, permLabel, if (s.hasPin) "PIN" else null).joinToString(" · "), color = if (active) c.fg2 else c.fg3, style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(Modifier.height(12.dp))
             Row(
-                Modifier.fillMaxWidth().clip(Radius.md).background(c.surfaceSunken).padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                Modifier.fillMaxWidth().clip(Radius.md).background(c.surface2).padding(start = 12.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("取件码", color = c.fg3, style = MaterialTheme.typography.labelSmall)
-                    Text(s.pickupCode, color = if (active) c.accent else c.fg3, fontFamily = FontFamily.Monospace, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    Text(s.pickupCode, color = if (active) c.fg else c.fg3, fontFamily = FontFamily.Monospace, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.sp)
                 }
                 HeaderAction(Icons.Default.ContentCopy, "复制取件码") { copyText(ctx, s.pickupCode); vm.message.value = "已复制取件码" }
                 HeaderAction(Icons.Default.Link, "复制链接") { copyText(ctx, s.urlWithPin ?: s.url); vm.message.value = "已复制分享链接" }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("访问 ${s.visits}  ·  下载 ${s.downloads}", color = c.fg3, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                Text("访问 ${s.visits} · 下载 ${s.downloads}", color = c.fg3, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                 if (!s.revoked) HeaderAction(Icons.Default.Block, "撤销", c.fg2) { vm.revoke(s) }
                 HeaderAction(Icons.Default.DeleteOutline, "删除", c.danger) { vm.deleteShare(s) }
             }

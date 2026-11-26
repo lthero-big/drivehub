@@ -48,12 +48,12 @@ fun SetupScreen(vm: AppViewModel, s: Stage.Setup) {
     AuthColumn {
         Spacer(Modifier.height(40.dp))
         BrandMark()
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
         Text("DriveHub", style = MaterialTheme.typography.displaySmall, color = c.fg)
         Text("一个入口，连接你所有的网盘", color = c.fg2, style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(32.dp))
         DhCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp)) {
+            Column(Modifier.padding(16.dp)) {
                 DhTextField(
                     url, { url = it }, "服务器地址", Modifier.fillMaxWidth(), leading = Icons.Default.Dns,
                     placeholder = "https://drive.example.com",
@@ -77,8 +77,8 @@ fun SetupScreen(vm: AppViewModel, s: Stage.Setup) {
 fun BlockedScreen(vm: AppViewModel, comp: Compat) {
     val c = Dh.c
     AuthColumn {
-        Box(Modifier.size(84.dp).clip(CircleShape).background(c.danger.copy(alpha = 0.14f)), Alignment.Center) {
-            Icon(Icons.Default.SystemUpdate, null, Modifier.size(40.dp), c.danger)
+        Box(Modifier.size(72.dp).clip(CircleShape).background(c.accentSoft), Alignment.Center) {
+            Icon(Icons.Default.SystemUpdate, null, Modifier.size(34.dp), c.accent)
         }
         Spacer(Modifier.height(18.dp))
         Text(

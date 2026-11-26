@@ -16,38 +16,39 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
+/** Apple-like scale: a bold Large Title, quiet body text, small grey captions. */
 private val DhTypography = Typography(
-    displaySmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.5).sp),
-    headlineMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 34.sp, letterSpacing = (-0.4).sp),
+    displaySmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 36.sp, letterSpacing = (-0.4).sp),
+    headlineMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = (-0.3).sp),
     headlineSmall = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
-    titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp),
+    titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 19.sp, lineHeight = 25.sp),
     titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp),
     titleSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
     bodyLarge = TextStyle(fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 22.sp),
     bodyMedium = TextStyle(fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp),
     bodySmall = TextStyle(fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 16.sp),
-    labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
-    labelMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp),
-    labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.2.sp),
+    labelLarge = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
+    labelMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp),
+    labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.1.sp),
 )
 
 private fun schemeOf(c: DhColors) = if (c.isDark) darkColorScheme(
     primary = c.accent, onPrimary = c.onAccent, primaryContainer = c.accentSoft, onPrimaryContainer = c.accent,
     secondary = c.accent, onSecondary = c.onAccent,
     background = c.bg, onBackground = c.fg, surface = c.bg, onSurface = c.fg,
-    surfaceVariant = c.surfaceHigh, onSurfaceVariant = c.fg2,
+    surfaceVariant = c.surface2, onSurfaceVariant = c.fg2,
     surfaceContainerLowest = c.bg, surfaceContainerLow = c.surface, surfaceContainer = c.surface,
-    surfaceContainerHigh = c.surfaceHigh, surfaceContainerHighest = c.surfaceHigh,
-    error = c.danger, outline = c.lineStrong, outlineVariant = c.line, scrim = c.scrim,
+    surfaceContainerHigh = c.surface, surfaceContainerHighest = c.surface2,
+    error = c.danger, outline = c.line, outlineVariant = c.line, scrim = c.scrim,
     inverseSurface = c.fg, inverseOnSurface = c.bg,
 ) else lightColorScheme(
     primary = c.accent, onPrimary = c.onAccent, primaryContainer = c.accentSoft, onPrimaryContainer = c.accent,
     secondary = c.accent, onSecondary = c.onAccent,
     background = c.bg, onBackground = c.fg, surface = c.bg, onSurface = c.fg,
-    surfaceVariant = c.surfaceSunken, onSurfaceVariant = c.fg2,
-    surfaceContainerLowest = c.surfaceHigh, surfaceContainerLow = c.surface, surfaceContainer = c.surface,
-    surfaceContainerHigh = c.surfaceHigh, surfaceContainerHighest = c.surfaceSunken,
-    error = c.danger, outline = c.lineStrong, outlineVariant = c.line, scrim = c.scrim,
+    surfaceVariant = c.surface2, onSurfaceVariant = c.fg2,
+    surfaceContainerLowest = c.surface, surfaceContainerLow = c.surface, surfaceContainer = c.surface,
+    surfaceContainerHigh = c.surface, surfaceContainerHighest = c.surface2,
+    error = c.danger, outline = c.line, outlineVariant = c.line, scrim = c.scrim,
     inverseSurface = c.fg, inverseOnSurface = c.bg,
 )
 

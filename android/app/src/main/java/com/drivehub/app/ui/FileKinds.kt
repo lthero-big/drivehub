@@ -13,7 +13,12 @@ fun kindOf(name: String): String = when (name.substringAfterLast('.', "").lowerc
 }
 
 enum class KindFilter(val label: String) {
-    All("全部"), Folder("文件夹"), Image("图片"), Video("视频"), Audio("音频"), Doc("文档")
+    All("全部"), Folder("文件夹"), Image("图片"), Video("视频"), Audio("音频"), Doc("文档");
+
+    companion object {
+        /** The compact chip row shown in a folder (RHEA-280): 全部 / 视频 / 图片 / 文档. */
+        val chips = listOf(All, Video, Image, Doc)
+    }
 }
 
 fun matchesFilter(item: FsItem, f: KindFilter): Boolean = when (f) {

@@ -36,10 +36,10 @@ fun AppUpdateCard(vm: AppViewModel, forced: Boolean = false) {
     val launchSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { vm.onForeground() }
     if (!forced && st.pkg == null && !st.checking && st.error == null) return
     val c = Dh.c
-    DhCard(Modifier.fillMaxWidth(), border = c.accent.copy(alpha = 0.35f)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    DhCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconTile(Icons.Default.SystemUpdate, c.accent, 44.dp)
+                IconTile(Icons.Default.SystemUpdate, c.accent, 36.dp, wash = c.accentSoft)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(if (st.forced || forced) "请安装新版本" else "发现新版本", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = c.fg)

@@ -5,7 +5,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,18 +39,18 @@ sealed interface MorphState {
 }
 
 /**
- * Status-morphing button (Folio `motion-21st-morph-status-button`): one pill whose width,
- * colour and content animate between idle → busy (spinner / ring + %) → done / failed.
+ * Primary button (12 dp corners, flat brand red) whose colour and content fade between
+ * idle → busy (spinner / ring + %) → done / failed.
  */
 @Composable
-fun MorphStatusButton(state: MorphState, modifier: Modifier = Modifier, height: Dp = 50.dp, enabled: Boolean = true, onClick: () -> Unit) {
+fun MorphStatusButton(state: MorphState, modifier: Modifier = Modifier, height: Dp = 48.dp, enabled: Boolean = true, onClick: () -> Unit) {
     val c = Dh.c
     val bg by animateColorAsState(
         when (state) {
-            is MorphState.Idle -> if (enabled) c.accent else c.surfaceHigh
+            is MorphState.Idle -> if (enabled) c.accent else c.surface2
             is MorphState.Busy -> c.accentSoft
-            is MorphState.Done -> c.success.copy(alpha = 0.18f)
-            is MorphState.Failed -> c.danger.copy(alpha = 0.16f)
+            is MorphState.Done -> c.success.copy(alpha = 0.14f)
+            is MorphState.Failed -> c.danger.copy(alpha = 0.10f)
         }, Motion.medium(), label = "morphBg",
     )
     val fg = when (state) {
@@ -61,15 +60,15 @@ fun MorphStatusButton(state: MorphState, modifier: Modifier = Modifier, height: 
         is MorphState.Failed -> c.danger
     }
     Box(
-        modifier.height(height).clip(Radius.pill).background(bg)
+        modifier.height(height).clip(Radius.lg).background(bg)
             .clickable(enabled = enabled && state is MorphState.Idle || state is MorphState.Failed, onClick = onClick)
-            .animateContentSize(Motion.bouncy())
+            .animateContentSize(Motion.medium())
             .padding(horizontal = 22.dp),
         Alignment.Center,
     ) {
         AnimatedContent(
             state,
-            transitionSpec = { (fadeIn(Motion.short()) + scaleIn(initialScale = 0.85f)) togetherWith fadeOut(Motion.short()) },
+            transitionSpec = { fadeIn(Motion.short()) togetherWith fadeOut(Motion.short()) },
             contentKey = { it::class },
             label = "morph",
         ) { s ->
