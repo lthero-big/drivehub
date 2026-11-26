@@ -15,8 +15,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Synced from /VERSION by scripts/bump-version.sh (verified by scripts/check-version.sh).
-        versionCode = 101
-        versionName = "0.1.1"
+        versionCode = 102
+        versionName = "0.1.2"
         // Major API contract version this app speaks (server API_VERSION).
         buildConfigField("int", "API_VERSION", "1")
     }

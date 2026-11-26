@@ -816,7 +816,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "drivehub-api"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "drivehub-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "semver",
@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "drivehub-search"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -885,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "drivehub-storage"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes",
  "async-trait",
@@ -914,7 +914,7 @@ dependencies = [
 
 [[package]]
 name = "drivehub-webdav"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "bytes",
